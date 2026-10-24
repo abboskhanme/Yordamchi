@@ -6,7 +6,7 @@ Source: `docs/SPEC.md` (approved 2026-10-23). `plan-manager` · 2026-10-23. Path
 scratch repo). (2) Orchestrator: start spikes T03–T06 now (no deps), and T07 once T01 lands. Tell the T01 agent that its
 done criterion includes the pre-carved shared-file blocks and every §4.3 P1 default (rule R2).
 
-**Status:** done 34 (T01–T32 + T17b, T18b, T32b, ffmpeg pin) · in progress: T33 (security fixes, merging), T34; early P2/P3: T50, T52+T53, T71, T74 · blocked on owner 1 (T38) · todo: T35–T47.
+**Status:** done 34 (T01–T32 + T17b, T18b, T32b, ffmpeg pin) · in progress: T33 (security fixes, merging), T34; early P2/P3: T50, T51, T52+T53, T56+T57, T71, T74 · blocked on owner 1 (T38) · todo: T35–T47.
 
 **Critical path (P1):** T01 → T02 → T08 → T17 → T20 → T24 → {T29 T30 T31 T32} → T34 → T36 → T42 → T43 → T44 → T47.
 Joins it: T03 → T10 → T24 (spikes gate the executor) and T07 → T18 → T24 (gate). Day-one owner items on it:
@@ -217,13 +217,13 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 ## P2 — Self-running (coarse; new revisions `0002+` per the migration plan)
 
 - [~] (in progress 2026-10-24, early) T50 `shared/integrations` + `adapters/mcp` + `bin/yordamchi-helper` + socket `headers` + OAuth paste-back — build-integration — deps: T47 — UC-08 dev half (rotation A→B)
-- [ ] T51 cost report + caps 80 %/100 % (`xarajat?`) — build-backend — deps: T47 — UC-07, NFR-COST-01/02
+- [~] (in progress 2026-10-24, early) T51 cost report + caps 80 %/100 % (`xarajat?`) — build-backend — deps: T47 — UC-07, NFR-COST-01/02
 - [~] (in progress 2026-10-24, early) T52 `adapters/github` — build-integration — deps: T47
 - [~] (in progress 2026-10-24, early, with T52) T53 `dev/newproject` (draft → plan → "ha" → build) — build-backend — deps: T52 — UC-14
 - [ ] T54 `dev/handoff` (Mac attach, S6 decision) — build-backend — deps: T47, T06 — UC-16
 - [ ] T55 park/resume + projects chat ops — build-backend — deps: T47 — UC-18
-- [ ] T56 `dev/selfupdate` (branch work → `updates/<id>/request.json`) — build-backend — deps: T47 — UC-19
-- [ ] T57 supervisor updater (build, test, drain, switch, probation, rollback, self-switch) + socket `selftest` — ship-devops — deps: T47 — UC-19
+- [~] (in progress 2026-10-24, early, with T57) T56 `dev/selfupdate` (branch work → `updates/<id>/request.json`) — build-backend — deps: T47 — UC-19
+- [~] (in progress 2026-10-24, early, with T56) T57 supervisor updater (build, test, drain, switch, probation, rollback, self-switch) + socket `selftest` — ship-devops — deps: T47 — UC-19
 - [ ] T58 P2 wiring [sequential]: intents replace `S.NOT_YET`, `app.py` — build-backend — deps: T50–T57
 - [ ] T59 P2 evals: 3 broken updates, `kill -9` mid-switch, DB equality, 0 lost; OAuth fixture server; attach/detach; park → no process ≤ 30 s; live rotation — test-backend + test-e2e — deps: T58
 - [ ] T60 test-migration on `p1_release.db`, qa-security, install, QOLLANMA, DoD — deps: T59
