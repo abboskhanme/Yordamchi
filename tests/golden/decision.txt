@@ -1,0 +1,38 @@
+=== deploy: vercel deploy --prod ===
+BonviHR · Muhim qaror #1: deploy qilmoqchiman — «vercel deploy --prod» → vercel deploy. Oqibati: ishlab turgan (prod) muhit yangilanadi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== server_write: ssh prod 'docker compose up -d' ===
+BonviHR · Muhim qaror #2: serverda o'zgarish qilmoqchiman — «ssh prod 'docker compose up -d'» → prod: docker compose up -d. Oqibati: serverdagi holat o'zgaradi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== deploy_push: git push origin main ===
+BonviHR · Muhim qaror #3: push qilmoqchiman, u deploy'ni ishga tushiradi — «git push origin main» → main. Oqibati: CI shu push'dan keyin deploy qiladi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== force_push: git push --force origin main ===
+BonviHR · Muhim qaror #4: asosiy branch'ga force push qilmoqchiman — «git push --force origin main» → main. Oqibati: asosiy branch tarixi qayta yoziladi, boshqa commit'lar yo'qolishi mumkin. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== data_loss_db: dropdb bonvihr ===
+BonviHR · Muhim qaror #5: bazadagi ma'lumotlarni o'chiradigan buyruq — «dropdb bonvihr» → bonvihr@localhost. Oqibati: butun baza o'chadi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== docker_destroy: docker compose down -v ===
+BonviHR · Muhim qaror #6: Docker volume'larini o'chirmoqchiman — «docker compose down -v» → compose down -v. Oqibati: volume'lardagi ma'lumotlar (baza ham) o'chadi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== fs_destroy: rm -rf .git ===
+BonviHR · Muhim qaror #7: qaytarib bo'lmaydigan o'chirish — «rm -rf .git» → .git. Oqibati: git tarixi (.git) o'chadi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== repo_delete: gh repo delete abboskhanme/BonviHR --yes ===
+BonviHR · Muhim qaror #8: GitHub repo'ni o'chirmoqchiman — «gh repo delete abboskhanme/BonviHR --yes» → abboskhanme/BonviHR. Oqibati: repo va uning butun tarixi GitHub'dan o'chadi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== repo_public: gh repo edit --visibility public ===
+BonviHR · Muhim qaror #9: repo'ni ochiq (public) qilmoqchiman — «gh repo edit --visibility public» → public. Oqibati: kod hammaga ochiq bo'ladi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== spend: aws ec2 run-instances --instance-type t3.large ===
+BonviHR · Muhim qaror #10: pul sarflanadigan amal — «aws ec2 run-instances --instance-type t3.large» → aws ec2 run-instances. Oqibati: bulutda pullik resurs yaratiladi yoki kattalashtiriladi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== third_party_send: sendmail boss@example.com < report.txt ===
+BonviHR · Muhim qaror #11: tashqariga yubormoqchiman — «sendmail boss@example.com < report.txt» → sendmail. Oqibati: xat boshqa odamga yuboriladi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== unclear: $RUNNER build ===
+BonviHR · Muhim qaror #12: buyruqni oldindan tekshira olmadim — «$RUNNER build» → $RUNNER. Oqibati: qaysi dastur ishlashi faqat ishga tushganda ma'lum bo'ladi. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)
+
+=== architecture: no detector creates this row ===
+BonviHR · Muhim qaror #13: arxitektura bo'yicha qaror kerak — «» → BonviHR. Oqibati: —. Bajaraymi? (ha / yo'q / boshqa ko'rsatma)

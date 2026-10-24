@@ -1,0 +1,61 @@
+=== a project at work, fresh digest ===
+BonviHR · hozir: «Login sahifasini tuzat», ishlayapti, 12 daq
+Yana: «Hisobot», javobingizni kutyapti, 4 daq
+Navbatda: 1 ta topshiriq
+Oxirgi natija (13:25): Xato tuzatildi. · Testlar: o'tdi
+Git: main · 2 commit push qilinmagan · 3 fayl commit qilinmagan
+Bugun: 1 commit — «fix login»
+O'zgargan fayllar: 2 ta (login.py, test_login.py)
+Javobingizni kutyapti: 1 ta savol, 1 ta qaror
+Ma'lumot: 3 daqiqa oldin
+
+=== first report: the digest was collected now ===
+BonviHR · hozir ish yo'q
+Hali natija yo'q
+Git: o'qib bo'lmadi
+Ma'lumot: hozir yig'dim
+
+=== a failed last turn, digest read just now ===
+BonviHR · hozir ish yo'q
+Oxirgi topshiriq (23.10 14:05) xato bilan tugadi: «Deploy»
+Git: main · origin/main bilan bir xil · toza
+Bugun commit yo'q. Oxirgisi (22.10 14:05): «old fix»
+Ma'lumot: hozirgina
+
+=== a stale digest refreshed first ===
+BonviHR · hozir: «Login sahifasini tuzat», ishlayapti, 7 daq
+Hali natija yo'q
+Git: main · origin/main bilan bir xil · toza
+Bugun: 1 commit — «fix login»
+Ma'lumot: eskirgan edi (45 daqiqa oldin) — hozir yangiladim
+
+=== a stale digest whose refresh failed ===
+BonviHR · hozir: «Login sahifasini tuzat», ishlayapti, 7 daq
+Hali natija yo'q
+Git: main · origin/main bilan bir xil · toza
+Bugun: 1 commit — «fix login»
+Ma'lumot: 2 soat oldin — yangilab bo'lmadi
+
+=== git never read ===
+BonviHR · hozir ish yo'q
+Hali natija yo'q
+Git: o'qib bo'lmadi
+Ma'lumot: hali yig'ilmagan — git'ni o'qib bo'lmadi
+
+=== every project at once, with the servers ===
+Bugun o'zgargan loyihalar: 2 ta
+• BonviHR: 1 commit (oxirgisi: «fix login»)
+• HRMentor: 2 commit (oxirgisi: «add tests»); natija: Testlar qo'shildi.
+Hozir ishlayapti: BonviHR («Login sahifasini tuzat», 7 daq)
+Javobingizni kutyapti: HRMentor
+Qolgan 1 ta loyihada bugun o'zgarish yo'q
+Serverlar: db ✗ disk 95% (12 daqiqa oldin), web ✓ (12 daqiqa oldin)
+Ma'lumot: 5 daqiqa oldin
+
+=== a quiet day ===
+Bugun hech qaysi loyihada o'zgarish bo'lmadi
+Ma'lumot: 3 kun oldin
+
+=== servers from fresh checks ===
+Serverlar: db ✗ disk 95% (12 daqiqa oldin), web ✓ (12 daqiqa oldin)
+Ma'lumot: 12 daqiqa oldin

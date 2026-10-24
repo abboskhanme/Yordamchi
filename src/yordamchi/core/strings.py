@@ -252,12 +252,13 @@ GATE_CONSEQUENCES: Final[Mapping[str, Msg]] = MappingProxyType(
         "credential_env": Msg("Claude kirish o'zgaruvchilarini o'rnatish taqiqlangan"),
         "self_update_main": Msg("o'z-o'zini yangilashda main'ga push yoki merge qilinmaydi — buni supervisor qiladi"),
         "read_only_policy": Msg("tekshiruv rejimida faqat o'qish mumkin, hech narsa o'zgartirilmaydi"),
-        "plan_only_policy": Msg("rejalash bosqichida faqat docs/, README.md va .gitignore yoziladi"),
+        "plan_only_policy": Msg("rejalashtirish bosqichida faqat docs/, README.md va .gitignore yoziladi"),
     }
 )
 DECISION_ITEM = Msg("#{decision_id} ({project})")
 WHICH_DECISION = Msg(
-    "Qaysi qarorga javob berdingiz: {decisions}? O'sha savolga reply qiling yoki raqamini yozing (masalan: #17 ha)."
+    "Qaysi qarorga javob berdingiz: {decisions}? O'sha savol xabariga javob qiling yoki raqamini yozing "
+    "(masalan: #17 ha)."
 )
 DECISION_APPROVED = Msg("{project} · #{decision_id} tasdiqlandi — aynan shu buyruq bir marta bajariladi.")
 DECISION_DECLINED = Msg("{project} · #{decision_id} bekor qilindi, bajarilmaydi.")
@@ -829,7 +830,7 @@ INTEGRATION_REASONS: Final[Mapping[str, Msg]] = MappingProxyType(
         "unreachable": Msg("server javob bermayapti"),
         "timed_out": Msg("server vaqtida javob bermadi"),
         "auth_failed": Msg("kalit yoki token rad etildi"),
-        "rate_limited": Msg("server so'rovlar limitini yopdi (429)"),
+        "rate_limited": Msg("serverning so'rovlar limiti tugadi (429)"),
         "oauth_failed": Msg("OAuth kirishi yakunlanmadi"),
         "oauth_client_metadata_needed": Msg("server Client ID Metadata Document talab qiladi"),
         "oauth_reauth_required": Msg("kirish muddati tugagan"),

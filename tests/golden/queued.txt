@@ -1,0 +1,20 @@
+=== cap ===
+BonviHR: navbatga qo'ydim (1-o'rin) — bir vaqtda ishlaydigan topshiriqlar soni to'lgan.
+
+=== pressure ===
+BonviHR: navbatga qo'ydim (2-o'rin) — Mac xotirasi band.
+
+=== mac_attached ===
+BonviHR: navbatga qo'ydim (3-o'rin) — loyiha Mac'da ochiq.
+
+=== update_drain ===
+BonviHR: navbatga qo'ydim (4-o'rin) — Yordamchi yangilanishni kutyapti.
+
+=== disk ===
+BonviHR: navbatga qo'ydim (5-o'rin) — diskda joy kam.
+
+=== busy ===
+BonviHR: navbatga qo'ydim (6-o'rin) — oldingi topshiriq tugashini kutyapti.
+
+=== pressure, critical ===
+BonviHR: navbatga qo'ydim (1-o'rin) — Mac xotirasi juda band — biror loyihani yopib turishni o'ylab ko'ring.

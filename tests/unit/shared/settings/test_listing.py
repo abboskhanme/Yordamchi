@@ -2,14 +2,17 @@
 a few changes, one per value kind, and a key pasted into a text setting (masked).
 
 The slice keeps the golden stable while other features add settings; `test_service` checks the full registry. After a
-reviewed format change, regenerate the files with
-`uv run python -c "from tests.unit.shared.settings.test_listing import write_goldens; write_goldens()"`.
+reviewed format change, regenerate the files with `pytest tests/unit/shared/settings/test_listing.py --update-golden`
+(or `uv run python -c "from tests.unit.shared.settings.test_listing import write_goldens; write_goldens()"`).
 """
 
 from pathlib import Path
 from typing import Final
 
+import pytest
+
 from tests.factories import FAKE_KEYS
+from tests.goldens import check_golden
 from yordamchi.core import redact
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName
@@ -65,14 +68,12 @@ def write_goldens() -> None:
     (GOLDEN / "full_dev.txt").write_text(listing.full + "\n", encoding="utf-8")
 
 
-def test_the_grouped_summary_matches_the_golden_file() -> None:
-    expected = (GOLDEN / "summary_dev.txt").read_text(encoding="utf-8")
-    assert golden_listing().summary + "\n" == expected, "see the module docstring to regenerate"
+def test_the_grouped_summary_matches_the_golden_file(pytestconfig: pytest.Config) -> None:
+    check_golden(pytestconfig, "settings/summary_dev.txt", golden_listing().summary + "\n")
 
 
-def test_the_full_list_matches_the_golden_file() -> None:
-    expected = (GOLDEN / "full_dev.txt").read_text(encoding="utf-8")
-    assert golden_listing().full + "\n" == expected, "see the module docstring to regenerate"
+def test_the_full_list_matches_the_golden_file(pytestconfig: pytest.Config) -> None:
+    check_golden(pytestconfig, "settings/full_dev.txt", golden_listing().full + "\n")
 
 
 def test_the_golden_slice_masks_the_pasted_key() -> None:

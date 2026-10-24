@@ -1,0 +1,11 @@
+=== a Claude token in the environment ===
+Ishga tushmadim: Claude uchun begona kirish manbai topildi (env:CLAUDE_CODE_OAUTH_TOKEN). Uni olib tashlang — men faqat Mac'dagi claude.ai login bilan ishlayman.
+
+=== an apiKeyHelper in ~/.claude/settings.json ===
+Ishga tushmadim: Claude uchun begona kirish manbai topildi (settings.json:apiKeyHelper). Uni olib tashlang — men faqat Mac'dagi claude.ai login bilan ishlayman.
+
+=== claude not on the PATH ===
+claude topilmadi. O'rnating yoki PATH'ni tekshiring.
+
+=== dev.db behind this version ===
+Ishga tushmadim: ma'lumotlar bazasi sxemasi bu versiyaga mos emas. Migratsiyani installer yoki supervisor bajaradi.

@@ -1,0 +1,17 @@
+=== two candidates ===
+«login sahifasini tuzat» — BonviHR'gami yoki HRMentor'gami?
+
+=== three candidates, a photo ===
+Rasm — BonviHR'gami, HRMentor'gami yoki Wunderkind'gami?
+
+=== one candidate, a voice note ===
+«buni ham tuzat» — BonviHR uchunmi? «ha» deb yoki kerakli loyiha nomini yozing.
+
+=== no candidate, a long text ===
+«bu yerda bu yerda bu yerda bu yerda bu yerda bu yerda bu…» — qaysi loyiha uchun? Loyiha nomini yozing.
+
+=== the answer's number is out of range ===
+1 dan 2 gacha raqam yoki loyiha nomini yozing: 1) BonviHR, 2) HRMentor.
+
+=== no answer came ===
+«BonviHR / HRMentor» degan savolimga javob bo'lmadi — o'sha xabarni hech qaysi loyihaga yubormadim. Kerak bo'lsa, loyiha nomi bilan qayta yozing.

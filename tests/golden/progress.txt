@@ -1,0 +1,20 @@
+=== just started, no step yet ===
+BonviHR · ishlayapti 0 daq · 0 qadam
+
+=== working: the three latest of four steps ===
+BonviHR · ishlayapti 4 daq · 12 qadam
+• Edit: src/app/login.py
+• Bash: make test
+• Testlar o'tdi, endi commit qilaman.
+
+=== waiting for the owner's answer ===
+BonviHR · javobingizni kutyapti · 17 daq · 14 qadam
+
+=== paused by the runaway guard ===
+BonviHR · to'xtab turibdi · 17 daq · 14 qadam
+
+=== stopped by the owner ===
+BonviHR · to'xtatildi · 17 daq · 14 qadam
+
+=== finished ===
+BonviHR · tugadi · 17 daq · 14 qadam

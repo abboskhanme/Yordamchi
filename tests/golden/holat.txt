@@ -1,0 +1,82 @@
+=== dev bot, everything known ===
+Holat · dev bot
+Ish vaqti: 3 soat 12 daq · Yordamchi 2026.10.24-abcdef0 · SDK 0.2.173
+Claude CLI 2.1.310: login — claude.ai
+ClaudeManager: owner@example.com · 5 soat: 42% · 7 kun: 13%
+Ovoz hozir: Google Gemini, zaxira — OpenRouter (Gemini).
+Hozir ishlayapti: BonviHR, HRMentor
+Navbatda: Wunderkind (1-o'rin)
+Javob kutayotgan qarorlar: 1 · savollar: 2
+Mac: xotira bosimi — o'rtacha · diskda 85 GB bo'sh
+Cheklangan imkoniyatlar: ffmpeg, gh topilmadi
+Oxirgi xatolar: git_failed (14:05), stt_failed (13:35)
+
+=== dev bot, idle, two days up, nothing degraded ===
+Holat · dev bot
+Ish vaqti: 2 kun 5 soat · Yordamchi 2026.10.24-abcdef0 · SDK 0.2.173
+Claude CLI 2.1.310: login — claude.ai
+ClaudeManager: owner@example.com · 5 soat: 42% · 7 kun: 13%
+Ovoz hozir: Google Gemini, zaxira — OpenRouter (Gemini).
+Hozir ishlayapti: hech narsa
+Javob kutayotgan qarorlar: 0 · savollar: 0
+Mac: xotira bosimi — o'rtacha · diskda 85 GB bo'sh
+Oxirgi xatolar: yo'q
+
+=== personal bot, no speech key, high pressure ===
+Holat · shaxsiy bot
+Ish vaqti: 3 soat 12 daq · Yordamchi 2026.10.24-abcdef0 · SDK 0.2.173
+Claude CLI 2.1.310: login — claude.ai
+ClaudeManager: owner@example.com · 5 soat: 42% · 7 kun: 13%
+Ovoz: ishlaydigan kalit yo'q — ovozli xabarlarni matnga o'gira olmayman.
+Mac: xotira bosimi — yuqori · diskda 85 GB bo'sh
+Oxirgi xatolar: yo'q
+
+=== parts that could not be read ===
+Holat · dev bot
+Ish vaqti: 3 soat 12 daq · Yordamchi 2026.10.24-abcdef0 · SDK noma'lum
+Claude CLI: hali tekshirilmadi
+ClaudeManager: holatini o'qib bo'lmadi
+Ovoz: kalitlar holatini o'qib bo'lmadi
+Ishlar: o'qib bo'lmadi
+Mac: xotira bosimi — noma'lum · diskda noma'lum bo'sh
+Cheklangan imkoniyatlar: ffmpeg, gh topilmadi
+Oxirgi xatolar: git_failed (14:05), stt_failed (13:35)
+
+=== Claude logged out ===
+Holat · dev bot
+Ish vaqti: 3 soat 12 daq · Yordamchi 2026.10.24-abcdef0 · SDK 0.2.173
+Claude CLI 2.1.310: login qilinmagan — Mac'da `claude` ni ochib, kiring
+ClaudeManager: holatini o'qib bo'lmadi
+Ovoz hozir: Google Gemini, zaxira — OpenRouter (Gemini).
+Hozir ishlayapti: BonviHR, HRMentor
+Navbatda: Wunderkind (1-o'rin)
+Javob kutayotgan qarorlar: 1 · savollar: 2
+Mac: xotira bosimi — o'rtacha · diskda 85 GB bo'sh
+Cheklangan imkoniyatlar: ffmpeg, gh topilmadi
+Oxirgi xatolar: git_failed (14:05), stt_failed (13:35)
+
+=== Claude on an API key instead of claude.ai ===
+Holat · dev bot
+Ish vaqti: 3 soat 12 daq · Yordamchi 2026.10.24-abcdef0 · SDK 0.2.173
+Claude CLI 2.1.310: login usuli «api_key», claude.ai bo'lishi kerak — Mac'da `claude auth status` ni tekshiring
+ClaudeManager: owner@example.com · 5 soat: 42% · 7 kun: 13%
+Ovoz hozir: Google Gemini, zaxira — OpenRouter (Gemini).
+Hozir ishlayapti: BonviHR, HRMentor
+Navbatda: Wunderkind (1-o'rin)
+Javob kutayotgan qarorlar: 1 · savollar: 2
+Mac: xotira bosimi — o'rtacha · diskda 85 GB bo'sh
+Cheklangan imkoniyatlar: ffmpeg, gh topilmadi
+Oxirgi xatolar: git_failed (14:05), stt_failed (13:35)
+
+=== claude not installed ===
+Holat · dev bot
+Ish vaqti: 3 soat 12 daq · Yordamchi 2026.10.24-abcdef0 · SDK 0.2.173
+Claude CLI: topilmadi
+ClaudeManager: owner@example.com · 5 soat: 42% · 7 kun: 13%
+Ovoz hozir: Google Gemini, zaxira — OpenRouter (Gemini).
+Hozir ishlayapti: BonviHR, HRMentor
+Navbatda: Wunderkind (1-o'rin)
+Javob kutayotgan qarorlar: 1 · savollar: 2
+Mac: xotira bosimi — o'rtacha · diskda 85 GB bo'sh
+Cheklangan imkoniyatlar: ffmpeg, gh topilmadi
+Oxirgi xatolar: git_failed (14:05), stt_failed (13:35)

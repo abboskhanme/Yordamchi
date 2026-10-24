@@ -1,0 +1,41 @@
+=== committed and pushed ===
+BonviHR · Natija: Login sahifasidagi xato tuzatildi.
+Fayllar: 2 ta (login.py, test_login.py)
+Testlar: o'tdi (42 passed)
+Commit: a1b2c3d · push: bajarildi (origin/main)
+Vaqt: 7 daq
+
+=== nothing changed, tests unknown ===
+BonviHR · Natija: Hech narsa o'zgarmadi.
+Fayllar: o'zgarmadi
+Testlar: noma'lum
+Commit: yo'q
+Vaqt: 0 daq
+
+=== tests failed, eight files, committed but not pushed ===
+BonviHR · Natija: Hisobot sahifalari qo'shildi.
+Fayllar: 8 ta (page_0.py, page_1.py, page_2.py, page_3.py, page_4.py, …)
+Testlar: yiqildi (3 failed, 40 passed)
+Commit: 0f1e2d3 · push: qilinmadi
+Vaqt: 26 daq
+
+=== still unpushed after the nudge ===
+BonviHR · Natija: Hisobot qo'shildi.
+Fayllar: 8 ta (page_0.py, page_1.py, page_2.py, page_3.py, page_4.py, …)
+Testlar: noma'lum
+Commit: commit/push qilinmadi
+Vaqt: 31 daq
+
+=== git could not be read ===
+BonviHR · Natija: Login sahifasidagi xato tuzatildi.
+Fayllar: o'zgarmadi
+Testlar: o'tdi (42 passed)
+Commit: git holatini o'qib bo'lmadi
+Vaqt: 3 daq
+
+=== no Natija line in an empty answer ===
+BonviHR · Natija: (natija yozilmadi)
+Fayllar: o'zgarmadi
+Testlar: noma'lum
+Commit: yo'q
+Vaqt: 1 daq

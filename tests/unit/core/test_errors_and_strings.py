@@ -45,6 +45,18 @@ def test_error_catalog_covers_every_code_and_nothing_else() -> None:
     assert stray == []
 
 
+def test_error_catalog_maps_each_code_to_its_own_err_entry() -> None:
+    wrong = {code.name for code, entry in S.ERRORS.items() if entry is not getattr(S, f"ERR_{code.name}")}
+    assert wrong == set()
+
+
+def test_every_error_code_but_internal_has_a_concrete_class() -> None:
+    """The class fixes the code's params, so the test below renders every message with exactly what is raised.
+    `internal` has none: `bots.common.guarded` renders `S.ERR_INTERNAL(incident=…)` itself."""
+    covered = {_sample(error_type).code for error_type in _concrete_errors()}
+    assert set(errors.ErrorCode) - covered == {errors.ErrorCode.INTERNAL}
+
+
 @pytest.mark.parametrize("error_type", _concrete_errors(), ids=lambda t: t.__name__)
 def test_every_error_renders_its_owner_message(error_type: type[errors.YordamchiError]) -> None:
     error = _sample(error_type)

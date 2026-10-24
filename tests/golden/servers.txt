@@ -1,0 +1,21 @@
+=== one healthy host ===
+bonvi-srv: hammasi joyida · yuklama 0.52 · disk 85% (/) · xotira 46% · 2 ta konteyner
+Ma'lumot: 12 daqiqa oldin
+
+=== a full disk ===
+bonvi-srv: muammo — disk / 92% to'lgan · yuklama 0.52 · disk 92% (/) · xotira 46% · 2 ta konteyner
+Ma'lumot: 12 daqiqa oldin
+
+=== every kind of host ===
+bonvi-srv: hammasi joyida · yuklama 0.52 · disk 85% (/) · xotira 46% · 2 ta konteyner
+db-1: ulanib bo'lmadi — kalit yoki login rad etildi
+server: faqat o'tish (jump) uchun — unda buyruq ishlatmayman, tekshirmayman
+new-host: hali tekshirilmagan
+Ma'lumot: 12 daqiqa oldin
+
+=== checked just now ===
+bonvi-srv: hammasi joyida · yuklama 0.52 · disk 85% (/) · xotira 46% · 2 ta konteyner
+Ma'lumot: hozirgina
+
+=== the alert for a new issue ===
+bonvi-srv serverida muammo: disk / 92% to'lgan.

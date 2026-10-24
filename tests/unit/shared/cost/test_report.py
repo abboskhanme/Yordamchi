@@ -5,13 +5,17 @@
 - `report_capped.txt`: OpenRouter paused at its cap, the personal bot's share next to the dev bot's, no ClaudeManager.
 
 After a reviewed format change, regenerate the files with
-`uv run python -c "from tests.unit.shared.cost.test_report import write_goldens; write_goldens()"`.
+`pytest tests/unit/shared/cost/test_report.py --update-golden`
+(or `uv run python -c "from tests.unit.shared.cost.test_report import write_goldens; write_goldens()"`).
 """
 
 from pathlib import Path
 from typing import Final
 
+import pytest
+
 from tests.factories import make_allowance, make_usage_total, usd
+from tests.goldens import check_golden
 from yordamchi.core.paths import BotName
 from yordamchi.ports.mac_host import ClaudeAccount, ClaudeManagerState
 from yordamchi.shared.cost import domain
@@ -94,14 +98,12 @@ def write_goldens() -> None:
     (GOLDEN / "report_capped.txt").write_text(domain.report_text(capped_view()) + "\n", encoding="utf-8")
 
 
-def test_a_busy_month_matches_the_golden_file() -> None:
-    expected = (GOLDEN / "report_month.txt").read_text(encoding="utf-8")
-    assert domain.report_text(month_view()) + "\n" == expected, "see the module docstring to regenerate"
+def test_a_busy_month_matches_the_golden_file(pytestconfig: pytest.Config) -> None:
+    check_golden(pytestconfig, "cost/report_month.txt", domain.report_text(month_view()) + "\n")
 
 
-def test_a_paused_provider_and_both_bots_match_the_golden_file() -> None:
-    expected = (GOLDEN / "report_capped.txt").read_text(encoding="utf-8")
-    assert domain.report_text(capped_view()) + "\n" == expected, "see the module docstring to regenerate"
+def test_a_paused_provider_and_both_bots_match_the_golden_file(pytestconfig: pytest.Config) -> None:
+    check_golden(pytestconfig, "cost/report_capped.txt", domain.report_text(capped_view()) + "\n")
 
 
 def test_the_golden_month_keeps_paid_spend_and_the_plan_estimate_apart() -> None:

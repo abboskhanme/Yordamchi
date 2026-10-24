@@ -1,0 +1,8 @@
+=== two turns cut off ===
+Qayta ishga tushdim (oldingi ish kutilmaganda uzildi, oxirgi marta 13:25 da ishlagan edim). Uzilib qolgan ishlar: BonviHR, HRMentor — davom ettiraymi?
+
+=== nothing cut off ===
+Qayta ishga tushdim (oldingi ish kutilmaganda uzildi, oxirgi marta 14:03 da ishlagan edim). Uzilib qolgan ish yo'q.
+
+=== no heartbeat file to read ===
+Qayta ishga tushdim (oldingi ish kutilmaganda uzildi). Uzilib qolgan ishlar: BonviHR — davom ettiraymi?
