@@ -61,7 +61,7 @@ from yordamchi.shared.settings import defaults
 
 PROJECT = "HRMentor"
 SYSLOG = "/var/log/syslog"
-SUITE = ["uptime", "df -h", "free -m", "docker ps"]  # the default gate list allows these (not the units probe)
+SUITE = ["uptime", "df -h", "free -m", "docker ps", "systemctl --failed --no-legend"]  # all on the default gate list
 
 
 # --- helpers --------------------------------------------------------------------------------------------------------
@@ -73,8 +73,8 @@ async def watch(deps: DevDeps, *hosts: str) -> None:
     await set_setting(deps, "servers.hosts", list(hosts))
 
 
-async def allow_units_probe(deps: DevDeps) -> None:
-    allowed: list[JsonValue] = [*defaults.READONLY_REMOTE_COMMANDS, domain.UNITS_COMMAND]
+async def refuse_units_probe(deps: DevDeps) -> None:
+    allowed: list[JsonValue] = [cmd for cmd in defaults.READONLY_REMOTE_COMMANDS if cmd != domain.UNITS_COMMAND]
     await set_setting(deps, "gate.readonly_remote_commands", allowed)
 
 
@@ -162,7 +162,6 @@ async def test_a_scheduled_check_runs_only_what_the_gate_allows_and_stores_the_r
 
     done = await service.check_due_servers(dev_deps)
 
-    # The units probe is not on SPEC §5.7's default list, so the gate refuses it and it is never sent.
     assert commands(fakes.remote_shell) == [*SUITE, f"tail -n 200 {SYSLOG}"]
     assert [status.host for status in done.checked] == [SERVER_HOST]
     assert done.checked[0].ok
@@ -180,22 +179,35 @@ async def test_a_scheduled_check_runs_only_what_the_gate_allows_and_stores_the_r
         "disk": "ok",
         "memory": "ok",
         "containers": "ok",
-        "units": "refused",
+        "units": "ok",
         f"log:{SYSLOG}": "ok",
     }
     assert await texts(dev_deps, "notice") == []
 
 
-async def test_once_the_gate_list_allows_the_units_probe_a_failed_unit_is_alerted(
-    dev_deps: DevDeps, fakes: Fakes
-) -> None:
+async def test_a_probe_taken_off_the_gate_list_is_refused_and_never_sent(dev_deps: DevDeps, fakes: Fakes) -> None:
     await watch(dev_deps, SERVER_HOST)
-    await allow_units_probe(dev_deps)
+    await refuse_units_probe(dev_deps)
     script_healthy_server(fakes.remote_shell, failed_units="● nginx.service loaded failed failed nginx\n")
 
     await service.check_due_servers(dev_deps)
 
-    assert commands(fakes.remote_shell) == [*SUITE, domain.UNITS_COMMAND]
+    assert commands(fakes.remote_shell) == [command for command in SUITE if command != domain.UNITS_COMMAND]
+    (row,) = await list_server_checks(dev_deps.db)
+    assert probe_statuses(row)["units"] == "refused"
+    assert await texts(dev_deps, "notice") == []  # the failed unit is not seen: the probe never ran
+
+
+async def test_once_the_gate_list_allows_the_units_probe_a_failed_unit_is_alerted(
+    dev_deps: DevDeps, fakes: Fakes
+) -> None:
+    await watch(dev_deps, SERVER_HOST)  # the default gate list allows it
+    script_healthy_server(fakes.remote_shell, failed_units="● nginx.service loaded failed failed nginx\n")
+
+    await service.check_due_servers(dev_deps)
+
+    assert commands(fakes.remote_shell) == SUITE
+    assert commands(fakes.remote_shell)[-1] == domain.UNITS_COMMAND
     alerts = [row for row in await messages(dev_deps) if row.kind == "notice"]
     assert [text_of(row) for row in alerts] == [
         "bonvi-srv serverida muammo: nginx.service xizmati ishdan chiqqan (failed)."
@@ -258,7 +270,7 @@ async def test_a_slow_host_stops_at_its_check_budget(dev_deps: DevDeps, fakes: F
     assert [timeout for _, _, timeout in slow.calls] == [30.0, 30.0, 30.0, 10.0]
     assert fakes.clock.now() - started <= timedelta(seconds=100)
     (row,) = await list_server_checks(deps.db)
-    assert probe_statuses(row)["units"] == "refused"
+    assert probe_statuses(row)["units"] == "skipped"  # allowed, but the budget is spent
     assert probe_statuses(row)[f"log:{SYSLOG}"] == "skipped"
 
 
@@ -588,7 +600,10 @@ async def test_the_loop_checks_each_host_every_interval(dev_deps: DevDeps, fakes
         await until(lambda: fakes.clock.pending_sleepers > 0, what="an idle pass")
         assert len(commands(fakes.remote_shell)) == len(SUITE)
         await fakes.clock.advance(31 * 60)
-        await until(lambda: len(commands(fakes.remote_shell)) == 2 * len(SUITE), what="second pass")
+        # Back asleep = the pass is over. The commands alone are not: they are all sent before the pass stores its
+        # row, and cancelling the loop in between rolled the second row back.
+        await until(lambda: fakes.clock.pending_sleepers > 0, what="second pass")
+        assert len(commands(fakes.remote_shell)) == 2 * len(SUITE)
     finally:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

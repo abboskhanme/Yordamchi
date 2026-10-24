@@ -116,18 +116,22 @@ def test_a_check_runs_uptime_disk_memory_containers_units_then_each_configured_l
 
 def test_the_gate_decides_every_probe_from_its_own_read_only_list() -> None:
     probes = domain.plan_probes(["/var/log/syslog"])
-    refused = [probe.command for probe in probes if domain.refused(SERVER_HOST, probe, rules=RULES, ctx=CTX, now=NOW)]
-    # SPEC §5.7's default list has no system-wide failed-units command (pending wiring): only that probe is refused.
-    assert refused == ["systemctl --failed --no-legend"]
-    allowing = GateRules.from_settings(
+    # The default list covers every probe, the system-wide failed-units command included.
+    assert not any(domain.refused(SERVER_HOST, probe, rules=RULES, ctx=CTX, now=NOW) for probe in probes)
+    without_units = GateRules.from_settings(
         ask_classes=(),
-        readonly_remote_commands=[*SNAP[defaults.GATE_READONLY_REMOTE_COMMANDS], domain.UNITS_COMMAND],
+        readonly_remote_commands=[
+            command for command in SNAP[defaults.GATE_READONLY_REMOTE_COMMANDS] if command != domain.UNITS_COMMAND
+        ],
         jump_only_hosts=["server"],
         git_hosts=["github.com"],
         http_write_allow_hosts=(),
         temp_roots=("/tmp",),
     )
-    assert not any(domain.refused(SERVER_HOST, probe, rules=allowing, ctx=CTX, now=NOW) for probe in probes)
+    refused = [
+        probe.command for probe in probes if domain.refused(SERVER_HOST, probe, rules=without_units, ctx=CTX, now=NOW)
+    ]
+    assert refused == ["systemctl --failed --no-legend"]  # off the list: only that probe is refused
 
 
 def test_a_log_path_the_gate_would_not_read_is_refused() -> None:

@@ -13,6 +13,7 @@ import re
 import sqlite3
 import stat
 import tarfile
+import time
 import zipfile
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
@@ -33,6 +34,7 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 VERSION = "2026.10.24-0123456"
 NEW_DEV_TOKEN = "111222333:AAnewDevTokenAfterRotation_01234567"
 FFMPEG_NAMES = ("ffmpeg", "ffprobe")
+FAKE_ZIP_TIME = (2026, 10, 24, 4, 0, 0)
 STACK_PIN_ROW = re.compile(r"^\s*\| (ffmpeg|ffprobe) \| `(https://[^`]+)` \| `([0-9a-f]{64})` \|$", re.MULTILINE)
 
 
@@ -63,9 +65,11 @@ def app_archive() -> bytes:
 
 
 def ffmpeg_zip(name: str) -> bytes:
+    # A fixed entry timestamp: `writestr(<str>, …)` stamps the wall clock (2 s steps), so the pin hashed in
+    # `good_pins()` and the zip `FakeMac.download` serves later would differ whenever a step falls between them.
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr(name, f"#!/bin/sh\necho {name}\n")
+        archive.writestr(zipfile.ZipInfo(name, date_time=FAKE_ZIP_TIME), f"#!/bin/sh\necho {name}\n")
     return buffer.getvalue()
 
 
@@ -432,6 +436,31 @@ def test_a_checksum_mismatch_installs_nothing(rig: Rig) -> None:
     assert not (rig.paths.bin / "ffmpeg").exists()
     assert list(rig.paths.bin.iterdir()) == []
     assert not rig.paths.current_release.exists()  # stopped before switching anything
+
+
+class TickingClock:
+    """`time` for `zipfile` only: every reading is one DOS timestamp step (2 s) after the last."""
+
+    localtime = staticmethod(time.localtime)  # bound before `def time` below shadows the module in this body
+
+    def __init__(self) -> None:
+        self.now = 1_792_800_000.0
+
+    def time(self) -> float:
+        self.now += 2.0
+        return self.now
+
+
+def test_the_pinned_fake_ffmpeg_zip_still_matches_after_the_clock_ticks(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: under load a 2 s step fell between `good_pins()` and the download, and the install failed on a
+    # SHA-256 mismatch of the test's own fake zip.
+    monkeypatch.setattr(zipfile, "time", TickingClock())
+    assert ffmpeg_zip("ffmpeg") == ffmpeg_zip("ffmpeg")
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
+    assert rig.install() == 0, rig.out.getvalue()
+    assert "SHA-256 mismatch" not in rig.out.getvalue()
 
 
 def test_ffmpeg_is_verified_unpacked_and_checked_for_libopus(rig: Rig) -> None:

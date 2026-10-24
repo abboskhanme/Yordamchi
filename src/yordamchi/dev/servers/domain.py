@@ -40,8 +40,8 @@ UPTIME_COMMAND: Final = "uptime"
 DISK_COMMAND: Final = "df -h"
 MEMORY_COMMAND: Final = "free -m"
 CONTAINERS_COMMAND: Final = "docker ps"
-# Not on SPEC §5.7's default read-only list yet (pending wiring): until it is, the gate refuses this probe and the
-# check reports the units as not checked.
+# On the default `gate.readonly_remote_commands`. Taken off that list, the gate refuses this probe and the check
+# reports the units as not checked.
 UNITS_COMMAND: Final = "systemctl --failed --no-legend"
 LOG_TAIL_LINES: Final = 200
 PARSE_MAX_CHARS: Final = 64_000  # stdout kept for parsing; the rest of a huge answer is dropped

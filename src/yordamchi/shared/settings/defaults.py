@@ -414,6 +414,7 @@ READONLY_REMOTE_COMMANDS: Final = (
     "docker logs --tail N <c>",
     "systemctl status <u>",
     "systemctl is-active <u>",
+    "systemctl --failed --no-legend",
     "journalctl -u <u> -n N --no-pager",
     "tail -n N <path>",
     "cat /var/log/<path>",
