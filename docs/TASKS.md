@@ -6,7 +6,7 @@ Source: `docs/SPEC.md` (approved 2026-10-23). `plan-manager` · 2026-10-23. Path
 scratch repo). (2) Orchestrator: start spikes T03–T06 now (no deps), and T07 once T01 lands. Tell the T01 agent that its
 done criterion includes the pre-carved shared-file blocks and every §4.3 P1 default (rule R2).
 
-**Status:** done 34 (T01–T32 + T17b, T18b, T32b, ffmpeg pin) · in progress: T33 (security fixes, merging), T34; early P2/P3: T50, T51, T52+T53, T56+T57, T71, T74 · blocked on owner 1 (T38) · todo: T35–T47.
+**Status:** P1: done T01–T34 (+T17b, T18b, T32b, ffmpeg pin); todo T35–T47. P2: done T50, T51, T56, T57; T52+T53 merging. P3: done T71, T74; T73 merging; T70+T72 in progress. P4: on hold. Blocked on owner: T38 (voice notes), T43 (token rotation, pmset).
 
 **Critical path (P1):** T01 → T02 → T08 → T17 → T20 → T24 → {T29 T30 T31 T32} → T34 → T36 → T42 → T43 → T44 → T47.
 Joins it: T03 → T10 → T24 (spikes gate the executor) and T07 → T18 → T24 (gate). Day-one owner items on it:
@@ -176,13 +176,13 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 | T30 | U8c `dev/digest` + report answers + handoff note | build-backend | T12, T17, T24 | yes | `dev/digest/*` (`digests`), `prompts/dev/report_system.md` | STR ERR DEF FAC MIG | UC-15 (≤ 4 s incl. "running X, N min", freshness line, refresh ≤ 5 min) | report path never waits on a turn | **DONE** 2026-10-24 (MT) |
 | T31 | U8d `dev/servers` (30-min checks, investigation) | build-backend | T22, T24 | yes | `dev/servers/*` (`server_checks`), `prompts/dev/investigate_system.md` | STR ERR DEF FAC MIG | UC-15 (≤ 30 min cache, "Tekshiryapman" ≤ 2 s, ≤ 3 min, write denied) | FakeRemoteShell suite | **DONE** 2026-10-24 (MT 7cdf048) |
 | T32 | U9a `shared/health` (`holat?`, heartbeat file + pin, wake gap, self-checks, CLI smoke, disk guard, media purge) | build-backend | T10, T15, T22, T24 | yes | `shared/health/*` (`health_events`, `kv_state`) | STR ERR DEF FAC MIG | UC-06, NFR-REL-04, NFR-REL-08, NFR-CAP-05, §2.8 | `holat?` ≤ 3 s on fakes | **DONE** 2026-10-24 (MT feeba4c; follow-up T32b network-outage watchdog) |
-| T33 | settings (≥ 1 per P1 group) + injection eval | test-backend | T21, T24 | yes | `tests/eval/{settings,injection}/` | — | UC-09 fixture (weakening → 1 question, injection → 0 changes), NFR-SEC-09 | meets thresholds | in progress (2026-10-24; executor-output part waits for T24) |
+| T33 | settings (≥ 1 per P1 group) + injection eval | test-backend | T21, T24 | yes | `tests/eval/{settings,injection}/` | — | UC-09 fixture (weakening → 1 question, injection → 0 changes), NFR-SEC-09 | meets thresholds | **DONE** 2026-10-24 (settings 61 + injection 77 cases; 3 security bugs fixed: 2 KB context cut, lookalike origins, forwards) |
 
 ## Phase 9 — Wiring [sequential]
 
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T34 | U9b `bots/dev` composition root, routers, intents (§6.1 order), control socket (`gate_check`, `secret_blocked`, `status`), startup §2.5, shutdown §2.6, recovery §2.7, scheduler + retention; P2 intents → `S.NOT_YET(phase)` | build-backend | T09–T24, T29–T32 | no | `bots/dev/{app,telegram,intents}.py` | WIRE STR ERR DEF MIG (final) | UC-01 (end to end), UC-06 (restart notice ≤ 60 s), NFR-REL-02/05/07, NFR-SEC-04 (exit 78), NFR-SPD-01, A7 | scripted conversation passes on fakes | in progress (2026-10-24) |
+| T34 | U9b `bots/dev` composition root, routers, intents (§6.1 order), control socket (`gate_check`, `secret_blocked`, `status`), startup §2.5, shutdown §2.6, recovery §2.7, scheduler + retention; P2 intents → `S.NOT_YET(phase)` | build-backend | T09–T24, T29–T32 | no | `bots/dev/{app,telegram,intents}.py` | WIRE STR ERR DEF MIG (final) | UC-01 (end to end), UC-06 (restart notice ≤ 60 s), NFR-REL-02/05/07, NFR-SEC-04 (exit 78), NFR-SPD-01, A7 | scripted conversation passes on fakes | **DONE** 2026-10-24 (MT 13b78d1; scripted end-to-end conversation green; dry-start OK) |
 | T35 | U9c golden tests + catalog completeness | test-backend | T34 | no | `tests/golden/{progress,result,holat,settings_list}.txt` + tests | STR (fixes) | UC-11 format, UC-06, UC-09 list, NFR-LANG-01, `test_error_catalog` | goldens reviewed | todo |
 
 ## Phase 10 — System tests [parallel, max 5]
@@ -216,14 +216,14 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 
 ## P2 — Self-running (coarse; new revisions `0002+` per the migration plan)
 
-- [~] (in progress 2026-10-24, early) T50 `shared/integrations` + `adapters/mcp` + `bin/yordamchi-helper` + socket `headers` + OAuth paste-back — build-integration — deps: T47 — UC-08 dev half (rotation A→B)
-- [~] (in progress 2026-10-24, early) T51 cost report + caps 80 %/100 % (`xarajat?`) — build-backend — deps: T47 — UC-07, NFR-COST-01/02
+- [x] (DONE 2026-10-24) T50 `shared/integrations` + `adapters/mcp` + `bin/yordamchi-helper` + socket `headers` + OAuth paste-back — build-integration — deps: T47 — UC-08 dev half (rotation A→B)
+- [x] (DONE 2026-10-24) T51 cost report + caps 80 %/100 % (`xarajat?`) — build-backend — deps: T47 — UC-07, NFR-COST-01/02
 - [~] (in progress 2026-10-24, early) T52 `adapters/github` — build-integration — deps: T47
 - [~] (in progress 2026-10-24, early, with T52) T53 `dev/newproject` (draft → plan → "ha" → build) — build-backend — deps: T52 — UC-14
 - [ ] T54 `dev/handoff` (Mac attach, S6 decision) — build-backend — deps: T47, T06 — UC-16
 - [ ] T55 park/resume + projects chat ops — build-backend — deps: T47 — UC-18
-- [~] (in progress 2026-10-24, early, with T57) T56 `dev/selfupdate` (branch work → `updates/<id>/request.json`) — build-backend — deps: T47 — UC-19
-- [~] (in progress 2026-10-24, early, with T56) T57 supervisor updater (build, test, drain, switch, probation, rollback, self-switch) + socket `selftest` — ship-devops — deps: T47 — UC-19
+- [x] (DONE 2026-10-24) T56 `dev/selfupdate` (branch work → `updates/<id>/request.json`) — build-backend — deps: T47 — UC-19
+- [x] (DONE 2026-10-24) T57 supervisor updater (build, test, drain, switch, probation, rollback, self-switch) + socket `selftest` — ship-devops — deps: T47 — UC-19
 - [ ] T58 P2 wiring [sequential]: intents replace `S.NOT_YET`, `app.py` — build-backend — deps: T50–T57
 - [ ] T59 P2 evals: 3 broken updates, `kill -9` mid-switch, DB equality, 0 lost; OAuth fixture server; attach/detach; park → no process ≤ 30 s; live rotation — test-backend + test-e2e — deps: T58
 - [ ] T60 test-migration on `p1_release.db`, qa-security, install, QOLLANMA, DoD — deps: T59
@@ -232,11 +232,11 @@ Waves: {T50 T51 T52 T54 T55} → {T53 T56 T57} → T58 → T59 → T60.
 
 ## P3 — Personal bot (coarse)
 
-- [ ] T70 `shared/bridge` (ro engine) + C7 isolation test — build-backend — deps: T47 — UC-36
-- [~] (in progress 2026-10-24, early) T71 TTS adapters (Gemini, OpenRouter, Edge) + voice TTS service + voice offers + S8 — build-integration — deps: T47 — UC-30 voice, UC-34
-- [ ] T72 `personal/qa` + Gemini/OpenRouter assistant ("zaxira model") — build-backend — deps: T47 — UC-30
-- [ ] T73 `personal/media` + `MediaAnalyzer` video adapters — build-integration — deps: T47 — UC-31
-- [~] (in progress 2026-10-24, early) T74 `personal/artefacts` + `adapters/web` (Playwright, download, yt-dlp) — build-integration — deps: T47 — UC-32
+- [~] (in progress 2026-10-24, with T72) T70 `shared/bridge` (ro engine) + C7 isolation test — build-backend — deps: T47 — UC-36
+- [x] (DONE 2026-10-24; S8 not yet measured) T71 TTS adapters (Gemini, OpenRouter, Edge) + voice TTS service + voice offers + S8 — build-integration — deps: T47 — UC-30 voice, UC-34
+- [~] (in progress 2026-10-24, with T70) T72 `personal/qa` + Gemini/OpenRouter assistant ("zaxira model") — build-backend — deps: T47 — UC-30
+- [~] (built 2026-10-24, merging) T73 `personal/media` + `MediaAnalyzer` video adapters — build-integration — deps: T47 — UC-31
+- [x] (DONE 2026-10-24) T74 `personal/artefacts` + `adapters/web` (Playwright, download, yt-dlp) — build-integration — deps: T47 — UC-32
 - [ ] T75 `personal/news` — build-backend — deps: T72 — UC-33
 - [ ] T76 gateway `yordamchi_int` + personal integrations half — build-integration — deps: T50, T70 — UC-35, UC-08 personal
 - [ ] T77 `bots/personal` wiring + tool-list equality refusal (S5 decision) [sequential] — build-backend — deps: T70–T76 — NFR-SEC-08
