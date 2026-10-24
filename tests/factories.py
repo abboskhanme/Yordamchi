@@ -339,7 +339,6 @@ async def make_burst_row(
 
 # --- projects ---
 # Imports stay inside the block (TASKS R2): parallel tasks never touch the import list at the top.
-from dataclasses import replace  # noqa: E402
 from pathlib import PurePosixPath  # noqa: E402
 
 import yaml  # noqa: E402
