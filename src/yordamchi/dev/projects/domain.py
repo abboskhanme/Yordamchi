@@ -1270,8 +1270,45 @@ class SyncReport:
 
 
 def vanished(known: Mapping[str, ProjectRecord], seen: Collection[str]) -> tuple[str, ...]:
-    """Registered projects whose folder this scan did not see and that are not already marked missing."""
-    return tuple(sorted(pid for pid, record in known.items() if pid not in seen and record.missing_since is None))
+    """Registered projects whose folder this scan did not see and that are not already marked missing. A hidden
+    project lives outside `projects.root` and is never missing."""
+    return tuple(
+        sorted(
+            pid
+            for pid, record in known.items()
+            if pid not in seen and record.missing_since is None and not is_hidden(pid)
+        )
+    )
+
+
+# --- Yordamchi's own hidden project (the CLI smoke test, SPEC §5.6; T32) --------------------------------------------
+# The smoke turn runs in the scratch repo `DATA/sessions/smoke` (SPEC §5.3), and turns and sessions key on a
+# `projects` row. Its id starts with a dot, which no scanned folder can have (`skip_reason`: hidden), so it never
+# collides with an owner's project. It is never listed, routed or marked missing; only its exact id reaches it.
+SMOKE_PROJECT_ID: Final = ".smoke"
+
+
+def is_hidden(project_id: str) -> bool:
+    return project_id.startswith(".")
+
+
+def smoke_record(path: str, *, previous: ProjectRecord | None, now: datetime) -> ProjectRecord:
+    """The smoke project's row: no description, no remote, nothing deploys."""
+    return ProjectRecord(
+        id=SMOKE_PROJECT_ID,
+        path=path,
+        description="",
+        description_source=DescriptionSource.NONE,
+        is_worktree=False,
+        is_archive_name=False,
+        executor=EXECUTORS[0],
+        git_remote_url=None,
+        default_branch=None,
+        deploy=NO_DEPLOY,
+        deploy_checked_sha=None,
+        discovered_at=previous.discovered_at if previous is not None else now,
+        last_seen_at=now,
+    )
 
 
 # --- names and the owner's edits (UC-18) ----------------------------------------------------------------------------

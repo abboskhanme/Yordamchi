@@ -52,6 +52,9 @@ from yordamchi.shared.burst import store as burst_store
 from yordamchi.shared.burst.domain import BurstPart, BurstStatus, CloseReason, RunningTurn, TurnInput, WindowSettings
 from yordamchi.shared.cost.domain import Provider, Usage
 from yordamchi.shared.deps import SharedDeps
+from yordamchi.shared.health import store as health_store
+from yordamchi.shared.health.models import HealthEvent
+from yordamchi.shared.health.service import HealthState
 from yordamchi.shared.inbox.domain import Attachment, Content, IncomingUpdate, StoredUpdate, UpdateKind, UpdateStatus
 from yordamchi.shared.outbox import service as outbox_service
 from yordamchi.shared.outbox import store as outbox_store
@@ -1021,4 +1024,43 @@ def write_transcript(home: Path, session_id: str, *, folder: str = "-Users-owner
 # --- digest ---
 # --- servers ---
 # --- health ---
+HEALTH_VERSION: Final = "2026.10.24-abcdef0"
+HEALTH_SDK_VERSION: Final = "0.2.173"
+HEALTH_PID: Final = 4242
+
+
+def make_health_state(
+    clock: FakeClock,
+    *,
+    version: str = HEALTH_VERSION,
+    sdk_version: str = HEALTH_SDK_VERSION,
+    degraded: tuple[str, ...] = (),
+    pid: int = HEALTH_PID,
+) -> HealthState:
+    """The state `health.new_state` builds at start, with a fixed pid (the test process's is not a bot's)."""
+    return HealthState(version=version, started_at=clock.now(), pid=pid, sdk_version=sdk_version, degraded=degraded)
+
+
+async def list_health_events(db: Database, bot: BotName = BotName.DEV) -> list[HealthEvent]:
+    """Every `health_events` row of `bot`, oldest first."""
+    async with db.read() as s:
+        return list(reversed(await health_store.list_health_events(s, bot.value, limit=1000)))
+
+
+async def add_health_event(
+    db: Database, *, at: datetime, kind: str = "started", bot: BotName = BotName.DEV, data: JsonValue = None
+) -> None:
+    async with db.uow() as s:
+        await health_store.add_health_event(s, bot=bot.value, at=at, kind=kind, data=data or {})
+
+
+def make_media_dir(paths: Paths, name: str, *, files: int = 1) -> Path:
+    """A `media/<name>/` cache folder holding `files` small files."""
+    folder = paths.media / name
+    folder.mkdir(parents=True, exist_ok=True)
+    for index in range(files):
+        (folder / f"file-{index}.bin").write_bytes(b"x")
+    return folder
+
+
 # --- wiring (bots) ---

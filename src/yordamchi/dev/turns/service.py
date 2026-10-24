@@ -54,7 +54,7 @@ from yordamchi.dev.gate import service as gate
 from yordamchi.dev.gate.domain import OwnerVerdict, Policy
 from yordamchi.dev.gate.service import DecisionAnswer, GateScope
 from yordamchi.dev.projects import service as projects
-from yordamchi.dev.projects.domain import Project
+from yordamchi.dev.projects.domain import Project, is_hidden
 from yordamchi.dev.routing import service as routing
 from yordamchi.dev.routing.domain import NO_FACTS, Intent, Outcome, RouteFacts
 from yordamchi.dev.routing.service import Routed
@@ -113,6 +113,7 @@ from yordamchi.shared.audit.domain import AuditActor, AuditKind
 from yordamchi.shared.burst.domain import RunningTurn, TurnInput
 from yordamchi.shared.cost import service as cost
 from yordamchi.shared.cost.domain import Provider, Usage
+from yordamchi.shared.health.domain import SmokeOutcome, WorkStatus
 from yordamchi.shared.outbox import domain as outbox_domain
 from yordamchi.shared.outbox import service as outbox
 from yordamchi.shared.outbox.domain import About, Kind
@@ -320,7 +321,10 @@ async def _tell(
     priority: int | None = None,
     reply_to: int | None = None,
 ) -> None:
-    """One owner message about a project, queued in the caller's transaction. It starts with the project name."""
+    """One owner message about a project, queued in the caller's transaction. It starts with the project name.
+    Yordamchi's hidden smoke project tells the owner nothing: `shared/health` reports its outcome."""
+    if is_hidden(project_id):
+        return
     await outbox.enqueue_text(
         s,
         bot=deps.bot,
@@ -337,7 +341,10 @@ async def _tell(
 
 
 async def _show(s: Session, deps: DevDeps, snap: Snapshot, *, turn_id: int, project_id: str, text: BotText) -> None:
-    """The turn's one live progress message: posted once, then edited at most every `outbox.progress_edit_s`."""
+    """The turn's one live progress message: posted once, then edited at most every `outbox.progress_edit_s`. None
+    for the hidden smoke project."""
+    if is_hidden(project_id):
+        return
     await outbox.show_progress(
         s,
         bot=deps.bot,
@@ -2169,7 +2176,7 @@ async def recover_turns(deps: DevDeps) -> Recovered:
                 s, delivery.id, from_status=DeliveryStatus.SENDING.value, to_status=DeliveryStatus.FAILED.value
             )
             turn = await store.get_turn(s, delivery.turn_id)
-            if turn is not None:
+            if turn is not None and not is_hidden(turn.project_id):
                 uncertain.append(turn.project_id)
                 await _tell(
                     s,
@@ -2197,7 +2204,8 @@ async def recover_turns(deps: DevDeps) -> Recovered:
                 ended_at=now,
                 error_code="restart",
             )
-            interrupted.append(row.project_id)
+            if not is_hidden(row.project_id):  # the restart notice lists the owner's projects only
+                interrupted.append(row.project_id)
             waiting = [item.id for item in deliveries if item.status == DeliveryStatus.PENDING.value]
             if waiting:
                 fresh = await store.add_turn(
@@ -2238,6 +2246,95 @@ async def shutdown_turns(deps: DevDeps, state: TurnsState) -> int:
 
 
 # --- reads for other features ---------------------------------------------------------------------------------------
+async def work_status(deps: DevDeps) -> WorkStatus:
+    """`holat?`'s work lines: `shared/health` takes `functools.partial(work_status, deps)` as its `WorkProbe`. The
+    projects working now, the queue in start order, the gate decisions waiting for the owner and the agent questions
+    (turns in `waiting_question`). The hidden smoke project is left out."""
+    async with deps.db.read() as s:
+        working = await store.list_turns_with_status(s, [status.value for status in WORKING])
+        queued = await store.list_turns_with_status(s, [TurnStatus.QUEUED.value])
+        asking = await store.list_turns_with_status(s, [TurnStatus.WAITING_QUESTION.value])
+    decisions = await gate.pending_items(deps)
+    return domain.work_status(
+        [row.project_id for row in working if not is_hidden(row.project_id)],
+        [row.project_id for row in queued if not is_hidden(row.project_id)],
+        decisions=len(decisions),
+        questions=sum(1 for row in asking if not is_hidden(row.project_id)),
+    )
+
+
+async def _prepare_smoke_repo(deps: DevDeps, root: Path) -> None:
+    """The scratch repo of the smoke test (SPEC §2.2 `sessions/smoke/`): a private folder, a git repo from the first
+    run on."""
+    await asyncio.to_thread(root.mkdir, mode=0o700, parents=True, exist_ok=True)
+    if not await asyncio.to_thread((root / ".git").exists):
+        await deps.git.init(root, branch=domain.SMOKE_BRANCH, timeout=domain.GIT_TIMEOUT_S)
+
+
+def _smoke_file_ok(path: Path) -> bool:
+    try:
+        with path.open("rb") as file:
+            return file.read(domain.SMOKE_FILE_MAX).strip() == b"ok"
+    except OSError:
+        return False
+
+
+async def _smoke_turn_settled(deps: DevDeps, turn_id: int, *, deadline: datetime) -> Turn | None:
+    """The smoke turn once it ended, waits for something, or the deadline passed."""
+    while True:
+        async with deps.db.read() as s:
+            row = await store.get_turn(s, turn_id)
+        if row is None or TurnStatus(row.status) in TERMINAL | WAITING or deps.clock.now() >= deadline:
+            return row
+        await deps.clock.sleep(domain.SMOKE_POLL_S)
+
+
+async def run_smoke_turn(deps: DevDeps, state: TurnsState, version: str) -> SmokeOutcome:
+    """The CLI smoke test (SPEC §5.6, NFR-REL-08): one tiny turn — haiku, wall 5 min — in the scratch repo, which
+    must write a file and commit it. `shared/health` runs it after a `claude --version` change, as its `SmokeRunner`
+    (`functools.partial(run_smoke_turn, deps, state)`), and tells the owner only about a failure; the turn itself
+    tells the owner nothing. A turn not finished by the deadline is stopped. Never raises for a failed run."""
+    project = await projects.ensure_smoke_project(deps)
+    root = Path(project.path)
+    try:
+        await _prepare_smoke_repo(deps, root)
+    except (ExternalError, OSError) as error:
+        log.warning("smoke_repo_failed", error_type=type(error).__name__)
+        return SmokeOutcome(ok=False, step="repo")
+    started = deps.clock.now()
+    file_name = domain.smoke_file_name(started)
+    request = TurnRequest(
+        project_id=project.id,
+        text=prompts.render("dev/turns_smoke", file=file_name),
+        kind=TurnKind.SMOKE,
+        source=DeliverySource.SYSTEM,
+    )
+    submitted = await submit_turn(deps, state, request)
+    deadline = started + domain.SMOKE_WALL + domain.SMOKE_START_BUDGET
+    row = await _smoke_turn_settled(deps, submitted.turn_id, deadline=deadline)
+    if row is None:
+        return SmokeOutcome(ok=False, step="lost")
+    status = TurnStatus(row.status)
+    if status not in TERMINAL:
+        await stop_turn(deps, state, project.id)
+    file_ok = status is TurnStatus.DONE and await asyncio.to_thread(_smoke_file_ok, root / file_name)
+    outcome = domain.smoke_verdict(
+        status,
+        error_code=row.error_code,
+        committed=row.end_head is not None and row.end_head != row.start_head,
+        file_ok=file_ok,
+    )
+    log.info(
+        "smoke_turn_finished",
+        cli_version=version,
+        turn_id=row.id,
+        status=status.value,
+        ok=outcome.ok,
+        step=outcome.step,
+    )
+    return outcome
+
+
 async def latest_handoff(deps: DevDeps, project_id: str) -> HandoffNote | None:
     """The handoff note of the project's latest finished turn (for `dev/digest`, T30, which stores it in
     `digests.handoff_note`; `needs_synthesis` tells it to have the report Assistant write the four sections)."""

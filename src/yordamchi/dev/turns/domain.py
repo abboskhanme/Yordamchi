@@ -31,6 +31,7 @@ from yordamchi.ports.agent import DeliveryMode as SendMode
 from yordamchi.ports.agent import Effort, ModelUsage, SessionKind
 from yordamchi.ports.git import FileChange
 from yordamchi.shared.burst.domain import RunningTurn, TranscriptState, TurnInput
+from yordamchi.shared.health.domain import QueuedWork, SmokeOutcome, WorkStatus
 from yordamchi.shared.inbox.domain import UpdateKind
 
 # --- fixed values of the SPEC (not owner behaviour; §4.3 has no key for them) ---------------------------------------
@@ -45,6 +46,10 @@ INVESTIGATION_MAX_STEPS: Final = 60  # §5.3 investigation: `max_turns=60`, wall
 INVESTIGATION_WALL: Final = timedelta(minutes=3)
 SMOKE_WALL: Final = timedelta(minutes=5)  # §5.3 smoke: wall 5 min, model haiku
 SMOKE_MODEL: Final = "haiku"
+SMOKE_START_BUDGET: Final = timedelta(minutes=2)  # the smoke turn's queue, session open and result grace, on top
+SMOKE_POLL_S: Final = 5.0  # how often the smoke runner looks at its turn
+SMOKE_BRANCH: Final = "main"  # of the scratch repo `DATA/sessions/smoke`, created on first use
+SMOKE_FILE_MAX: Final = 64  # bytes of the smoke file read back
 SCHEDULER_TICK_S: Final = 15.0  # the scheduler also wakes this often for wall clocks, limit retries and idle closes
 PROGRESS_LINES: Final = 3  # §6.2: the progress line plus at most three latest steps
 PROGRESS_KEPT: Final = 50  # §4.2 `turn_progress`: last 50 per turn
@@ -917,6 +922,41 @@ def revert_plan(
 
 def revert_files_text(paths: Sequence[str]) -> str:
     return ", ".join(paths[:REVERT_FILES_SHOWN]) + (", …" if len(paths) > REVERT_FILES_SHOWN else "")
+
+
+# --- reads for shared/health (`holat?`, the CLI smoke test; SPEC §5.6, §6.2; NFR-REL-08) ---------------------------
+def work_status(working: Sequence[str], queued: Sequence[str], *, decisions: int, questions: int) -> WorkStatus:
+    """`holat?`'s work: the projects working now (each once) and the queue in start order, 1 = next."""
+    return WorkStatus(
+        running=tuple(dict.fromkeys(working)),
+        queued=tuple(QueuedWork(project_id=project, position=index) for index, project in enumerate(queued, start=1)),
+        decisions=decisions,
+        questions=questions,
+    )
+
+
+def smoke_file_name(now: datetime) -> str:
+    """A new file per run, so each smoke turn has something to commit in the scratch repo."""
+    return f"ok-{now:%Y%m%d-%H%M%S}.txt"
+
+
+_SMOKE_TOO_SLOW: Final = frozenset(
+    {TurnStatus.STARTING, TurnStatus.RUNNING, TurnStatus.STOPPING, TurnStatus.PAUSED_RUNAWAY}
+)
+
+
+def smoke_verdict(status: TurnStatus, *, error_code: str | None, committed: bool, file_ok: bool) -> SmokeOutcome:
+    """What the smoke turn showed (NFR-REL-08): it passed only if it finished, committed, and wrote the file. A
+    failure's `step` keys `S.SMOKE_STEPS` (else it is shown as a code)."""
+    if status is TurnStatus.DONE:
+        if not committed:
+            return SmokeOutcome(ok=False, step="commit")
+        return SmokeOutcome(ok=True) if file_ok else SmokeOutcome(ok=False, step="file")
+    if status in _SMOKE_TOO_SLOW:
+        return SmokeOutcome(ok=False, step="timeout")
+    if status is TurnStatus.INTERRUPTED:
+        return SmokeOutcome(ok=False, step=error_code or "start")
+    return SmokeOutcome(ok=False, step=error_code or status.value)
 
 
 # --- retention (SPEC §4.2) -----------------------------------------------------------------------------------------

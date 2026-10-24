@@ -1,0 +1,1 @@
+[Yordamchi] Self-test after a Claude Code update. Create a file named {{file}} in the current directory whose only content is the word ok, then commit it with git (message: "smoke test"). Do nothing else; no push. Then end the turn with the usual Natija and Testlar lines.

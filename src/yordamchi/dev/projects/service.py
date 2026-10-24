@@ -379,17 +379,30 @@ async def _views(deps: DevDeps, snap: Snapshot) -> tuple[Project, ...]:
     async with deps.db.read() as s:
         rows = await store.list_projects(s)
     prefs = _prefs(snap)
-    return tuple(domain.project_view(_record(row), prefs) for row in rows)
+    return tuple(domain.project_view(_record(row), prefs) for row in rows if not domain.is_hidden(row.id))
 
 
 async def list_projects(deps: DevDeps) -> tuple[Project, ...]:
     """Every registered project with the owner's current settings applied, missing and archived ones included
-    (`Project.routable` says which content routing may pick)."""
+    (`Project.routable` says which content routing may pick). Yordamchi's hidden smoke project is not among them."""
     return await _views(deps, await settings.snapshot(deps))
 
 
+async def ensure_smoke_project(deps: DevDeps) -> Project:
+    """Register (or refresh) the hidden project of the CLI smoke test, at `DATA/sessions/smoke` (SPEC §5.3, §5.6).
+    Turns reach it by its exact id, `domain.SMOKE_PROJECT_ID`; listing and routing never show it."""
+    snap = await settings.snapshot(deps)
+    path = str(deps.paths.session_dir("smoke"))
+    now = deps.clock.now()
+    async with deps.db.uow() as s:
+        row = await store.get_project(s, domain.SMOKE_PROJECT_ID)
+        record = domain.smoke_record(path, previous=None if row is None else _record(row), now=now)
+        await store.set_project(s, record)
+    return domain.project_view(record, _prefs(snap))
+
+
 async def get_project(deps: DevDeps, project_id: str) -> Project:
-    """The project with this exact id; `ProjectNotFound` otherwise."""
+    """The project with this exact id (the hidden smoke project too); `ProjectNotFound` otherwise."""
     snap = await settings.snapshot(deps)
     async with deps.db.read() as s:
         row = await store.get_project(s, project_id)

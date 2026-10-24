@@ -425,7 +425,68 @@ WRONG_TARGET_REVERT_FAILED = Msg(
 HEALTH_ONLINE = Msg("Onlayn: {time}")
 HEALTH_RESTARTED = Msg("Qayta ishga tushdim ({reason}). Uzilib qolgan ishlar: {interrupted} — davom ettiraymi?")
 HEALTH_RESTARTED_IDLE = Msg("Qayta ishga tushdim ({reason}). Uzilib qolgan ish yo'q.")
+# The `reason` of a restart notice: the previous run ended without writing its clean-exit marker (SPEC §2.5 step 8).
+HEALTH_REASON_UNCLEAN = Msg("oldingi ish kutilmaganda uzildi")
+HEALTH_REASON_UNCLEAN_SINCE = Msg("oldingi ish kutilmaganda uzildi, oxirgi marta {time} da ishlagan edim")
 WAKE_GAP = Msg("Mac uxlagan edi {from_}–{to}, {n} ta xabar qayta ishlanmoqda")
+# NFR-REL-08: told only when the smoke turn after a `claude` update fails; the bot keeps running. Keyed by the step.
+SMOKE_FAILED = Msg(
+    "Claude CLI {version} ga yangilandi, lekin sinov ishi o'tmadi: {step}. Men ishlashda davom etyapman; loyihalardagi "
+    "ishlar to'xtab qolsa, Mac'da `claude --version` va `claude auth status` ni tekshiring."
+)
+SMOKE_STEPS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "timeout": Msg("5 daqiqada tugamadi"),
+        "commit": Msg("fayl commit qilinmadi"),
+        "file": Msg("fayl to'g'ri yozilmadi"),
+        "repo": Msg("sinov papkasini tayyorlab bo'lmadi"),
+        "auth_failed": Msg("Claude login rad etildi"),
+        "start": Msg("sessiya ochilmadi"),
+        "queued": Msg("navbatdan chiqmadi (Mac band)"),
+        "waiting_limit": Msg("Claude limiti tugagan"),
+    }
+)
+SMOKE_STEP_OTHER = Msg("ish xato bilan tugadi ({code})")
+# NFR-CAP-05, SPEC §9.2: at most once per 6 h. Below `guard.block_disk_gb` the turn scheduler queues coding turns.
+DISK_LOW = Msg("Diskda {free} GB joy qoldi ({limit} GB dan kam). Keraksiz fayllarni o'chirib, joy bo'shating.")
+DISK_BLOCKED = Msg(
+    "Diskda atigi {free} GB qoldi ({limit} GB dan kam) — yangi kodlash ishlari navbatda turadi. Joy bo'shating."
+)
+# "holat?" (UC-06, SPEC §6.2): one line per part, built from local state only (golden: tests/golden/holat).
+HOLAT_HEAD = Msg("Holat · {bot} bot")
+HOLAT_UPTIME = Msg("Ish vaqti: {uptime} · Yordamchi {version} · SDK {sdk}")
+HOLAT_MINUTES = Msg("{minutes} daq")
+HOLAT_HOURS = Msg("{hours} soat {minutes} daq")
+HOLAT_DAYS = Msg("{days} kun {hours} soat")
+HOLAT_CLAUDE_OK = Msg("Claude CLI {version}: login — claude.ai")
+HOLAT_CLAUDE_WRONG_AUTH = Msg(
+    "Claude CLI {version}: login usuli «{method}», claude.ai bo'lishi kerak — Mac'da `claude auth status` ni tekshiring"
+)
+HOLAT_CLAUDE_LOGGED_OUT = Msg("Claude CLI {version}: login qilinmagan — Mac'da `claude` ni ochib, kiring")
+HOLAT_CLAUDE_MISSING = Msg("Claude CLI: topilmadi")
+HOLAT_CLAUDE_UNCHECKED = Msg("Claude CLI: hali tekshirilmadi")
+HOLAT_CLAUDE_FAILED = Msg("Claude CLI: tekshirib bo'lmadi ({code})")
+HOLAT_MANAGER = Msg("ClaudeManager: {email} · 5 soat: {five} · 7 kun: {seven}")
+HOLAT_PERCENT = Msg("{value}%")
+HOLAT_MANAGER_NO_ACTIVE = Msg("ClaudeManager: faol akkaunt yo'q")
+HOLAT_MANAGER_UNREAD = Msg("ClaudeManager: holatini o'qib bo'lmadi")
+HOLAT_SPEECH_UNREAD = Msg("Ovoz: kalitlar holatini o'qib bo'lmadi")
+HOLAT_RUNNING = Msg("Hozir ishlayapti: {projects}")
+HOLAT_RUNNING_NONE = Msg("Hozir ishlayapti: hech narsa")
+HOLAT_QUEUED = Msg("Navbatda: {items}")
+HOLAT_QUEUED_ITEM = Msg("{project} ({position}-o'rin)")
+HOLAT_PENDING = Msg("Javob kutayotgan qarorlar: {decisions} · savollar: {questions}")
+HOLAT_WORK_UNREAD = Msg("Ishlar: o'qib bo'lmadi")
+HOLAT_MAC = Msg("Mac: xotira bosimi — {pressure} · diskda {free} bo'sh")
+HOLAT_GB = Msg("{gb} GB")
+HOLAT_PRESSURE: Final[Mapping[int, Msg]] = MappingProxyType(
+    {1: Msg("normal"), 2: Msg("o'rtacha"), 4: Msg("yuqori")}  # kern.memorystatus_vm_pressure_level
+)
+HOLAT_UNKNOWN = Msg("noma'lum")
+HOLAT_DEGRADED = Msg("Cheklangan imkoniyatlar: {missing} topilmadi")
+HOLAT_ERRORS = Msg("Oxirgi xatolar: {errors}")
+HOLAT_ERROR_ITEM = Msg("{code} ({time})")
+HOLAT_NO_ERRORS = Msg("Oxirgi xatolar: yo'q")
 
 # --- wiring (bots) ---
 
