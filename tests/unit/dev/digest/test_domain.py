@@ -518,6 +518,14 @@ def test_the_assistant_answer_follows_the_live_turn_line() -> None:
     assert domain.all_assistant_report("", scrub) is None
 
 
+def test_a_chat_marked_answer_goes_alone() -> None:
+    """Owner, 2026-10-24: "salomlarim" got a project report. The Assistant marks small talk with `[chat]`."""
+    assert domain.chat_reply("[chat]\nSalom! Nima qilamiz?", scrub) == "Salom! Nima qilamiz?"
+    assert domain.chat_reply("  [chat] Yaxshi, rahmat!  ", scrub) == "Yaxshi, rahmat!"
+    assert domain.chat_reply("[chat]", scrub) is None  # nothing after the mark: the template answers
+    assert domain.chat_reply("Bugun 2 commit. [chat]", scrub) is None  # only a first-line mark counts
+
+
 def test_the_answer_ask_is_data_only_and_scrubbed() -> None:
     key = FAKE_KEYS["github_token"]
     result = ResultLine(4, TurnStatus.DONE, "Login", f"token {key} ishlatildi", "passed", ago(minutes=40))

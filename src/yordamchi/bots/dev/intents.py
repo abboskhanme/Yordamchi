@@ -180,7 +180,10 @@ _PHRASES: Final[dict[str, Intent]] = {
 }
 # Small talk (owner, 2026-10-24: "qandaysan?" got a report). Only a whole message of such words: one that says
 # anything more ("salom, BonviHR'da login xatosini tuzat") is work and goes on to routing.
-_HELLO: Final = r"(?:assalomu?\s+alaykum|assalom|salom(?:lar)?|hello|hi|hey|привет|здравствуй(?:те)?|салам)"
+_HELLO: Final = (
+    r"(?:assal[ao]mu?\s+alaykum|va\s*alaykum\s+assal[ao]m|assal[ao]m|salom\w*|xayrli\s+(?:tong|kun|kech)|hello|hi|hey"
+    r"|good\s+(?:morning|evening)|привет|здравствуй(?:те)?|салам|доброе\s+утро|добрый\s+(?:день|вечер))"
+)
 _HOW: Final = (
     r"(?:qand[ae]y(?:san(?:iz)?|siz)|qal[ae]y(?:san(?:iz)?|siz)?|qanaqasan|yaxshi\s*mi(?:san(?:iz)?|siz)"
     r"|zo'r\s*mi(?:san|siz)|ishlar\s+(?:qalay|yaxshimi)|nima\s+gap(?:lar)?"
@@ -193,7 +196,8 @@ _THANKS: Final = re.compile(
 )
 _HELP: Final = re.compile(
     r"(?:sen\s+|siz\s+)?(?:nima(?:lar)?\s+(?:ish(?:lar)?\s+)?qil\s*(?:a\s*)?ola(?:san(?:iz)?|siz)"
-    r"|qanday\s+yordam\s+bera\s*ola(?:san(?:iz)?|siz)|imkoniyatlaring(?:\s+(?:qanday|nima(?:lar)?))?|yordam|help)"
+    r"|qanday\s+yordam\s+bera\s*ola(?:san(?:iz)?|siz)|imkoniyatlaring(?:\s+(?:qanday|nima(?:lar)?))?|yordam|help"
+    r"|(?:nima(?:lar)?\s+)?qo'l(?:ing|ingiz)dan\s+(?:nima(?:lar)?\s+)?keladi|nima(?:lar)?ga\s+qodirsan(?:iz)?)"
 )
 # A setting key as the registry spells it: `outbox.progress_edit_s`.
 _SETTING_KEY: Final = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+")
@@ -248,7 +252,7 @@ _NAMED: Final[tuple[tuple[re.Pattern[str], Intent], ...]] = (
 
 def _small_talk_of(folded: str) -> Command | None:
     if _SMALL_TALK.fullmatch(folded) is not None:
-        greeting = GREETING_SALAM if "assalom" in folded else GREETING_HELLO
+        greeting = GREETING_SALAM if re.search(r"assal[ao]m", folded) else GREETING_HELLO
         opening = GREETING_HOW if _HOW_WORD.search(folded) else greeting
         return Command(Intent.GREETING, argument=opening)
     if _THANKS.fullmatch(folded) is not None:

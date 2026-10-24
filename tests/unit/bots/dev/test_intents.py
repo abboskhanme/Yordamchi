@@ -54,12 +54,17 @@ from yordamchi.bots.dev.intents import EARLY, NOT_BUILT, Command, Intent, comman
         ("yaxshimisiz", Command(Intent.GREETING, argument="how")),
         ("как дела?", Command(Intent.GREETING, argument="how")),
         ("Salom!", Command(Intent.GREETING, argument="hello")),
+        ("Salomlarim", Command(Intent.GREETING, argument="hello")),  # the owner's own words, 2026-10-24
+        ("xayrli tong", Command(Intent.GREETING, argument="hello")),
         ("hi", Command(Intent.GREETING, argument="hello")),
         ("Assalomu alaykum", Command(Intent.GREETING, argument="salam")),
+        ("Assalamu alaykum", Command(Intent.GREETING, argument="salam")),  # the owner's spelling, 2026-10-24
         ("Rahmat!", Command(Intent.THANKS)),
         ("katta rahmat 🙏", Command(Intent.THANKS)),
         ("spasibo", Command(Intent.THANKS)),
         ("Nimalar qilolasan?", Command(Intent.HELP)),
+        ("Nimalar qo'lingdan keladi", Command(Intent.HELP)),
+        ("qo'lingizdan nima keladi?", Command(Intent.HELP)),
         ("nima qila olasiz", Command(Intent.HELP)),
         ("qanday yordam bera olasan?", Command(Intent.HELP)),
         ("yordam", Command(Intent.HELP)),

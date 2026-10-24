@@ -743,6 +743,20 @@ def assistant_report(state: ProjectState, answer: str, *, now: datetime, scrub: 
     return join([*turn_lines(state, now=now, scrub=scrub), scrub(shorten(text, ANSWER_MAX))])
 
 
+# The report Assistant's first line when the question was not about the work at all ("salomlarim", "nimalar qo'lingdan
+# keladi?"): the answer goes alone, with no status and no freshness line (owner, 2026-10-24).
+CHAT_MARK: Final = "[chat]"
+
+
+def chat_reply(answer: str, scrub: Scrub) -> BotText | None:
+    """The answer without its `[chat]` line when the Assistant marked it as small talk, else None."""
+    text = answer.strip()
+    if not text.startswith(CHAT_MARK):
+        return None
+    rest = text.removeprefix(CHAT_MARK).strip()
+    return scrub(shorten(rest, ANSWER_MAX)) if rest else None
+
+
 def all_assistant_report(answer: str, scrub: Scrub) -> BotText | None:
     text = answer.strip()
     return scrub(shorten(text, ANSWER_MAX)) if text else None

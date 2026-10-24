@@ -729,26 +729,27 @@ CHAT_HELLO = Msg("Salom! 👋 Nima qilamiz?")
 CHAT_SALAM = Msg("Va alaykum assalom! 👋 Nima qilamiz?")
 CHAT_HOW = Msg("Yaxshi, rahmat! 🙂 O'zingiz qalaysiz?")
 CHAT_THANKS = Msg("Arzimaydi! 🙂")
-# "nima qila olasan?", `/yordam`: what the dev bot does today (docs/QOLLANMA.md; P2 features are not listed).
+# "nima qila olasan?", `/yordam`: what the dev bot does today (docs/QOLLANMA.md; P2 features are not listed). Plain
+# text until the outbox renders `**bold**` (the formatting pass): Telegram showed the asterisks as typed.
 HELP = Msg(
-    "**Men nimalar qila olaman**\n"
+    "Men nimalar qila olaman:\n"
     "\n"
-    "**Loyihalarda ishlash**\n"
+    "🛠 Loyihalarda ishlash\n"
     "• Vazifani oddiy gap bilan bering — matn, ovoz yoki rasm: «BonviHR'da login sahifasini tuzat»\n"
     "• Loyihani o'zim topaman; ikkilansam, bitta savol beraman\n"
     "• Commit va push o'zim qilaman; deploy, ma'lumot o'chirish yoki pul sarfini faqat sizdan so'rab\n"
     "• To'xtatish: «to'xta»; yo'nalishni o'zgartirish: «yo'q, boshqacha qil: …»\n"
     "• «kut» — yana yuborasiz, men kutib turaman\n"
     "\n"
-    "**Tekshirish va hisobot**\n"
+    "🔎 Tekshirish va hisobot\n"
     "• «X'da nega … ishlamayapti?» yoki xato skrinshoti — faqat o'qib tekshiraman\n"
     "• «BonviHR qanday?», «bugun nima o'zgardi?» — tezkor hisobot\n"
     "• «holat?» — botning o'zi; «loyihalar» — ro'yxat; «xarajat?» — sarf\n"
     "\n"
-    "**Serverlar**\n"
+    "🖥 Serverlar\n"
     "• «bonvi-srv serverini kuzat», «serverda nima bo'lyapti?» — faqat o'qiydigan tekshiruv\n"
     "\n"
-    "**Sozlamalar**\n"
+    "⚙️ Sozlamalar\n"
     "• «sozlamalar» — ko'rish; «sozlama: …» — o'zgartirish\n"
     "• «bu so'zni to'g'ri yoz: OrvionX» — ovozdagi atamani o'rgatish"
 )

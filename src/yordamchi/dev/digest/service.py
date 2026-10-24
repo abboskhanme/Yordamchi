@@ -705,6 +705,9 @@ async def _answer_all(
     if plan.mode is ReportMode.ASSISTANT and state.synthesizing == 0:
         prompt = domain.answer_prompt(question.text, views, servers, now=now, timezone=timezone, scrub=scrub)
         reply = await _ask(deps, snap, prompt=prompt, deadline=deadline)
+        if reply is not None and (chat := domain.chat_reply(reply.text, scrub)) is not None:
+            await _send(deps, snap, chat, ref=_ref(question, "report-all"), project_id=None, reply=reply)
+            return ReportAnswer(plan, text=chat, provider=reply.provider)
         if reply is not None:
             body = domain.all_assistant_report(reply.text, scrub)
     provider = reply.provider if reply is not None and body is not None else None

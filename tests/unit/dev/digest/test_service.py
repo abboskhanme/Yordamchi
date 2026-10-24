@@ -710,6 +710,18 @@ async def test_a_free_form_cross_project_question_gives_the_assistant_every_dige
     assert payload["projects"][0]["now_running"][0]["title"] == "Login sahifasini tuzat"
 
 
+async def test_small_talk_routed_to_a_report_is_answered_alone_without_status(
+    dev_deps: DevDeps, fakes: Fakes, three_projects: dict[str, Path], digest_state: DigestState
+) -> None:
+    """Owner, 2026-10-24: "oddiy gap uchun ham loyihalar haqida ma'lumot yoki holat haqida hisobotni tiqishtirmasin"."""
+    fakes.assistant.reply_with("report", "[chat]\nVa alaykum assalom! Nima qilamiz?")
+
+    answer = await service.answer_report(report_deps(dev_deps), digest_state, make_report_question("Salomlarim", None))
+
+    assert answer.text == "Va alaykum assalom! Nima qilamiz?"  # no project, no "Ma'lumot: …" line
+    assert answer.provider == "claude"
+
+
 async def test_stale_digests_of_active_projects_are_refreshed_for_a_cross_project_answer(
     dev_deps: DevDeps, fakes: Fakes, three_projects: dict[str, Path], digest_state: DigestState
 ) -> None:
