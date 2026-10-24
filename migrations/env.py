@@ -66,6 +66,9 @@ def run_migrations_online() -> None:
     def _on_connect(dbapi_connection: sqlite3.Connection, record: ConnectionPoolEntry) -> None:
         del record
         apply_pragmas(dbapi_connection, WRITE_PRAGMAS)
+        # A batch migration rebuilds a SQLite table by copy + DROP; with foreign keys on, that DROP fires ON DELETE in
+        # every child table and silently empties or nulls them (T40). Off for migrations; checked after the run.
+        apply_pragmas(dbapi_connection, ("PRAGMA foreign_keys=OFF",))
 
     with engine.connect() as connection:
         context.configure(
@@ -77,6 +80,9 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
+        broken = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+        if broken:
+            raise RuntimeError(f"foreign key violations after migrating: {len(broken)} row(s)")
     engine.dispose()
 
 

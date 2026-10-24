@@ -191,16 +191,6 @@ def test_the_guard_accepts(body: str) -> None:
         pytest.param("bursts", id="set_null_children_nulled"),  # every burst_id pointer nulled
     ],
 )
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "BLOCKING for any revision that rebuilds a table: migrations/env.py (locked, TASKS R2) applies WRITE_PRAGMAS "
-        "with foreign_keys=ON to the migration connection, so the DROP TABLE of SQLite's batch rebuild deletes every "
-        "row first and fires ON DELETE CASCADE / SET NULL in the child tables. Fix: migrate with "
-        "PRAGMA foreign_keys=OFF and run PRAGMA foreign_key_check before the commit."
-    ),
-)
 def test_a_table_rebuild_keeps_every_child_row(tmp_path: Path, table: str) -> None:
     children = {child for (child, _), (parent, _) in inventory.FOREIGN_KEYS.items() if parent == table}
     problems = _rebuild_loss(tmp_path, table)

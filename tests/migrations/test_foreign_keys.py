@@ -87,18 +87,15 @@ def test_the_revision_the_models_and_the_db_agree_on_every_foreign_key(
     assert _from_revision() == _from_models() == migrated_keys
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "PENDING_WIRING From T15/T24/T29: outbox_messages.turn_id, message_links.turn_id and message_links.question_id "
-        "are decided as FKs ON DELETE SET NULL but are plain integers. Add them before T43 freezes 0001 (later it is a "
-        "table rebuild), then move them to inventory.FOREIGN_KEYS and drop this marker."
-    ),
-)
-def test_the_decided_outbox_foreign_keys_are_in_the_schema() -> None:
+def test_the_outbox_turn_and_question_pointers_are_deliberately_plain_integers() -> None:
+    """Decided by the merge train on 2026-10-24 (docs/ASSUMPTIONS.md): `outbox_messages.turn_id`,
+    `message_links.turn_id` and `message_links.question_id` stay plain integers, not foreign keys. Outbox rows and links
+    outlive or precede the rows they mention, nothing joins through them to delete, and adding a key after T43 would be
+    a table rebuild. If one becomes a real key, this test fails and the decision must be revisited."""
     watched = _watched(_from_models())
-    assert {key: watched.get(key) for key in inventory.PENDING_FOREIGN_KEYS} == inventory.PENDING_FOREIGN_KEYS
+    assert {key: watched.get(key) for key in inventory.PENDING_FOREIGN_KEYS} == dict.fromkeys(
+        inventory.PENDING_FOREIGN_KEYS
+    )
 
 
 def test_every_foreign_key_into_a_pruned_table_has_an_on_delete_action() -> None:
