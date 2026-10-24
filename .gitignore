@@ -1,0 +1,40 @@
+# Secrets and runtime data never enter git (CONVENTIONS §12, NFR-SEC-02).
+*.env
+.env
+.env.*
+!*.env.example
+*.key
+*.p12
+*.keystore
+id_rsa*
+credentials*.json
+
+# Databases (the P1 release fixture DB is the one exception, TASKS T40)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+!tests/migrations/fixtures/*.db
+
+# Runtime dirs that live under DATA in production; root only (a `personal/media` package must stay tracked)
+/media/
+/run/
+/logs/
+
+# Python and tooling
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.import_linter_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# macOS
+.DS_Store

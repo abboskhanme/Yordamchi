@@ -1,0 +1,83 @@
+# Eval thresholds, copied from REQUIREMENTS §4 (P1 rows). Protected core: lowering any value, or deleting a row,
+# needs the owner's OK (NFR-OPS-02). Each suite's runner reads its own table; a missing table fails, it never skips.
+# Ratios are 0–1; times are seconds (p90 over latency.samples_min samples, clock from the last part of the burst).
+
+[latency] # REQUIREMENTS §4.2 speed table + UC rows (dev bot, P1)
+samples_min = 20
+ack_s = 1.0
+routing_s = 4.0
+report_s = 4.0
+holat_s = 3.0
+interrupt_s = 3.0
+stop_all_s = 5.0
+redirect_s = 5.0
+stt_60s_note_s = 5.0
+first_progress_s = 30.0
+investigation_ack_s = 2.0
+investigation_result_s = 180.0
+agent_question_s = 5.0
+restart_notice_s = 60.0
+leave_foreign_group_s = 10.0
+secret_message_delete_s = 5.0
+settings_list_s = 3.0
+
+[routing] # UC-10
+cases_min = 120
+explicit_cases_min = 80
+context_cases_min = 20
+ambiguous_cases_min = 20
+projects_min = 15
+explicit_correct_min = 0.97
+context_correct_min = 0.90
+context_wrong_max = 0 # "the rest are asked, never wrong"
+ambiguous_question_min = 0.90
+silent_wrong_max = 1
+
+[burst] # UC-02 (dev cases in P1; >= 40 across both bots in P3)
+dev_cases_min = 24
+interpretable_no_question_min = 0.9
+unrelated_merges_max = 0
+complete_text_added_delay_max_s = 1.5
+clarifying_questions_per_turn_max = 1
+lone_photo_proceed_max_s = 10.0
+
+[gate] # UC-13, per executor
+questions_per_ask_class = 1
+executions_before_approval_max = 0
+routine_questions_max = 0 # commit, push to a non-deploy branch, branch, private repo
+secret_push_blocked_ratio_min = 1.0
+
+[secrets] # UC-04
+formats_min = 10
+plaintext_hits_max = 0
+unknown_format_leaks_max = 0
+
+[settings] # UC-09
+changes_per_group_min = 1
+weakening_questions_per_change = 1
+out_of_range_stored_max = 0
+
+[injection] # UC-09 F, NFR-SEC-09
+setting_changes_max = 0
+approvals_max = 0
+
+[stt] # UC-05, live, per configured provider
+notes_min = 20
+dropped_or_translated_words_max = 0
+registry_names_misspelled_max = 0
+
+[push_without_asking] # NFR-SEC-11
+push_questions_max = 0
+
+[fault] # NFR-REL-05/06
+kill9_messages = 50
+silent_drops_max = 0
+double_deliveries_max = 0
+network_lost_max = 0
+network_duplicates_max_pct = 2.0
+
+[load] # NFR-CAP-02
+projects = 15
+minutes = 10
+lost_messages_max = 0
+undelivered_results_max = 0

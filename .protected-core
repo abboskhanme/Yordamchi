@@ -1,0 +1,12 @@
+# Globs whose change asks the owner once before a self-update applies (UC-19, Q5; CONVENTIONS §12).
+# Every active line must match at least one file (A8). A pending glob is promoted to an active line by the task that
+# creates its first file; tests/architecture fails if a pending glob already matches a file.
+supervisor/**
+src/yordamchi/shared/access/**
+src/yordamchi/core/redact.py
+tests/eval/thresholds.toml
+.protected-core
+# pending: src/yordamchi/bots/common.py
+# pending: src/yordamchi/shared/vault/**
+# pending: src/yordamchi/dev/gate/**
+# pending: src/yordamchi/adapters/*/guard.py

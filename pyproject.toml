@@ -1,0 +1,293 @@
+[project]
+name = "yordamchi"
+version = "0.1.0"
+description = "Owner-only Telegram dev and personal bots that run on the owner's Mac (docs/SPEC.md)"
+readme = "README.md"
+# STACK §2: Python 3.12.15 via uv; the branch is security-only until 2028-10.
+requires-python = "==3.12.*"
+# Every P1 pin from STACK §2 plus the SPEC additions (PyYAML for deploy-branch detection, aiohttp for the OpenRouter
+# adapter). pyproject.toml and uv.lock are locked files (TASKS R2): a later phase adds its pins in its own task.
+dependencies = [
+    "aiogram==3.31.0",
+    "aiohttp==3.14.5",
+    "aiosqlite==0.22.1",
+    "alembic==1.20.1",
+    "claude-agent-sdk==0.2.173",
+    "cryptography==50.0.2",
+    "google-genai==2.33.0",
+    "pyyaml==6.0.3",
+    "sqlalchemy[asyncio]==2.1.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.13,<0.14"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "import-linter==2.15",
+    "mypy==2.4.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-socket==0.8.1",
+    "ruff==0.17.2",
+    "types-pyyaml==6.0.12.20260906",
+]
+
+# --- pytest (CONVENTIONS §11) ------------------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+xfail_strict = true
+filterwarnings = ["error"]
+addopts = [
+    "--import-mode=importlib",
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    # Live tests need real keys and accounts; `pytest -m live` opts in (a later -m wins).
+    "-m",
+    "not live",
+    # The network is closed; unix sockets stay open for the event loop and the control socket (CONVENTIONS §11).
+    "--disable-socket",
+    "--allow-unix-socket",
+]
+markers = ["live: talks to a real external system (Telegram, Claude, Gemini, GitHub, SSH); opt-in with -m live"]
+
+# --- ruff (CONVENTIONS §13) --------------------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests", "lint", "supervisor/src", "supervisor/tests"]
+# Docs are not code: never reformat the Python snippets in docs/*.md.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "C4", "DTZ", "T10", "T20", "S", "ASYNC", "SIM", "RUF", "TID", "PT",
+    "RET", "PIE", "PGH", "BLE", "PL", "PERF", "LOG", "G", "ISC", "PTH", "ANN401",
+]
+ignore = [
+    "PLR0913", # services and ports take keyword-only values (CONVENTIONS §4)
+    "PLR2004", # limits and HTTP statuses read better inline
+    "ISC001",  # conflicts with the formatter
+    "N818",    # error classes are named by CONVENTIONS §7 (RateLimited, AuthFailed), not *Error
+    "ASYNC109", # A4 requires a keyword-only `timeout` on every port call; the adapter applies it
+]
+# Uzbek text and masks use these on purpose.
+allowed-confusables = ["–", "’", "‘", "ʻ", "ʼ", "•", "×"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"os.environ".msg = "Bootstrap values come from core.config; a child's environment from core.proc.clean_env()"
+"os.getenv".msg = "Bootstrap values come from core.config"
+"os.putenv".msg = "Never mutate the environment outside core.proc"
+"os.unsetenv".msg = "Never mutate the environment outside core.proc"
+"datetime.datetime.now".msg = "Read the time from deps.clock; only adapters/system_clock.py calls datetime.now"
+"datetime.datetime.utcnow".msg = "Read the time from deps.clock"
+"datetime.datetime.today".msg = "Read the time from deps.clock"
+"datetime.date.today".msg = "Read the time from deps.clock"
+"time.time".msg = "Instants come from deps.clock; durations from time.monotonic()"
+"time.sleep".msg = "Never block the loop; wait with deps.clock.sleep()"
+"subprocess".msg = "Subprocesses only via core.proc (argv list, own process group, clean env)"
+"asyncio.create_subprocess_exec".msg = "Subprocesses only via core.proc"
+"asyncio.create_subprocess_shell".msg = "No shell, ever (CONVENTIONS §6)"
+"asyncio.create_task".msg = "Background tasks only via core.aio.spawn()/forever()"
+"asyncio.ensure_future".msg = "Background tasks only via core.aio.spawn()/forever()"
+"asyncio.run".msg = "One event loop per process: asyncio.run only in bots/*/app.py and the supervisor's main"
+"logging.basicConfig".msg = "Logging is configured once by core.log.configure()"
+"sqlalchemy.text".msg = "No SQL from strings; textual SQL only in migrations/"
+"requests".msg = "No sync HTTP; adapters use their vendor SDK or aiohttp"
+
+[tool.ruff.lint.per-file-ignores]
+# The single homes CONVENTIONS §3 names for each banned API.
+"src/yordamchi/core/config.py" = ["TID251"]           # os.environ: bootstrap values
+"src/yordamchi/core/proc.py" = ["TID251", "S603"]     # os.environ + subprocess: argv lists only, never a shell
+"src/yordamchi/core/aio.py" = ["TID251", "BLE001"]    # create_task; forever() keeps a loop alive (CONVENTIONS §7)
+"src/yordamchi/adapters/system_clock.py" = ["TID251"] # the only datetime.now
+"src/yordamchi/adapters/*/guard.py" = ["BLE001"]      # fail closed: any error is a deny (CONVENTIONS §7)
+"src/yordamchi/bots/common.py" = ["BLE001"]           # guarded() around every turn and job (CONVENTIONS §7)
+"src/yordamchi/bots/*/app.py" = ["TID251", "PLC0415"] # asyncio.run; vendor imports after redact is installed
+"src/yordamchi/adapters/**" = ["ANN401"]              # vendor SDK objects may be Any inside their adapter
+"src/yordamchi/persistence/types.py" = ["A005"]       # the module name is fixed by CONVENTIONS §1 and SPEC §4.1
+"migrations/**" = ["N999", "INP001", "TID251"]        # revision files start with digits; textual SQL lives here
+"tests/**" = [
+    "S101",    # assert is how pytest asserts
+    "S105",    # fake tokens are the point of the secret tests
+    "S106",
+    "S108",    # /tmp paths appear as data in the PATH and gate tests
+    "PLC0415", # imports inside a test keep its dependencies local
+    "SLF001",  # tests may inspect private state of fakes
+]
+"supervisor/**" = ["TID251", "S603", "S607"]          # a separate stdlib program (CONVENTIONS §12)
+"supervisor/tests/**" = ["PT009", "PT027", "S101"]    # stdlib unittest, no pytest in the supervisor
+
+[tool.ruff.lint.flake8-builtins]
+strict-checking = true
+
+[tool.ruff.lint.pep8-naming]
+extend-ignore-names = ["S"] # the string catalog is imported as `S` (CONVENTIONS §3)
+
+[tool.ruff.lint.pylint]
+max-args = 8
+
+[tool.ruff.lint.isort]
+known-first-party = ["yordamchi", "yordamchi_supervisor", "tests", "lint"]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+# --- mypy --strict (CONVENTIONS §13) -----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = ["src", "supervisor/src"]
+files = ["src", "tests", "lint", "migrations/env.py", "supervisor/src", "supervisor/tests"]
+explicit_package_bases = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool", "possibly-undefined"]
+
+# --- import-linter: C1–C8 (CONVENTIONS §2) -----------------------------------------------------------------------
+# A layer in parentheses is optional: it is checked as soon as the module exists. `confined` is `protected` that
+# tolerates a vendor nothing imports yet (lint/import_contracts.py, copied from MegaPlus Platform), so every C5 line
+# is declared before its adapter lands. `.**` (descendants) is used where the package itself may not exist yet.
+[tool.importlinter]
+root_package = "yordamchi"
+include_external_packages = true
+exclude_type_checking_imports = true
+contract_types = ["confined: lint.import_contracts.ConfinedContract"]
+
+[[tool.importlinter.contracts]]
+id = "C1"
+name = "C1 layers: bots > dev | personal | adapters > shared > persistence | prompts > ports > core"
+type = "layers"
+layers = [
+    "yordamchi.bots",
+    "yordamchi.dev | yordamchi.personal | yordamchi.adapters",
+    "yordamchi.shared",
+    "yordamchi.persistence | yordamchi.prompts",
+    "yordamchi.ports",
+    "yordamchi.core",
+]
+
+[[tool.importlinter.contracts]]
+id = "C2"
+name = "C2 inside a feature: service > store > models > domain"
+type = "layers"
+containers = ["yordamchi.shared.*", "yordamchi.dev.*", "yordamchi.personal.*"]
+layers = ["(service)", "(store)", "(models)", "(domain)"]
+
+[[tool.importlinter.contracts]]
+id = "C3"
+name = "C3 adapters translate: no shared, persistence, prompts or sqlalchemy"
+type = "forbidden"
+source_modules = ["yordamchi.adapters"]
+forbidden_modules = ["yordamchi.shared", "yordamchi.persistence", "yordamchi.prompts", "sqlalchemy"]
+
+[[tool.importlinter.contracts]]
+id = "C4"
+name = "C4 adapters are wired only by bots"
+type = "protected"
+protected_modules = ["yordamchi.adapters"]
+allowed_importers = ["yordamchi.bots"]
+
+[[tool.importlinter.contracts]]
+id = "C5-aiogram"
+name = "C5 aiogram only in bots and adapters.telegram"
+type = "confined"
+protected_modules = ["aiogram"]
+allowed_importers = ["yordamchi.bots", "yordamchi.adapters.telegram.**"]
+
+[[tool.importlinter.contracts]]
+id = "C5-claude"
+name = "C5 claude_agent_sdk only in adapters.claude"
+type = "confined"
+protected_modules = ["claude_agent_sdk"]
+allowed_importers = ["yordamchi.adapters.claude.**"]
+
+[[tool.importlinter.contracts]]
+id = "C5-google"
+name = "C5 google (google-genai) only in adapters.gemini"
+type = "confined"
+protected_modules = ["google"]
+allowed_importers = ["yordamchi.adapters.gemini.**"]
+
+[[tool.importlinter.contracts]]
+id = "C5-sqlalchemy"
+name = "C5 sqlalchemy, aiosqlite and alembic only in persistence, */store.py and */models.py"
+type = "confined"
+protected_modules = ["sqlalchemy", "aiosqlite", "alembic"]
+allowed_importers = ["yordamchi.persistence", "yordamchi.*.*.store", "yordamchi.*.*.models"]
+
+[[tool.importlinter.contracts]]
+id = "C5-aiohttp"
+name = "C5 aiohttp only in adapters.openrouter (plain HTTP, SPEC §3.1)"
+type = "confined"
+protected_modules = ["aiohttp"]
+allowed_importers = ["yordamchi.adapters.openrouter.**"]
+
+[[tool.importlinter.contracts]]
+id = "C5-cryptography"
+name = "C5 cryptography only in adapters.keystore (AES-GCM behind the Keystore port)"
+type = "confined"
+protected_modules = ["cryptography"]
+allowed_importers = ["yordamchi.adapters.keystore.**"]
+
+[[tool.importlinter.contracts]]
+id = "C5-later-vendors"
+name = "C5 later-phase SDKs, each in its adapter (mcp P2; edge_tts, playwright, yt_dlp P3)"
+type = "confined"
+protected_modules = ["mcp", "edge_tts", "playwright", "yt_dlp"]
+allowed_importers = [
+    "yordamchi.adapters.mcp.**",
+    "yordamchi.adapters.edge_tts.**",
+    "yordamchi.adapters.web.**",
+]
+
+[[tool.importlinter.contracts]]
+id = "C6"
+name = "C6 domain (and the settings declarations) are pure"
+type = "forbidden"
+source_modules = [
+    "yordamchi.*.*.domain",
+    "yordamchi.shared.settings.registry",
+    "yordamchi.shared.settings.defaults",
+]
+forbidden_modules = [
+    "sqlalchemy", "aiosqlite", "alembic", "aiogram", "aiohttp", "claude_agent_sdk", "google", "cryptography", "yaml",
+    "yordamchi.persistence", "yordamchi.adapters", "yordamchi.bots",
+    "yordamchi.*.*.service", "yordamchi.*.*.store", "yordamchi.*.*.models",
+]
+
+[[tool.importlinter.contracts]]
+id = "C7-independence"
+name = "C7 the two bots are independent"
+type = "independence"
+modules = ["yordamchi.bots.dev", "yordamchi.bots.personal"]
+
+[[tool.importlinter.contracts]]
+id = "C7-personal"
+name = "C7 the personal bot holds no executor, git, GitHub or SSH handle (UC-36), not even indirectly"
+type = "forbidden"
+source_modules = ["yordamchi.bots.personal"]
+forbidden_modules = [
+    "yordamchi.dev",
+    "yordamchi.adapters.claude.executor",
+    "yordamchi.adapters.codex",
+    "yordamchi.adapters.ssh",
+    "yordamchi.adapters.git",
+    "yordamchi.adapters.github",
+]
+allow_indirect_imports = false
+
+[[tool.importlinter.contracts]]
+id = "C8"
+name = "C8 core.retry only in adapters (services never retry)"
+type = "protected"
+protected_modules = ["yordamchi.core.retry"]
+allowed_importers = ["yordamchi.adapters"]
