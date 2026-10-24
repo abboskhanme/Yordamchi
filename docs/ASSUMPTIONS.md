@@ -299,3 +299,12 @@ question. Correct any line and it changes.
 - [2026-10-24] A settings request is all-or-nothing: if any part weakens a safeguard, the whole request waits for one "ha"; a revert follows the same rule; repeating the request reuses the open decision → one question at most.
 - [2026-10-24] Settings list → a grouped summary plus the full list as a `.md` file; values are masked first, then truncated (found and fixed a prefix leak); English doc strings are hidden from the owner (NFR-LANG-01).
 - [2026-10-24] NL settings interpretation → an unknown key from the model counts as "unclear" and changes nothing; the clarifying question comes from a fixed template, not from model text → injection-safe (NFR-SEC-09).
+
+## Gate eval (T25) and installer pins, merged 2026-10-24
+- [2026-10-24] Gate eval temp roots → the eval runs with `gate.temp_roots = ["/tmp", "/private/tmp"]`, stricter than the default (pytest tmp dirs under `/private/var/folders` would otherwise never ask).
+- [2026-10-24] Recipes nested past level 2 (`npm run a` → `b` → `c`) → ask `recipe_unknown`; shell scripts are judged in the caller's cwd; npm uses the nearest `package.json` upward → T25 bugs 1–3.
+- [2026-10-24] Shell functions and aliases → judged where they are defined; `npx <pkg>` maps to the package's binary; `script -q /dev/null <cmd>` is a wrapper; `gh api …/dispatches` asks `deploy` → T25 bugs 4–6, 8.
+- [2026-10-24] Git and ssh settings whose value is a command (`-c alias.x='!…'`, `core.sshCommand`, `GIT_SSH_COMMAND`, `ProxyCommand`, `LocalCommand`) → judged as local commands, so reading credentials through them is forbidden, not askable → T25 bugs 7, 9.
+- [2026-10-24] Side effect → in investigation sessions, `git -c core.pager=less log` is denied unless the pager is on the read-only program list → acceptable; investigations should not page.
+- [2026-10-24] ffmpeg → 9.0.2 arm64 static builds from ffmpeg.martin-riedl.de; SHA-256 taken from the publisher's `.sha256` files and re-verified locally; the binaries are Developer-ID signed and include libopus → STACK §5.
+- [2026-10-24] `python -m yordamchi.check` → a two-line shim module; it is also reachable as `-m yordamchi.bots.cli.check`.
