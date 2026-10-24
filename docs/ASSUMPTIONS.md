@@ -351,3 +351,4 @@ question. Correct any line and it changes.
 - [2026-10-24] Network-gap notice → after ≥ 5 min offline the bot posts "Internet uzilgan edi HH:MM–HH:MM" once it's back (the wake-gap pattern).
 - [2026-10-24] Factories name clash → the servers ORM `ServerCheck` is imported as `ServerCheckRow` in `tests/factories.py` (digest has a domain `ServerCheck`).
 - [2026-10-24] P4 (Codex executor) → on hold by the owner: not started and not proposed until he asks explicitly; progress figures exclude it → the owner's decision.
+- [2026-10-24] One bot for both roles? (owner asked) → no, two bots stay (owner's choice after the trade-offs) → the personal bot reads untrusted web content all day and holds no executor, git, SSH or dev token; one bot would remove that wall or need a front-router plus two backends (+2–3 tasks); separate processes also mean one crash doesn't take both down. The personal bot still answers project-status questions read-only.
