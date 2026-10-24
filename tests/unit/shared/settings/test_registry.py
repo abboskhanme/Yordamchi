@@ -62,10 +62,18 @@ newproject.plan_max_min handoff.scan_s integrations.oauth_redirect_port integrat
 integrations.oauth_client_metadata_url selfupdate.drain_max_min selfupdate.health_timeout_s qa.draft_interval_s
 qa.session_idle_rotate_h sessions.idle_close_min turns.result_grace_s
 """.split()  # noqa: SIM905
+# SPEC §5.7 gives the shim window inline ("in the last 120 s"); the T07 wiring note named its key (T18).
+SPEC_KEYS.append("gate.shim_grant_window_s")
 
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")
-SAFEGUARD_KEYS = ("gate.ask_classes", "gate.secret_scan_enabled", "gate.jump_only_hosts", "turns.max_concurrent")
+SAFEGUARD_KEYS = (
+    "gate.ask_classes",
+    "gate.secret_scan_enabled",
+    "gate.jump_only_hosts",
+    "gate.shim_grant_window_s",
+    "turns.max_concurrent",
+)
 
 SETTINGS = sorted(REGISTRY, key=lambda setting: setting.key)
 

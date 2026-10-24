@@ -42,6 +42,7 @@ class ErrorCode(StrEnum):
     PROJECT_ALIAS_INVALID = "project_alias_invalid"
     PROJECT_DESCRIPTION_INVALID = "project_description_invalid"
     # --- gate ---
+    DECISION_NOT_FOUND = "decision_not_found"
     # --- voice ---
     # --- routing ---
     # --- settings ---
@@ -209,6 +210,13 @@ class ProjectDescriptionInvalid(DomainError):
 
 
 # --- gate ---
+class DecisionNotFound(DomainError):
+    """The owner answered a decision number (`#17 ha`) that no decision has."""
+
+    def __init__(self, *, decision_id: int) -> None:
+        super().__init__(ErrorCode.DECISION_NOT_FOUND, decision_id=decision_id)
+
+
 # --- voice ---
 # --- routing ---
 # --- settings ---

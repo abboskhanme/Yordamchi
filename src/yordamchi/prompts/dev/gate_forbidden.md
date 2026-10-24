@@ -1,0 +1,1 @@
+BLOCKED by Yordamchi's safety rules ({{reason}}: {{target}}). This action is never allowed in a Yordamchi session and cannot be approved. Do not retry it and do not try another way to the same effect. Continue without it, and say in your final message what you could not do.

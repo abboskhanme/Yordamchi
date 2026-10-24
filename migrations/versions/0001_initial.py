@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 10:41:55.804476
+Create Date: 2026-10-24 11:05:02.914967
 """
 
 from collections.abc import Sequence
@@ -58,6 +58,36 @@ def upgrade() -> None:
             sqlite_where=sa.text("status IN ('holding', 'open')"),
             postgresql_where=sa.text("status IN ('holding', 'open')"),
         )
+
+    op.create_table(
+        "decisions",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("kind", sa.String(length=32), nullable=False),
+        sa.Column("project_id", sa.String(length=64), nullable=True),
+        sa.Column("turn_id", sa.Integer(), nullable=True),
+        sa.Column("gate_class", sa.String(length=32), nullable=True),
+        sa.Column("tool_name", sa.String(length=128), nullable=True),
+        sa.Column("input_sha256", sa.String(length=64), nullable=True),
+        sa.Column("input_redacted", sa.Text(), nullable=True),
+        sa.Column("target", sa.String(length=200), nullable=True),
+        sa.Column("payload_json", sa.Text(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("expires_at", sa.DateTime(), nullable=False),
+        sa.Column("decided_at", sa.DateTime(), nullable=True),
+        sa.Column("decided_update_id", sa.BigInteger(), nullable=True),
+        sa.Column("grant_expires_at", sa.DateTime(), nullable=True),
+        sa.Column("consumed_at", sa.DateTime(), nullable=True),
+        sa.Column("superseded_by", sa.Integer(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["superseded_by"], ["decisions.id"], name=op.f("fk_decisions_superseded_by_decisions"), ondelete="SET NULL"
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_decisions")),
+    )
+    with op.batch_alter_table("decisions", schema=None) as batch_op:
+        batch_op.create_index("ix_decisions_input_sha256_status", ["input_sha256", "status"], unique=False)
+        batch_op.create_index("ix_decisions_project_id_status", ["project_id", "status"], unique=False)
+        batch_op.create_index("ix_decisions_status", ["status"], unique=False)
 
     op.create_table(
         "health_events",
@@ -279,6 +309,12 @@ def downgrade() -> None:
         batch_op.drop_index("ix_health_events_bot_at")
 
     op.drop_table("health_events")
+    with op.batch_alter_table("decisions", schema=None) as batch_op:
+        batch_op.drop_index("ix_decisions_status")
+        batch_op.drop_index("ix_decisions_project_id_status")
+        batch_op.drop_index("ix_decisions_input_sha256_status")
+
+    op.drop_table("decisions")
     with op.batch_alter_table("bursts", schema=None) as batch_op:
         batch_op.drop_index(
             "uq_bursts_bot_chat_id_assembling",

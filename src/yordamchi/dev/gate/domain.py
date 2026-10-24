@@ -2,8 +2,10 @@
 
 Flow (the service owns every fetch; this module only decides):
 1. `needs(call, rules, ctx)` lists the facts the call depends on: untracked files, branches, deploy branches, the
-   project's DB hosts, and script recipes (`./x.sh`, `make t`, `npm run s`, `just r`). The service fetches them into a
-   new `GateContext` and calls `needs` again until it returns nothing new (recipes nest at most two levels).
+   project's DB hosts, git remote URLs, whether the tree was dirty when the turn started, and script recipes
+   (`./x.sh`, `make t`, `npm run s`, `just r`). The service fetches them into a new `GateContext` and calls `needs`
+   again until it returns nothing new (recipes nest at most two levels). The parsers for the files behind recipes
+   and DB hosts are pure and live at the end of this module; the service only reads the bytes.
 2. `classify(call, rules, ctx)` → `GateVerdict(allow | ask | forbid)`. A fact that is still missing fails closed.
 3. On `ask`: `grant_step(...)` picks the approved grant, the pending decision or a new question for the exact
    `(project_id, tool_name, input_sha256)`.
@@ -37,6 +39,7 @@ from typing import Final, Literal
 
 from yordamchi.core.json_value import JsonValue, dumps
 from yordamchi.core.paths import LAUNCHD_PREFIX
+from yordamchi.dev.projects.domain import FAIL_CLOSED, DeployBranches
 from yordamchi.ports.agent import ToolCall
 
 
@@ -112,6 +115,7 @@ class Reason(StrEnum):
     JUMP_ONLY_HOST = "jump_only_host"
     REMOTE_DOCKER = "remote_docker"
     REMOTE_COPY = "remote_copy"
+    PUSH_TO_SERVER = "push_to_server"  # a git push whose remote is a server, not a git host
     DEPLOY_BRANCH = "deploy_branch"
     FORCE_DEFAULT_BRANCH = "force_default_branch"
     SQL_DESTRUCTIVE = "sql_destructive"
@@ -124,6 +128,7 @@ class Reason(StrEnum):
     DELETE_UNTRACKED = "delete_untracked"
     DELETE_GIT_DIR = "delete_git_dir"
     DELETE_UNKNOWN = "delete_unknown"
+    DISCARD_CHANGES = "discard_changes"  # reset --hard, checkout -- ., restore, stash drop over pre-turn edits
     REPO_DELETE = "repo_delete"
     REPO_PUBLIC = "repo_public"
     CLOUD_SPEND = "cloud_spend"
@@ -214,14 +219,22 @@ class ScriptRef:
     directory: str
 
 
+# The `GateContext.remote_urls` key of the remote a bare `git push` uses (the current branch's upstream remote, else
+# `origin`). `@` alone is not a valid remote name, so it never collides with one.
+DEFAULT_PUSH_REMOTE: Final = "@"
+
+
 @dataclass(frozen=True, slots=True)
 class GateContext:
-    """Facts about one call. `None` (or a missing recipe key) = not fetched yet; `needs()` says which to fetch.
+    """Facts about one call. `None` (or a missing recipe or remote key) = not fetched yet; `needs()` says which.
 
     Paths are absolute POSIX strings. `untracked` holds project-relative files from
     `git ls-files -o --exclude-standard`; `db_hosts` the hosts of the project's configured DB URLs (`()` = none
-    configured, so tools use their local default); `deploy_branches` the `projects.deploy_branches_json` globs (`*`
-    when the workflows could not be parsed).
+    configured, so tools use their local default); `deploy_branches` the pushes that start a deploying CI workflow
+    (`dev/projects`, read fresh for the pushed refs; `FAIL_CLOSED` when the workflows could not be read).
+    `dirty_before_turn`: the tree held uncommitted changes when the turn started (the owner's own edits, which a
+    discarding command would destroy). `remote_urls`: git remote name → its URL (credential-free; None = no such
+    remote), with `DEFAULT_PUSH_REMOTE` for a bare `git push`.
     """
 
     policy: Policy
@@ -232,9 +245,11 @@ class GateContext:
     config_dir: str
     default_branch: str | None = None
     current_branch: str | None = None
-    deploy_branches: tuple[str, ...] | None = None
+    deploy_branches: DeployBranches | None = None
     untracked: frozenset[str] | None = None
     db_hosts: tuple[str, ...] | None = None
+    dirty_before_turn: bool | None = None
+    remote_urls: Mapping[str, str | None] = field(default_factory=dict)
     recipes: Mapping[ScriptRef, str | None] = field(default_factory=dict)
     protected_pids: frozenset[int] = frozenset()
     mcp_read_only_tools: frozenset[str] = frozenset()
@@ -243,14 +258,18 @@ class GateContext:
 
 @dataclass(frozen=True, slots=True)
 class GateNeeds:
-    """Facts `classify` would use but `ctx` lacks."""
+    """Facts `classify` would use but `ctx` lacks. `deploy_refs` are the local refs the call's pushes send (`HEAD` for
+    a bare push): the workflows committed there decide `deploy_branches`, so they matter only when that is listed."""
 
     untracked: bool = False
     default_branch: bool = False
     current_branch: bool = False
     deploy_branches: bool = False
     db_hosts: bool = False
+    dirty_before_turn: bool = False
+    remotes: tuple[str, ...] = ()
     scripts: tuple[ScriptRef, ...] = ()
+    deploy_refs: tuple[str, ...] = ()
 
     @property
     def empty(self) -> bool:
@@ -260,6 +279,8 @@ class GateNeeds:
             or self.current_branch
             or self.deploy_branches
             or self.db_hosts
+            or self.dirty_before_turn
+            or self.remotes
             or self.scripts
         )
 
@@ -948,6 +969,9 @@ class _Walk:
         self.missing: set[str] = set()
         self.scripts: list[ScriptRef] = []
         self.remote_calls: list[tuple[str | None, ...]] = []  # ssh-family argv seen (None = known at run time)
+        self.remotes_needed: list[str] = []  # git remote names whose URL decides the call
+        self.defined_remotes: dict[str, str | None] = {}  # `git remote add|set-url` earlier in this call
+        self.push_sources: list[str] = []  # local refs a `git push` sends
         self.home = _canonical(ctx.home)
         self.root = _canonical(ctx.project_root)
         self.cwd: str | None = _canonical(ctx.cwd)
@@ -973,6 +997,10 @@ class _Walk:
 
     def need(self, fact: str) -> None:
         self.missing.add(fact)
+
+    def need_remote(self, name: str) -> None:
+        if name not in self.remotes_needed:
+            self.remotes_needed.append(name)
 
     # --- values and paths ---
     def var(self, name: str) -> str | None:
@@ -1701,6 +1729,11 @@ def _git_subcommand(walk: _Walk, sub: str, rest: list[_Word]) -> _Effect:
     if sub == "send-email":
         walk.ask(GateClass.THIRD_PARTY_SEND, Reason.MAIL, "git send-email")
         return _Effect.WRITE
+    discards = _discard_label(sub, rest)
+    if discards is not None:
+        _discard(walk, discards)  # never on the read list: the effect below is WRITE
+    if sub == "remote":
+        _git_remote(walk, rest)
     if sub in _GIT_READ:
         return _Effect.READ
     listing = {
@@ -1767,44 +1800,57 @@ def _git_push(walk: _Walk, rest: list[_Word]) -> None:
         walk.forbid(Reason.PUSH_NO_VERIFY, "push --no-verify")
     if flags.dry:
         return
-    if flags.positional:
-        _push_remote(walk, flags.positional[0])
+    _push_remote(walk, flags.positional[0] if flags.positional else None)
     refspecs = flags.positional[1:]
     targets, tag_push = _push_targets(walk, refspecs, flags)
     if not refspecs:
+        walk.push_sources.append("HEAD")
         if flags.everything:
-            targets.append(("*", flags.force, flags.delete))
+            targets.append(_PushTarget("*", flags.force, flags.delete))
         elif not flags.tags:
-            targets.append((_current_branch(walk), flags.force, flags.delete))
+            targets.append(_PushTarget(_current_branch(walk), flags.force, flags.delete))
     _judge_push_targets(walk, targets, tag_push=tag_push or flags.tags or flags.follow_tags)
 
 
-def _push_targets(
-    walk: _Walk, refspecs: Sequence[_Word], flags: _PushFlags
-) -> tuple[list[tuple[str | None, bool, bool]], bool]:
-    """`(branch, forced, deleted)` per refspec (branch None = unknown), and whether a tag is pushed."""
-    targets: list[tuple[str | None, bool, bool]] = []
+@dataclass(frozen=True, slots=True)
+class _PushTarget:
+    branch: str | None  # None = known only at run time; "*" = every branch
+    forced: bool
+    deleted: bool
+    maybe_tag: bool = False  # a bare name (`push origin v1.0`) names a tag if no such branch exists
+
+
+def _push_targets(walk: _Walk, refspecs: Sequence[_Word], flags: _PushFlags) -> tuple[list[_PushTarget], bool]:
+    """The branch each refspec updates, and whether a tag is pushed. Records the local refs sent (`push_sources`)."""
+    targets: list[_PushTarget] = []
     tag_push = False
     j = 0
     while j < len(refspecs):
         spec = walk.value(refspecs[j])
         if spec == "tag":  # `push origin tag v1`
+            name = walk.value(refspecs[j + 1]) if j + 1 < len(refspecs) else None
+            walk.push_sources.append(f"refs/tags/{name}" if name else "HEAD")
             tag_push, j = True, j + 2
             continue
         j += 1
         if spec is None:
-            targets.append((None, flags.force, flags.delete))
+            walk.push_sources.append("HEAD")
+            targets.append(_PushTarget(None, flags.force, flags.delete))
             continue
         source, colon, destination = spec.lstrip("+").partition(":")
+        if source:
+            walk.push_sources.append("HEAD" if source == "@" else source)
         destination = destination if colon else source
         if destination.startswith("refs/tags/"):
             tag_push = True
             continue
+        explicit_branch = destination.startswith("refs/heads/")
         destination = destination.removeprefix("refs/heads/")
         if destination in ("HEAD", "@", ""):
-            destination = _current_branch(walk) or ""
+            destination, explicit_branch = _current_branch(walk) or "", True
         forced = flags.force or spec.startswith("+")
-        targets.append((destination or None, forced, flags.delete or (bool(colon) and not source)))
+        deleted = flags.delete or (bool(colon) and not source)
+        targets.append(_PushTarget(destination or None, forced, deleted, maybe_tag=not explicit_branch))
     return targets, tag_push
 
 
@@ -1821,45 +1867,162 @@ def _default_branches(walk: _Walk) -> frozenset[str]:
     return frozenset({walk.ctx.default_branch})
 
 
-def _deploy_patterns(walk: _Walk) -> tuple[str, ...]:
+def _deploy_rules(walk: _Walk) -> DeployBranches:
     if walk.ctx.deploy_branches is None:
         walk.need("deploy_branches")
-        return ("*",)  # not known yet: every branch deploys (fail closed)
+        return FAIL_CLOSED  # not known yet: every push deploys
     return walk.ctx.deploy_branches
 
 
-def _deploys(walk: _Walk, branch: str | None) -> bool:
-    patterns = _deploy_patterns(walk)
-    if not patterns:
-        return False
-    if branch is None or branch == "*":
-        return True
-    return any(pattern == "*" or fnmatchcase(branch, pattern) for pattern in patterns)
+def _any_branch_deploys(rules: DeployBranches) -> bool:
+    return rules.every_branch or bool(rules.branches)
 
 
-def _judge_push_targets(walk: _Walk, targets: Sequence[tuple[str | None, bool, bool]], *, tag_push: bool) -> None:
+def _deploys(walk: _Walk, target: _PushTarget) -> bool:
+    rules = _deploy_rules(walk)
+    if target.branch is None or target.branch == "*":
+        return _any_branch_deploys(rules)
+    return rules.covers_branch(target.branch) or (target.maybe_tag and rules.covers_tag(target.branch))
+
+
+def _judge_push_targets(walk: _Walk, targets: Sequence[_PushTarget], *, tag_push: bool) -> None:
     defaults = _default_branches(walk)
-    for branch, forced, deleted in targets:
+    for target in targets:
+        branch = target.branch
         label = branch or "?"
         hits_default = branch is None or branch == "*" or branch in defaults
         if walk.ctx.policy is Policy.SELF_UPDATE and (hits_default or branch == "main"):
             walk.forbid(Reason.SELF_UPDATE_MAIN, label)
-        if (forced or deleted) and hits_default:
+        if (target.forced or target.deleted) and hits_default:
             walk.ask(GateClass.FORCE_PUSH, Reason.FORCE_DEFAULT_BRANCH, label)
-        if _deploys(walk, branch):
+        if _deploys(walk, target):
             walk.ask(GateClass.DEPLOY_PUSH, Reason.DEPLOY_BRANCH, label)
-    if tag_push and _deploy_patterns(walk):
+    if tag_push and _deploy_rules(walk).deploys:  # which tags is often unknown: any deploying push counts
         walk.ask(GateClass.DEPLOY_PUSH, Reason.DEPLOY_BRANCH, "tags")
 
 
-def _push_remote(walk: _Walk, remote: _Word) -> None:
-    """A push straight to a URL on a server (not a git host) changes that server."""
-    value = walk.value(remote)
-    if value is None:
+def _push_remote(walk: _Walk, remote: _Word | None) -> None:
+    """A push to a server (not a git host) changes that server: a URL or `user@host:path`, or a remote name whose
+    URL is one (the `remote_urls` fact). No remote named = the current branch's push remote."""
+    if remote is None:
+        name = DEFAULT_PUSH_REMOTE
+    else:
+        value = walk.value(remote)
+        if value is None:
+            walk.ask(GateClass.SERVER_WRITE, Reason.PUSH_TO_SERVER, "git push ?")
+            return
+        if ":" in value or value.startswith(("/", ".", "~")) or "/" in value:  # a remote name has neither
+            _judge_push_url(walk, value, label="git push")
+            return
+        name = value
+    label = "git push" if name == DEFAULT_PUSH_REMOTE else f"git push {name}"
+    if name in walk.defined_remotes or "?" in walk.defined_remotes:
+        url = walk.defined_remotes.get(name)
+        if url is None:
+            walk.ask(GateClass.SERVER_WRITE, Reason.PUSH_TO_SERVER, f"{label} ?")
+        else:
+            _judge_push_url(walk, url, label=label)
         return
-    host = _host_of(value) if "://" in value and not value.startswith("file://") else _scp_remote(value)
-    if host is not None and host not in walk.rules.git_hosts and host not in _LOCAL_HOSTS:
-        walk.ask(GateClass.SERVER_WRITE, Reason.REMOTE_COMMAND, f"git push {host}")
+    if name not in walk.ctx.remote_urls:
+        walk.need_remote(name)
+        walk.ask(GateClass.SERVER_WRITE, Reason.PUSH_TO_SERVER, f"{label} ?")  # not looked up yet: fail closed
+        return
+    url = walk.ctx.remote_urls[name]
+    if url is not None:  # None: no such remote, so git reads the name as a local path
+        _judge_push_url(walk, url, label=label)
+
+
+def _judge_push_url(walk: _Walk, url: str, *, label: str) -> None:
+    host = remote_host(url)
+    if host and host not in walk.rules.git_hosts and host not in _LOCAL_HOSTS:
+        walk.ask(GateClass.SERVER_WRITE, Reason.PUSH_TO_SERVER, f"{label} → {host}")
+        walk.remote_calls.extend(_git_ssh_calls(url))
+
+
+def remote_host(url: str) -> str:
+    """The host a git remote URL reaches, lower case; `""` for a local path or `file://` (SPEC §5.7 `server_write`)."""
+    text = url.strip()
+    if not text or text.casefold().startswith("file://"):
+        return ""
+    if "://" in text:
+        return _host_of(text)
+    return _scp_remote(text) or ""
+
+
+def _shell_quote(text: str) -> str:
+    """git's `sq_quote`: the whole word in single quotes, each `'` as `'\\''`."""
+    return "'" + text.replace("'", "'\\''") + "'"
+
+
+def _git_ssh_calls(url: str) -> list[tuple[str | None, ...]]:
+    """The ssh argv git runs to push over an ssh URL (connect.c `fill_ssh_args`), with and without the protocol-v2
+    `SendEnv`: what a grant for that push lets through the ssh shim. Empty for other transports."""
+    if "://" in url:
+        scheme, _, rest = url.partition("://")
+        if scheme.casefold() not in ("ssh", "git+ssh", "ssh+git"):
+            return []
+        netloc, _, path = rest.partition("/")
+        path = "/" + path
+        path = path[1:] if path.startswith("/~") else path
+        user, at, hostport = netloc.rpartition("@")
+        if hostport.startswith("["):
+            host, _, port = hostport[1:].partition("]")
+            port = port.removeprefix(":")
+        else:
+            host, _, port = hostport.partition(":")
+        destination = f"{user}{at}{host}"
+    else:
+        destination, _, path = url.partition(":")
+        port = ""
+    command = f"git-receive-pack {_shell_quote(path)}"
+    port_args = ("-p", port) if port else ()
+    return [
+        ("ssh", *port_args, destination, command),
+        ("ssh", "-o", "SendEnv=GIT_PROTOCOL", *port_args, destination, command),
+    ]
+
+
+def _git_remote(walk: _Walk, rest: list[_Word]) -> None:
+    """`git remote add NAME URL` / `set-url NAME URL` earlier in the call wins over the fetched `remote_urls`."""
+    words = _positionals(rest, frozenset({"-t", "--track", "-m", "--master"}))
+    verb = walk.value(words[0]) if words else None
+    if verb not in ("add", "set-url") or len(words) < 3:
+        return
+    name, url = walk.value(words[1]), walk.value(words[2])
+    walk.defined_remotes["?" if name is None else name] = url
+
+
+# --- discarding uncommitted work (`fs_destroy` over the owner's pre-turn edits) ---
+_CHECKOUT_VALUE_OPTIONS: Final = frozenset({"-b", "-B", "--orphan", "--conflict", "--pathspec-from-file"})
+
+
+def _discard_label(sub: str, rest: Sequence[_Word]) -> str | None:
+    """A label when the git command throws away uncommitted changes: `reset --hard`, a path checkout (`-- .`, `.`,
+    `<tree> <path>`, `-f`), `restore` of the worktree, `stash drop|clear`, `switch --discard-changes|-f`."""
+    texts = _texts(rest)
+    words = _texts(_positionals(rest, _CHECKOUT_VALUE_OPTIONS))
+    forced = _has(rest, "--force") or _short_flag(rest, "f")
+    staged_only = (_has(rest, "--staged") or _short_flag(rest, "S")) and not (
+        _has(rest, "--worktree") or _short_flag(rest, "W")
+    )
+    discards = {
+        "reset": "--hard" in texts,
+        "checkout": forced or "." in words or len(words) > 1 or ("--" in texts and texts[-1] != "--"),
+        "restore": not staged_only,
+        "stash": words[:1] in (["drop"], ["clear"]),
+        "switch": forced or "--discard-changes" in texts,
+    }
+    return " ".join(_strip_markers(text) for text in (sub, *texts))[:120] if discards.get(sub, False) else None
+
+
+def _discard(walk: _Walk, label: str) -> None:
+    """Free unless the tree held changes before the turn started: the agent may throw away its own work, never the
+    owner's (orchestrator decision 2026-10-24). Unknown counts as dirty."""
+    dirty = walk.ctx.dirty_before_turn
+    if dirty is None:
+        walk.need("dirty_before_turn")
+    if dirty is not False:
+        walk.ask(GateClass.FS_DESTROY, Reason.DISCARD_CHANGES, f"git {label}")
 
 
 def _git_clean(walk: _Walk, rest: list[_Word]) -> None:
@@ -1897,7 +2060,7 @@ def _h_gh(walk: _Walk, name: str, args: list[_Word], cmd: _Command, level: int) 
     elif group == "pr" and verb == "merge":
         if walk.ctx.policy is Policy.SELF_UPDATE:
             walk.forbid(Reason.SELF_UPDATE_MAIN, "gh pr merge")
-        elif _deploy_patterns(walk):  # the PR's base is not in the command: any deploy branch asks
+        elif _any_branch_deploys(_deploy_rules(walk)):  # the PR's base is not in the command: any deploy branch asks
             walk.ask(GateClass.DEPLOY_PUSH, Reason.DEPLOY_BRANCH, "gh pr merge")
         return _Effect.WRITE
     elif group == "api":
@@ -3347,7 +3510,10 @@ def needs(call: ToolCall, rules: GateRules, ctx: GateContext) -> GateNeeds:
         current_branch="current_branch" in missing,
         deploy_branches="deploy_branches" in missing,
         db_hosts="db_hosts" in missing,
+        dirty_before_turn="dirty_before_turn" in missing,
+        remotes=tuple(walk.remotes_needed),
         scripts=tuple(walk.scripts),
+        deploy_refs=tuple(dict.fromkeys(walk.push_sources)),
     )
 
 
@@ -3499,6 +3665,24 @@ class DecisionState:
     consumed_at: datetime | None = None
 
 
+OPEN_STATUSES: Final[tuple[DecisionStatus, ...]] = ("pending", "approved")
+TERMINAL_STATUSES: Final[tuple[DecisionStatus, ...]] = ("denied", "expired", "consumed", "superseded", "cancelled")
+DECISION_KEEP: Final = timedelta(days=90)  # SPEC §4.2; open rows are never deleted
+FACT_ROUNDS: Final = 3  # fetch facts, ask `needs` again, at most this often (recipes nest two levels)
+# Until the outbox lands (T15), questions and replies go straight to the Messenger, bounded by this.
+NOTICE_SEND_TIMEOUT_S: Final = 5.0
+
+
+def retention_cutoff(now: datetime) -> datetime:
+    """Finished decisions created strictly before this may be deleted."""
+    return now - DECISION_KEEP
+
+
+def fact_timeout_s(hook_timeout_s: float) -> float:
+    """Each fact round's share of the hook budget (`gate.hook_timeout_s`), leaving one share to decide and write."""
+    return hook_timeout_s / (FACT_ROUNDS + 1)
+
+
 def decision_expires_at(now: datetime, ttl_min: int) -> datetime:
     """A new decision waits at most `gate.approval_ttl_min` (UC-13 F: "after 2 h … asked again")."""
     return now + timedelta(minutes=ttl_min)
@@ -3613,3 +3797,207 @@ def shim_verdict(
         if grant.session_id == session_id and recent and any(_invocation_matches(c, actual) for c in grant.covers):
             return GateVerdict(Action.ALLOW, Reason.FREE, findings=verdict.findings)
     return verdict
+
+
+# --- fact parsers (the service reads the files; SPEC §5.7 "Parsing") ------------------------------------------------
+# A lookup answers `(known, text)`: `(True, None)` = nothing there to run (no such target, so the tool fails), and
+# `(False, None)` = cannot tell (an include, a computed target name): the recipe stays unfetched and the call asks.
+type RecipeLookup = tuple[bool, str | None]
+MAKEFILE_NAMES: Final = ("GNUmakefile", "makefile", "Makefile")  # GNU make's search order
+JUSTFILE_NAMES: Final = ("justfile", "Justfile", ".justfile", "JUSTFILE")
+SCRIPT_READ_BYTES: Final = 256 * 1024  # a script, Makefile, justfile or package.json larger than this is not read
+DB_CONFIG_FILES: Final = (".env", ".env.local", ".env.development", ".env.development.local", "alembic.ini")
+_RECIPE_DEPTH: Final = 8
+_RECIPE_TARGETS: Final = 64
+_MAKE_RULE: Final = re.compile(r"(?P<targets>[^\t#=:][^#=:]*?)\s*::?(?!=)(?P<rest>.*)")
+_MAKE_DEFAULT_GOAL: Final = re.compile(r"\.DEFAULT_GOAL\s*[:?]?=\s*(\S+)")
+_MAKE_OPAQUE: Final = re.compile(r"^\s*(-?include|sinclude)\s|\$\(eval\b|\.RECIPEPREFIX")
+_JUST_RECIPE: Final = re.compile(r"@?(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?P<params>[^:]*?):(?!=)(?P<deps>.*)")
+_JUST_ALIAS: Final = re.compile(r"alias\s+(?P<alias>[A-Za-z_][A-Za-z0-9_-]*)\s*:=\s*(?P<name>[A-Za-z_][A-Za-z0-9_-]*)")
+_JUST_OPAQUE: Final = re.compile(r"(import|mod)\b")
+_JUST_NAME: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+_DB_URL_KEY: Final = re.compile(r"(?i)(?:^|_)(?:DATABASE|DB)_?(?:URL|URI|DSN)$")
+
+
+def script_text(data: bytes | None) -> RecipeLookup:
+    """A script file's text (`data` None = no such file): unknown if too large to read, nothing to run if binary."""
+    if data is None:
+        return True, None
+    if len(data) > SCRIPT_READ_BYTES:
+        return False, None
+    if b"\x00" in data:
+        return True, None
+    try:
+        return True, data.decode("utf-8")
+    except UnicodeDecodeError:
+        return True, None
+
+
+def package_script(document: object, name: str) -> RecipeLookup:
+    """`scripts[name]` of a parsed `package.json`; unknown when the document is not the expected shape."""
+    if not isinstance(document, dict):
+        return False, None
+    scripts = document.get("scripts", {})
+    if not isinstance(scripts, dict):
+        return False, None
+    script = scripts.get(name)
+    if script is None:
+        return True, None
+    return (True, script) if isinstance(script, str) else (False, None)
+
+
+def _logical_lines(text: str) -> list[str]:
+    """Lines, with a backslash-newline continuation kept inside its line (recipes pass it to the shell as it is)."""
+    lines: list[str] = []
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if lines and lines[-1].endswith("\\"):
+            lines[-1] = f"{lines[-1]}\n{line}"
+        else:
+            lines.append(line)
+    return lines
+
+
+@dataclass(slots=True)
+class _Rules:
+    """Targets (make) or recipes (just): their own lines, their prerequisites, the default, and whether the file can
+    define more than its text shows (an include, a computed name)."""
+
+    recipes: dict[str, list[str]] = field(default_factory=dict)
+    prerequisites: dict[str, list[str]] = field(default_factory=dict)
+    first: str | None = None
+    opaque: bool = False
+
+
+def _make_rule(rules: _Rules, match: re.Match[str]) -> list[str]:
+    """Register one `targets: prerequisites [; recipe]` line; returns the targets later recipe lines belong to."""
+    names = match["targets"].split()
+    prerequisites, _, inline = match["rest"].partition(";")
+    if any("$" in name for name in names) or "$" in prerequisites:
+        rules.opaque = True
+    current = [name for name in names if not name.startswith(".") and "%" not in name and "$" not in name]
+    for name in current:
+        rules.recipes.setdefault(name, [])
+        rules.prerequisites.setdefault(name, []).extend(
+            item for item in prerequisites.split() if "=" not in item and "%" not in item and "$" not in item
+        )
+        if inline.strip():
+            rules.recipes[name].append(inline.strip())
+        rules.first = rules.first or name
+    return current
+
+
+def _make_rules(text: str) -> _Rules:
+    rules = _Rules()
+    current: list[str] = []
+    in_define = False
+    for line in _logical_lines(text):
+        if in_define:
+            in_define = line.strip() != "endef"
+            continue
+        if line.startswith("\t"):
+            for target in current:
+                rules.recipes[target].append(line[1:])
+            continue
+        code = line.split("#", 1)[0].replace("\\\n", " ").strip()
+        if not code:
+            continue
+        if code.split()[0] == "define":
+            in_define, current = True, []
+            continue
+        rules.opaque = rules.opaque or _MAKE_OPAQUE.search(code) is not None
+        goal = _MAKE_DEFAULT_GOAL.match(code)
+        if goal is not None:
+            rules.first = goal.group(1)
+        match = _MAKE_RULE.fullmatch(code)
+        current = [] if match is None else _make_rule(rules, match)
+    return rules
+
+
+def _ordered_recipe(rules: _Rules, target: str) -> RecipeLookup:
+    """What runs for `target`: each prerequisite's lines first (depth first, each target once), then its own."""
+    if target not in rules.recipes:
+        return (False, None) if rules.opaque else (True, None)
+    lines: list[str] = []
+    seen: set[str] = set()
+
+    def visit(name: str, depth: int) -> None:
+        if name in seen or len(seen) >= _RECIPE_TARGETS or depth > _RECIPE_DEPTH:
+            return
+        seen.add(name)
+        for item in rules.prerequisites.get(name, []):
+            if item in rules.recipes:
+                visit(item, depth + 1)
+        lines.extend(rules.recipes.get(name, []))
+
+    visit(target, 0)
+    return True, "\n".join(lines)
+
+
+def makefile_recipe(text: str, target: str) -> RecipeLookup:
+    """What `make <target>` runs from this Makefile (`""` = the default goal), prerequisites included, as recipe
+    lines (`ScriptRef("make", …)`). Variables stay unexpanded; `_make_recipe` turns them into unknown values."""
+    rules = _make_rules(text)
+    name = target or rules.first
+    if name is None:
+        return (False, None) if rules.opaque else (True, None)
+    return _ordered_recipe(rules, name)
+
+
+def _just_rules(text: str) -> tuple[_Rules, dict[str, str]]:
+    rules = _Rules()
+    aliases: dict[str, str] = {}
+    current: str | None = None
+    for line in _logical_lines(text):
+        if line[:1] in (" ", "\t"):
+            if current is not None:
+                rules.recipes[current].append(line.strip())
+            continue
+        current = None
+        code = line.split("#", 1)[0].rstrip()
+        if not code or code.startswith("["):  # blank, a comment or an attribute line
+            continue
+        if _JUST_OPAQUE.match(code):
+            rules.opaque = True
+            continue
+        alias = _JUST_ALIAS.fullmatch(code)
+        if alias is not None:
+            aliases[alias["alias"]] = alias["name"]
+            continue
+        match = _JUST_RECIPE.fullmatch(code)
+        if match is None:
+            continue
+        current = match["name"]
+        rules.recipes.setdefault(current, [])
+        dependencies = re.sub(r"\(\s*(\S+)[^)]*\)", r"\1", match["deps"].replace("&&", " "))
+        rules.prerequisites[current] = [item for item in dependencies.split() if _JUST_NAME.fullmatch(item)]
+        rules.first = rules.first or current
+    return rules, aliases
+
+
+def justfile_recipe(text: str, name: str) -> RecipeLookup:
+    """What `just <name>` runs (`""` = the first recipe), dependencies first (`ScriptRef("just", …)`)."""
+    rules, aliases = _just_rules(text)
+    recipe = aliases.get(name, name) or rules.first
+    if recipe is None:
+        return (False, None) if rules.opaque else (True, None)
+    return _ordered_recipe(rules, recipe)
+
+
+def db_hosts_from(files: Mapping[str, str]) -> tuple[str, ...]:
+    """The DB hosts a project's own config points its tools at (`DB_CONFIG_FILES` name → text): `*DATABASE_URL`,
+    `DB_URL`, `*_DSN`… in the `.env` files, `sqlalchemy.url` in `alembic.ini`. `""` = a SQLite file or a URL with no
+    host (the local default); `"?"` = a value set elsewhere (not provably local); `()` = nothing configured."""
+    hosts: list[str] = []
+    for name, text in files.items():
+        for raw in text.splitlines():
+            line = raw.strip().removeprefix("export ").strip()
+            key, sep, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip("\"'")
+            wanted = key == "sqlalchemy.url" if name == "alembic.ini" else _DB_URL_KEY.search(key) is not None
+            if not sep or not wanted or line.startswith(("#", ";")):
+                continue
+            if "://" in value:
+                hosts.append(_parse_db_url(value)[0])
+            elif value.startswith("$") or "%(" in value:
+                hosts.append("?")
+    return tuple(dict.fromkeys(hosts))

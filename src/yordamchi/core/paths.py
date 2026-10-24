@@ -23,6 +23,8 @@ type SessionDir = Literal["routing", "report", "settings", "assistant", "smoke"]
 
 APP_DIR_NAME = "Yordamchi"
 LAUNCHD_PREFIX = "uz.yordamchi"
+# In `run/`, next to the control sockets: the pre-push hook finds it there.
+SECRET_HASHES_FILE = "secret-hashes.json"  # noqa: S105  # a file name, not a secret
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +130,7 @@ class Paths:
     @property
     def secret_hashes(self) -> Path:
         """sha256 of every vault value, read by the pre-push scan (SPEC §4.5)."""
-        return self.run / "secret-hashes.json"
+        return self.run / SECRET_HASHES_FILE
 
     # --- updates, backups, caches --------------------------------------------------------------------------------
     @property

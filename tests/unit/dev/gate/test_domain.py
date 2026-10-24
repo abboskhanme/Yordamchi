@@ -3,6 +3,7 @@ NFR-SEC-06, NFR-SEC-11). Every class and every exemption has a case; adversarial
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,7 @@ from yordamchi.dev.gate.domain import (
     Reason,
     ScriptRef,
 )
+from yordamchi.dev.projects.domain import FAIL_CLOSED, NO_DEPLOY, DeployBranches
 from yordamchi.ports.agent import ToolCall
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings.registry import Setting
@@ -37,6 +39,8 @@ ROOT = f"{HOME}/Documents/Projects/Demo"
 DATA = f"{HOME}/Library/Application Support/Yordamchi"
 CONFIG = f"{HOME}/.config/yordamchi"
 BOT_PID = 4242
+GITHUB_REMOTE = "git@github.com:abboskhanme/Demo.git"
+DEPLOYS_MAIN_ONLY = DeployBranches(branches=("main",))
 
 
 def _default(setting: Setting[list[str]]) -> list[str]:
@@ -63,9 +67,11 @@ CTX = GateContext(
     config_dir=CONFIG,
     default_branch="main",
     current_branch="feature/login",
-    deploy_branches=(),
+    deploy_branches=NO_DEPLOY,
     untracked=frozenset(),
     db_hosts=(),
+    dirty_before_turn=False,
+    remote_urls={"origin": GITHUB_REMOTE, domain.DEFAULT_PUSH_REMOTE: GITHUB_REMOTE},
     protected_pids=frozenset({BOT_PID}),
 )
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
@@ -200,7 +206,7 @@ def test_the_owners_own_makefile_check_target_is_free() -> None:
 
 
 # --- UC-13: every ask class triggers exactly one question --------------------------------------------------------
-DEPLOYS_MAIN: dict[str, object] = {"deploy_branches": ("main",)}
+DEPLOYS_MAIN: dict[str, object] = {"deploy_branches": DEPLOYS_MAIN_ONLY}
 ASK_CASES: list[tuple[str, dict[str, object], GateClass]] = [
     # deploy
     ("vercel --prod", {}, GateClass.DEPLOY),
@@ -272,8 +278,12 @@ ASK_CASES: list[tuple[str, dict[str, object], GateClass]] = [
     ("git push origin HEAD:main", DEPLOYS_MAIN, GateClass.DEPLOY_PUSH),
     ("git push --all", DEPLOYS_MAIN, GateClass.DEPLOY_PUSH),
     ("git push origin --tags", DEPLOYS_MAIN, GateClass.DEPLOY_PUSH),
-    ("git push origin release/1.2", {"deploy_branches": ("release/*",)}, GateClass.DEPLOY_PUSH),
-    ("git push origin feature/login", {"deploy_branches": ("*",)}, GateClass.DEPLOY_PUSH),  # unparseable workflows
+    (
+        "git push origin release/1.2",
+        {"deploy_branches": DeployBranches(branches=("release/*",))},
+        GateClass.DEPLOY_PUSH,
+    ),
+    ("git push origin feature/login", {"deploy_branches": FAIL_CLOSED}, GateClass.DEPLOY_PUSH),  # unparseable workflows
     ("gh pr merge 12 --squash", DEPLOYS_MAIN, GateClass.DEPLOY_PUSH),
     # force_push to the default branch
     ("git push --force origin main", {}, GateClass.FORCE_PUSH),
@@ -483,8 +493,8 @@ def test_a_call_with_several_classes_asks_once_about_the_strongest() -> None:
         ("http GET api.example.com/items", {}),
         ("http api.example.com/items q==1", {}),
         # pushes and branches
-        ("git push origin feature/login", {"deploy_branches": ("main",)}),
-        ("git push -f origin feature/login", {"deploy_branches": ("main",)}),
+        ("git push origin feature/login", DEPLOYS_MAIN),
+        ("git push -f origin feature/login", DEPLOYS_MAIN),
         ("git push origin --delete feature/old", {}),
         # docker on this Mac (D9)
         ("docker compose down --remove-orphans", {}),
@@ -961,7 +971,7 @@ def test_planning_cannot_write_code(call: str | ToolCall) -> None:
 
 
 def test_planning_still_asks_before_a_deploying_push() -> None:
-    verdict = classify("git push origin main", replace(PLAN_ONLY, deploy_branches=("main",)))
+    verdict = classify("git push origin main", replace(PLAN_ONLY, deploy_branches=DEPLOYS_MAIN_ONLY))
     assert (verdict.action, verdict.gate_class) == (Action.ASK, GateClass.DEPLOY_PUSH)
 
 
@@ -1185,3 +1195,255 @@ def test_shim_covers_a_script_approved_as_one_command() -> None:
 def test_shim_refuses_other_programs_and_forbidden_calls() -> None:
     assert shim(["x"], [], tool_name="curl").action is Action.FORBID
     assert shim(["prod", "cat", f"{DATA}/dev.env"], []).action is Action.FORBID
+
+
+# --- T18: discarding uncommitted work (`dirty_before_turn`) ---------------------------------------------------------
+DISCARDING = [
+    "git reset --hard",
+    "git reset --hard HEAD~1",
+    "git checkout -- .",
+    "git checkout .",
+    "git checkout HEAD -- src/app.py",
+    "git checkout main src/app.py",
+    "git checkout -f main",
+    "git restore .",
+    "git restore src/app.py",
+    "git restore --staged --worktree .",
+    "git stash drop",
+    "git stash clear",
+    "git switch --discard-changes main",
+    "git switch -f main",
+]
+
+
+@pytest.mark.parametrize("command", DISCARDING)
+def test_discarding_the_owners_pre_turn_edits_asks(command: str) -> None:
+    verdict = classify(command, with_ctx(dirty_before_turn=True))
+    assert (verdict.action, verdict.gate_class, verdict.reason) == (
+        Action.ASK,
+        GateClass.FS_DESTROY,
+        Reason.DISCARD_CHANGES,
+    ), verdict
+
+
+@pytest.mark.parametrize("command", DISCARDING)
+def test_discarding_the_agents_own_changes_is_free(command: str) -> None:
+    assert_free(classify(command, with_ctx(dirty_before_turn=False)))
+
+
+@pytest.mark.parametrize("command", DISCARDING)
+def test_an_unknown_turn_start_state_counts_as_dirty(command: str) -> None:
+    unknown = with_ctx(dirty_before_turn=None)
+    assert domain.needs(bash(command), RULES, unknown).dirty_before_turn
+    assert classify(command, unknown).reason is Reason.DISCARD_CHANGES
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git restore --staged .",
+        "git restore -S src/app.py",
+        "git checkout main",
+        "git checkout -b feature/x",
+        "git checkout -b fix origin/main",
+        "git stash",
+        "git stash pop",
+        "git stash list",
+        "git reset HEAD~1",
+        "git reset --soft HEAD~1",
+        "git switch main",
+        "git switch -c fix/y",
+    ],
+)
+def test_commands_that_keep_uncommitted_work_never_ask(command: str) -> None:
+    assert_free(classify(command, with_ctx(dirty_before_turn=True)))
+    assert not domain.needs(bash(command), RULES, with_ctx(dirty_before_turn=None)).dirty_before_turn
+
+
+# --- T18: pushes to a remote name that points at a server (`remote_urls`) -------------------------------------------
+SERVER_REMOTE = "deploy@prod.example.com:/srv/app.git"
+
+
+@pytest.mark.parametrize(
+    ("command", "remotes"),
+    [
+        ("git push", {domain.DEFAULT_PUSH_REMOTE: SERVER_REMOTE}),
+        ("git push -u origin main", {"origin": SERVER_REMOTE}),
+        ("git push prod main", {"prod": SERVER_REMOTE}),
+        ("git push prod main", {"prod": "ssh://deploy@prod.example.com:2222/srv/app.git"}),
+        ("git push heroku main", {"heroku": "https://git.heroku.com/demo.git"}),
+        ("git push dokku", {"dokku": "dokku@apps.example.com:demo"}),
+    ],
+)
+def test_a_push_to_a_remote_on_a_server_asks(command: str, remotes: dict[str, str | None]) -> None:
+    verdict = classify(command, with_ctx(remote_urls={**CTX.remote_urls, **remotes}))
+    assert (verdict.action, verdict.gate_class, verdict.reason) == (
+        Action.ASK,
+        GateClass.SERVER_WRITE,
+        Reason.PUSH_TO_SERVER,
+    ), verdict
+
+
+@pytest.mark.parametrize(
+    ("command", "remotes"),
+    [
+        ("git push", {}),
+        ("git push origin feature/login", {}),
+        ("git push https://github.com/abboskhanme/Demo.git feature/login", {}),
+        ("git push backup", {"backup": "/Volumes/Backup/Demo.git"}),
+        ("git push mirror", {"mirror": "file:///Volumes/Backup/Demo.git"}),
+        ("git push ../Demo-copy feature/login", {}),
+        ("git push nosuch feature/login", {"nosuch": None}),  # not a remote: git reads it as a (missing) path
+    ],
+)
+def test_a_push_to_a_git_host_or_a_local_path_is_free(command: str, remotes: dict[str, str | None]) -> None:
+    assert_free(classify(command, with_ctx(remote_urls={**CTX.remote_urls, **remotes})))
+
+
+def test_a_remote_not_looked_up_yet_is_requested_and_fails_closed() -> None:
+    bare = with_ctx(remote_urls={})
+    assert domain.needs(bash("git push"), RULES, bare).remotes == (domain.DEFAULT_PUSH_REMOTE,)
+    assert domain.needs(bash("git push prod main && git push origin"), RULES, bare).remotes == ("prod", "origin")
+    assert classify("git push prod main", bare).reason is Reason.PUSH_TO_SERVER
+    assert classify('git push "$REMOTE" feature/login').reason is Reason.PUSH_TO_SERVER  # known only at run time
+    assert domain.needs(bash("git push --dry-run prod main"), RULES, bare).empty
+
+
+def test_a_remote_added_in_the_same_command_is_judged_by_its_new_url() -> None:
+    added = "git remote add prod ssh://deploy@prod.example.com/srv/app.git && git push prod feature/login"
+    assert classify(added).gate_class is GateClass.SERVER_WRITE  # CTX knows nothing about `prod`
+    retargeted = "git remote set-url origin deploy@prod.example.com:/srv/app.git && git push origin feature/login"
+    assert classify(retargeted).gate_class is GateClass.SERVER_WRITE
+    assert_free(classify("git remote add up git@github.com:other/Demo.git && git push up feature/login"))
+
+
+@pytest.mark.parametrize(
+    ("url", "host"),
+    [
+        ("git@github.com:o/r.git", "github.com"),
+        ("https://github.com/o/r.git", "github.com"),
+        ("ssh://deploy@Prod.Example.com:2222/srv/app.git", "prod.example.com"),
+        ("deploy@prod:/srv/app.git", "prod"),
+        ("prod:app.git", "prod"),
+        ("/srv/app.git", ""),
+        ("../other", ""),
+        ("file:///srv/app.git", ""),
+        ("", ""),
+    ],
+)
+def test_remote_host(url: str, host: str) -> None:
+    assert domain.remote_host(url) == host
+
+
+def test_an_approved_push_to_a_server_lets_gits_own_ssh_through_the_shim() -> None:
+    ctx = with_ctx(remote_urls={**CTX.remote_urls, "prod": SERVER_REMOTE})
+    covers = domain.remote_invocations(bash("git push prod main"), RULES, ctx)
+    command = "git-receive-pack '/srv/app.git'"
+    assert ("ssh", "deploy@prod.example.com", command) in covers
+    grant = ConsumedGrant("session-1", NOW, covers)
+    assert shim(["-o", "SendEnv=GIT_PROTOCOL", "deploy@prod.example.com", command], [grant]).allowed
+    assert shim(["deploy@prod.example.com", command], [grant]).allowed
+    assert not shim(["deploy@prod.example.com", "git-receive-pack '/srv/other.git'"], [grant]).allowed
+    assert not shim(["deploy@prod.example.com", command], []).allowed
+
+
+def test_gits_ssh_argv_for_a_port_and_a_home_relative_path() -> None:
+    ctx = with_ctx(remote_urls={"prod": "ssh://deploy@prod.example.com:2222/~/app.git"})
+    covers = domain.remote_invocations(bash("git push prod main"), RULES, ctx)
+    assert ("ssh", "-p", "2222", "deploy@prod.example.com", "git-receive-pack '~/app.git'") in covers
+
+
+# --- T18: which commits' workflows decide `deploy_push`, and tags ---------------------------------------------------
+def test_needs_names_the_refs_a_push_sends() -> None:
+    bare = with_ctx(deploy_branches=None)
+    assert domain.needs(bash("git push"), RULES, bare).deploy_refs == ("HEAD",)
+    assert domain.needs(bash("git push origin fix:main +wip"), RULES, bare).deploy_refs == ("fix", "wip")
+    assert domain.needs(bash("git push origin tag v1.0"), RULES, bare).deploy_refs == ("refs/tags/v1.0",)
+
+
+def test_a_bare_name_that_matches_a_deploying_tag_asks() -> None:
+    tags = with_ctx(deploy_branches=DeployBranches(tags=("v*",)))
+    assert classify("git push origin v1.0", tags).gate_class is GateClass.DEPLOY_PUSH
+    assert classify("git push origin refs/tags/v1.0", tags).gate_class is GateClass.DEPLOY_PUSH
+    assert_free(classify("git push origin refs/heads/v1.0", tags))  # explicitly a branch
+    assert_free(classify("git push origin feature/login", tags))
+
+
+def test_github_globs_decide_which_branch_deploys() -> None:
+    release = with_ctx(deploy_branches=DeployBranches(branches=("release/**",)))
+    assert classify("git push origin release/2026/10", release).gate_class is GateClass.DEPLOY_PUSH
+    assert_free(classify("git push origin feature/release", release))
+
+
+# --- T18: the fact parsers -----------------------------------------------------------------------------------------
+REPO_MAKEFILE = (Path(__file__).resolve().parents[4] / "Makefile").read_text(encoding="utf-8")
+
+
+def test_the_repos_own_makefile_check_target_parses_and_is_free() -> None:
+    known, recipe = domain.makefile_recipe(REPO_MAKEFILE, "check")
+    assert known
+    assert recipe is not None
+    assert "ruff check ." in recipe
+    assert "lint-imports" in recipe
+    assert recipe.index("ruff check .") < recipe.index("make check: all stages green")  # prerequisites first
+    ref = ScriptRef("make", "check", ROOT)
+    assert_free(classify("make check", with_ctx(recipes={ref: recipe})))
+    assert domain.makefile_recipe(REPO_MAKEFILE, "") == domain.makefile_recipe(REPO_MAKEFILE, "check")
+
+
+def test_makefile_recipes() -> None:
+    text = (
+        "VAR := x\nX ?= y\n.PHONY: all deploy\n\nall: build test\n\nbuild:\n\tcc -o app main.c\n"
+        "test: build ; ./app --selftest\n\ndefine HELP\nnot: a rule\nendef\n"
+        "deploy::\n\tscp app prod:/srv\ndeploy::\n\tssh prod restart\n"
+    )
+    assert domain.makefile_recipe(text, "all") == (True, "cc -o app main.c\n./app --selftest")
+    assert domain.makefile_recipe(text, "deploy") == (True, "scp app prod:/srv\nssh prod restart")
+    assert domain.makefile_recipe(text, "") == domain.makefile_recipe(text, "all")
+    assert domain.makefile_recipe(text, "missing") == (True, None)  # make fails: nothing runs
+    assert domain.makefile_recipe(text, "not") == (True, None)  # inside `define`
+    assert domain.makefile_recipe(".DEFAULT_GOAL := b\na:\n\techo a\nb:\n\techo b\n", "") == (True, "echo b")
+    included = "include common.mk\nlocal:\n\techo hi\n"
+    assert domain.makefile_recipe(included, "local") == (True, "echo hi")
+    assert domain.makefile_recipe(included, "release") == (False, None)  # may live in common.mk: ask
+    assert domain.makefile_recipe("$(TARGETS):\n\tssh prod x\n", "web") == (False, None)
+
+
+def test_justfile_recipes() -> None:
+    text = (
+        "set shell := ['bash', '-c']\nalias d := deploy\n\n# build it\nbuild:\n    cargo build\n\n"
+        "[private]\n_upload host:\n    scp target/app {{host}}:/srv\n\n"
+        "deploy: build (_upload 'prod')\n    @ssh prod restart\n"
+    )
+    known, recipe = domain.justfile_recipe(text, "deploy")
+    assert known
+    assert recipe == "cargo build\nscp target/app {{host}}:/srv\n@ssh prod restart"
+    assert domain.justfile_recipe(text, "d") == (known, recipe)
+    assert domain.justfile_recipe(text, "") == (True, "cargo build")
+    assert domain.justfile_recipe(text, "nope") == (True, None)
+    assert domain.justfile_recipe("import 'more.just'\n", "x") == (False, None)
+
+
+def test_package_scripts_and_script_files() -> None:
+    package = {"scripts": {"test": "vitest run", "deploy": "vercel --prod"}}
+    assert domain.package_script(package, "test") == (True, "vitest run")
+    assert domain.package_script(package, "pretest") == (True, None)
+    assert domain.package_script({"scripts": {"x": 1}}, "x") == (False, None)
+    assert domain.package_script(["not", "an", "object"], "x") == (False, None)
+    assert domain.script_text(b"#!/bin/sh\nmake\n") == (True, "#!/bin/sh\nmake\n")
+    assert domain.script_text(None) == (True, None)
+    assert domain.script_text(b"\x7fELF\x00\x01") == (True, None)
+    assert domain.script_text(b"x" * (domain.SCRIPT_READ_BYTES + 1)) == (False, None)
+
+
+def test_db_hosts_from_the_projects_own_config() -> None:
+    files = {
+        ".env": "# local\nDATABASE_URL=postgres://app:pw@localhost:5432/app\nexport REDIS_URL=redis://cache.prod/0\n",
+        ".env.local": 'ANALYTICS_DB_URL="mysql://u@db.prod.internal/stats"\n',
+        "alembic.ini": "[alembic]\nsqlalchemy.url = sqlite:///%(here)s/app.db\n",
+    }
+    assert domain.db_hosts_from(files) == ("localhost", "db.prod.internal", "")
+    indirect = domain.db_hosts_from({".env": "DATABASE_URL=${PROD_DATABASE_URL}\n"})
+    assert indirect == ("?",)
+    assert domain.db_hosts_from({".env": "SECRET_KEY=x\n"}) == ()
+    assert classify("alembic upgrade head", with_ctx(db_hosts=indirect)).gate_class is GateClass.DATA_LOSS_DB

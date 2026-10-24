@@ -99,6 +99,7 @@ async def test_an_allowed_call_lets_the_mode_decide() -> None:
         tool_use_id="toolu_01C1CFhURzWjCzeNA7JNURCr",
         agent_id=None,
         session_id=str(raw["session_id"]),
+        cwd="/tmp/yordamchi-fixture/project",  # the gate resolves relative paths against it (T18)
     )
     assert probe.events == []
 

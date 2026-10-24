@@ -1,0 +1,1 @@
+BLOCKED: this is a read-only investigation session ({{target}}). Only read and inspect here; nothing that writes, changes state or needs the owner's approval runs. Report what you found and what should be changed.

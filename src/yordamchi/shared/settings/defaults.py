@@ -491,6 +491,16 @@ GATE_TEMP_ROOTS = Setting(
     weakens=adds_items,
     doc="Directories outside a project where deleting never asks.",
 )
+GATE_SHIM_GRANT_WINDOW_S = Setting(
+    "gate.shim_grant_window_s",
+    int,
+    120,
+    check=Range(10, 600),
+    group=Group.DECISIONS,
+    bots=DEV,
+    weakens=increases,
+    doc="After an approved command ran, how long its own ssh/scp/rsync calls pass the shims (SPEC §5.7 Layer 2).",
+)
 
 # --- voice ---
 VOICE_ENABLED = Setting(

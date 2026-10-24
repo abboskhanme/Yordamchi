@@ -1,0 +1,8 @@
+#!/bin/sh
+# Yordamchi pre-push (SPEC §5.7): the secret scan of the pushed commits, then the project's own pre-push hook.
+# No interpreter means no scan, so the push is blocked (fail closed).
+if [ -z "$YORDAMCHI_PY" ]; then
+  echo "YORDAMCHI_SECRET_SCAN_BLOCKED file=- line=0 rule=scan_unavailable" >&2
+  exit 1
+fi
+exec "$YORDAMCHI_PY" -I -m yordamchi.bots.cli.githook "$0" "$@"

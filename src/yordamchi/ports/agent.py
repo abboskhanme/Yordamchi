@@ -43,6 +43,7 @@ class ToolCall:
     tool_use_id: str
     agent_id: str | None  # set inside a subagent
     session_id: str
+    cwd: str | None = None  # the executor's working directory at this call (a Bash `cd` persists across calls)
 
 
 @dataclass(frozen=True, slots=True)

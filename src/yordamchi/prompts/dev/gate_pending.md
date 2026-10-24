@@ -1,0 +1,1 @@
+BLOCKED: owner decision #{{decision_id}} has been asked. Do not retry and do not try another way to the same effect. Continue other independent work, else end your turn. On "APPROVED #{{decision_id}}" run exactly the same command once.

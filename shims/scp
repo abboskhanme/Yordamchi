@@ -1,0 +1,4 @@
+#!/bin/sh
+# Yordamchi gate shim for scp (SPEC §5.7 Layer 2): the dev bot decides; no answer means no scp (exit 126).
+[ -n "$YORDAMCHI_PY" ] || { echo "yordamchi: scp refused by the gate (gate_unreachable)" >&2; exit 126; }
+exec "$YORDAMCHI_PY" -I -m yordamchi.bots.cli.shim "${0%/*}" scp "$@"

@@ -143,6 +143,29 @@ async def test_run_kills_the_process_group_on_timeout(tmp_path: Path) -> None:
         os.kill(pid, 0)
 
 
+def test_run_sync_returns_output_feeds_stdin_and_sets_env() -> None:
+    result = proc.run_sync(["/bin/sh", "-c", 'read line; echo "$line $X"'], timeout=5, stdin=b"salom\n", env={"X": "1"})
+    assert (result.returncode, result.stdout, result.stderr) == (0, b"salom 1\n", b"")
+    assert proc.run_sync(["/bin/sh", "-c", "exit 3"], timeout=5).returncode == 3
+    with pytest.raises(ValueError, match="argv"):
+        proc.run_sync([], timeout=5)
+
+
+def test_run_sync_kills_the_process_group_on_timeout(tmp_path: Path) -> None:
+    pid_file = tmp_path / "pid"
+    script = f'echo $$ > "{pid_file}"; exec /bin/sleep 30'
+    with pytest.raises(TimeoutError):
+        proc.run_sync(["/bin/sh", "-c", script], timeout=0.5, kill_grace_s=0.2)
+    pid = int(pid_file.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_run_sync_without_capture_leaves_output_to_the_caller() -> None:
+    result = proc.run_sync(["/bin/sh", "-c", "exit 0"], timeout=5, capture=False)
+    assert (result.returncode, result.stdout, result.stderr) == (0, b"", b"")
+
+
 async def test_login_shell_path_takes_the_last_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     shell = tmp_path / "zsh"
     shell.write_text('#!/bin/sh\necho "profile noise"\nprintf %s "/opt/x/bin:/usr/bin"\n', encoding="utf-8")

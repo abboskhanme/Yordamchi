@@ -143,6 +143,7 @@ class GuardBridge:
                 tool_use_id=str(raw.get("tool_use_id") or tool_use_id or ""),
                 agent_id=str(raw["agent_id"]) if raw.get("agent_id") else None,
                 session_id=str(raw.get("session_id") or self._session_id),
+                cwd=str(raw["cwd"]) if raw.get("cwd") else None,
             )
             verdict = await self.decide(call)
             if not verdict.allow:

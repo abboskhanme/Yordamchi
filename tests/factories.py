@@ -28,10 +28,16 @@ from tests.fakes.web import FakeWebTools
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName, Paths
 from yordamchi.dev.deps import DevDeps
+from yordamchi.dev.gate import domain as gate_domain
+from yordamchi.dev.gate import store as gate_store
+from yordamchi.dev.gate.domain import Policy
+from yordamchi.dev.gate.models import Decision
+from yordamchi.dev.gate.service import GateScope
 from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.uow import Database, Session
 from yordamchi.personal.deps import PersonalDeps
+from yordamchi.ports.agent import ToolCall
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.burst import domain as burst_domain
 from yordamchi.shared.burst import store as burst_store
@@ -626,6 +632,64 @@ async def make_project(s: Session, name: str = "BonviHR", *, at: datetime, path:
 
 
 # --- gate ---
+GATE_SESSION_KEY: Final = "agent-session-7"
+
+
+def make_gate_scope(
+    root: Path,
+    project: str = "BonviHR",
+    *,
+    policy: Policy = Policy.FULL,
+    session_key: str = GATE_SESSION_KEY,
+    turn_id: int | None = 31,
+    dirty_before_turn: bool | None = False,
+) -> GateScope:
+    """The scope `turns` would build for a session of `project` whose folder is `root / project`."""
+    return GateScope(
+        project_id=project,
+        project_root=root / project,
+        session_key=session_key,
+        policy=policy,
+        turn_id=turn_id,
+        dirty_before_turn=dirty_before_turn,
+    )
+
+
+def make_bash_call(command: str, *, tool_use_id: str = "toolu_01", cwd: str | None = None) -> ToolCall:
+    """A main-thread Bash call as the Claude guard hands it to `SessionSpec.guard`."""
+    return ToolCall("Bash", {"command": command, "description": "x"}, tool_use_id, None, "sess-1", cwd=cwd)
+
+
+async def make_decision(
+    s: Session,
+    *,
+    at: datetime,
+    project: str = "BonviHR",
+    status: str = "pending",
+    command: str = "ssh prod 'docker compose up -d'",
+    gate_class: str | None = "server_write",
+    ttl_min: int = 120,
+) -> Decision:
+    """A gate decision row about a Bash command, in `status` (inside the caller's unit of work)."""
+    row = await gate_store.add_decision(
+        s,
+        kind="gate",
+        project_id=project,
+        turn_id=31,
+        gate_class=gate_class,
+        tool_name="Bash",
+        input_sha256=gate_domain.input_sha256("Bash", {"command": command}),
+        input_redacted=command,
+        target="prod",
+        payload={"reason": "remote_command"},
+        created_at=at,
+        expires_at=gate_domain.decision_expires_at(at, ttl_min),
+    )
+    row.status = status
+    await s.flush()
+    return row
+
+
 # --- voice ---
 # --- routing ---
 # --- settings ---

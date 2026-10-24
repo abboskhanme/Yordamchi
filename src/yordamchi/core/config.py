@@ -17,12 +17,15 @@ from typing import ClassVar, Final
 
 from yordamchi.core import redact
 from yordamchi.core.errors import ConfigInvalid
-from yordamchi.core.paths import BotName, Paths
+from yordamchi.core.paths import SECRET_HASHES_FILE, BotName, Paths
 
 ENV_FILE_VAR: Final = "YORDAMCHI_ENV_FILE"
 DATA_DIR_VAR: Final = "YORDAMCHI_DATA_DIR"
 CONFIG_DIR_VAR: Final = "YORDAMCHI_CONFIG_DIR"
 LOG_DIR_VAR: Final = "YORDAMCHI_LOG_DIR"
+# Passed into executor sessions (SPEC §5.3) for the shims and git hooks; the gate forbids the agent to touch them.
+SOCK_VAR: Final = "YORDAMCHI_SOCK"
+SESSION_TOKEN_VAR: Final = "YORDAMCHI_SESSION_TOKEN"  # noqa: S105  # a variable name, not a token
 
 DEV_KEYS: Final = ("DEV_BOT_TOKEN", "OWNER_ID", "DEV_GROUP_ID")
 PERSONAL_KEYS: Final = ("PERSONAL_BOT_TOKEN", "OWNER_ID", "PERSONAL_GROUP_ID")
@@ -168,6 +171,31 @@ def load_dev_config(environ: Mapping[str, str] | None = None, *, home: Path | No
     config = dev_config_from(read_env_file(_env_file(env, paths, BotName.DEV)), paths)
     redact.add_known_secrets([config.bot_token])
     return config
+
+
+@dataclass(frozen=True, slots=True)
+class CliConfig:
+    """What a gate shim or the pre-push hook (`bots/cli`) reads from the executor session's environment (SPEC §5.3):
+    the dev bot's control socket, this session's token and `PATH`. The secret-hash file lives next to the socket.
+    A missing value stays empty; the CLI then refuses (fail closed)."""
+
+    socket: Path | None
+    session_token: str = field(repr=False)
+    search_path: str
+
+    @property
+    def secret_hashes(self) -> Path | None:
+        return self.socket.parent / SECRET_HASHES_FILE if self.socket is not None else None
+
+
+def load_cli_config(environ: Mapping[str, str] | None = None) -> CliConfig:
+    env = os.environ if environ is None else environ
+    socket = env.get(SOCK_VAR, "")
+    return CliConfig(
+        socket=Path(socket) if socket else None,
+        session_token=env.get(SESSION_TOKEN_VAR, ""),
+        search_path=env.get("PATH", ""),
+    )
 
 
 def load_personal_config(environ: Mapping[str, str] | None = None, *, home: Path | None = None) -> PersonalConfig:

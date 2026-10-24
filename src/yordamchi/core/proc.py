@@ -9,6 +9,7 @@
 - `build_search_path()` / `clean_env()`: the child PATH, in SPEC order, and the environment for every child.
 - `run()`: argv only, never a shell; its own process group; a timeout or cancellation kills the group
   (TERM, grace, KILL) and raises `TimeoutError` / `CancelledError`. Adapters translate that into `CallTimedOut`.
+  `run_sync()` is the same for the `bots/cli` entry points, which run without an event loop.
 """
 
 import asyncio
@@ -17,6 +18,7 @@ import json
 import os
 import shutil
 import signal
+import subprocess
 import time
 from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
@@ -244,6 +246,62 @@ async def run(
         returncode=process.returncode if process.returncode is not None else -1,
         stdout=stdout,
         stderr=stderr,
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )
+
+
+def _kill_group_sync(process: "subprocess.Popen[bytes]", grace_s: float) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=grace_s)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+def run_sync(
+    argv: Sequence[str],
+    *,
+    timeout: float,
+    cwd: Path | None = None,
+    stdin: bytes | None = None,
+    env: Mapping[str, str] | None = None,
+    capture: bool = True,
+    kill_grace_s: float = KILL_GRACE_S,
+) -> ProcResult:
+    """`run` for the `bots/cli` entry points, which have no event loop (a shim, the pre-push hook): the same argv-only,
+    own-process-group contract, and a timeout kills the group and raises `TimeoutError`. `env=None` inherits the
+    caller's environment (a git hook runs in the session's); `capture=False` leaves stdout and stderr on the caller's,
+    so a chained hook talks to git directly."""
+    if not argv:
+        msg = "argv must not be empty"
+        raise ValueError(msg)
+    started = time.monotonic()
+    piped = subprocess.PIPE if capture else None
+    with subprocess.Popen(  # an argv list, never a shell; leaving the block closes the pipes and reaps the child
+        list(argv),
+        stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+        stdout=piped,
+        stderr=piped,
+        cwd=cwd,
+        env=dict(env) if env is not None else None,
+        start_new_session=True,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(stdin, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_group_sync(process, kill_grace_s)
+            process.communicate()  # drain what the killed group left in the pipes
+            raise TimeoutError(argv[0]) from None
+    return ProcResult(
+        argv=tuple(argv),
+        returncode=process.returncode,
+        stdout=stdout or b"",
+        stderr=stderr or b"",
         duration_ms=int((time.monotonic() - started) * 1000),
     )
 
