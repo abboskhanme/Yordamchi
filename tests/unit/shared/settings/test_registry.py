@@ -83,6 +83,9 @@ SPEC_KEYS.extend(
 )
 # SPEC §3.2.12 (T56): "No supervisor heartbeat within 60 s → it switches back"; the dev bot is the watcher.
 SPEC_KEYS.append("selfupdate.supervisor_switch_s")
+# T51 caps (NFR-COST-02): Google STT reports no cost, and T19 left its price to the caps; a lower price lets more real
+# spend through the Google cap, so it is a safeguard too.
+SPEC_KEYS.append("cost.google_stt_usd_micros_per_min")
 
 # SPEC §3.2.14 gives the artefact limits inline (1280×800, ≤ 50 MB, 49/46 MB, 720/480p, 64 kbps audio); T74 names them.
 SPEC_KEYS.extend(
@@ -118,6 +121,7 @@ SAFEGUARD_KEYS = (
     "gate.shim_grant_window_s",
     "turns.max_concurrent",
     "guard.max_pressure_level",
+    "cost.google_stt_usd_micros_per_min",
 )
 
 SETTINGS = sorted(REGISTRY, key=lambda setting: setting.key)

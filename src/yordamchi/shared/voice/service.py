@@ -4,7 +4,8 @@ One STT job per voice part that the burst lists in `events.transcribe`, live or 
 1. a note whose row is already `done` (the old process died before handing the text on) reuses that text;
 2. otherwise the note gets a `pending` row, and `_transcribe` downloads it, orders the providers (`domain.pick_stt`)
    and asks each in turn with this job's settings: languages, the vocabulary, model, mode and timeout. A quota, key,
-   rate-limit or availability failure moves on to the next provider that has a key (`domain.falls_back`);
+   rate-limit or availability failure moves on to the next provider that has a key (`domain.falls_back`). A provider
+   whose monthly cap is used up (`cost.allowance`, NFR-COST-02) is skipped before any call, as if it had failed;
 3. the row becomes `done` or `failed`, and an answered call's cost goes to `usage_records`, in one unit of work;
 4. `burst.service.record_transcript` releases the burst's hold with the text, or with the "ovoz tushunilmadi"
    marker; then `wake` is set for the burst loop, and any burst that closed is handed to `notify` (the router);
@@ -20,6 +21,7 @@ the vault through.
 
 Text to speech (the `voice_tts` part at the end): `send_voice_summary` / `send_voice` turn an answer into a
 Telegram voice note after its text, through OpenRouter → Google → Edge → text only, each fallback told in one line.
+A paid provider whose monthly cap is used up is skipped the same way, so TTS goes on to Edge, else text only (T51).
 """
 
 import asyncio
@@ -37,6 +39,7 @@ from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.burst import service as burst
 from yordamchi.shared.burst.domain import BurstPart
 from yordamchi.shared.cost import service as cost
+from yordamchi.shared.cost.domain import PAYABLE, Provider
 from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.outbox import service as outbox
 from yordamchi.shared.outbox.domain import Kind, Op
@@ -106,7 +109,8 @@ async def transcribe_part(
                 s, bot=deps.bot.value, update_id=part.update_id, status=SttStatus.PENDING.value, at=started
             )
         result = await _transcribe(deps, snap, part, named)
-        await _record(deps, result, latency_ms=_ms_since(deps, started))
+        price = snap[defaults.COST_GOOGLE_STT_USD_MICROS_PER_MIN]
+        await _record(deps, result, latency_ms=_ms_since(deps, started), google_usd_micros_per_min=price)
     text = result.text if result.text is not None else domain.marker(result)
     events = await burst.record_transcript(deps, update_id=part.update_id, text=text, ok=result.ok)
     wake.set()
@@ -136,6 +140,11 @@ async def _transcribe(deps: SharedDeps, snap: Snapshot, part: BurstPart, named: 
     order = domain.pick_stt(snap[defaults.SPEECH_STT_PROVIDER], await _usable_providers(deps))
     if not order:
         return SttResult(part.update_id, reason=FailReason.NO_KEY)
+    capped = await _capped(deps, snap, order)
+    failed = [Attempt(provider=provider, code=ErrorCode.COST_CAP_REACHED) for provider in capped]
+    order = tuple(provider for provider in order if provider not in capped)
+    if not order:
+        return SttResult(part.update_id, reason=FailReason.PROVIDER, failed=tuple(failed))
     timeout = snap[defaults.TIMEOUTS_STT_S]
     try:
         audio = await deps.messenger.download(attachment.file_id, max_bytes=domain.MAX_AUDIO_BYTES, timeout=timeout)
@@ -144,7 +153,6 @@ async def _transcribe(deps: SharedDeps, snap: Snapshot, part: BurstPart, named: 
         return SttResult(part.update_id, reason=FailReason.DOWNLOAD)
     entries = [entry for source in named for entry in await source()]
     vocabulary = domain.build_vocabulary(snap[defaults.STT_EXTRA_TERMS], entries)
-    failed: list[Attempt] = []
     for provider in order:
         try:
             transcript = await deps.transcribers[provider].transcribe(
@@ -167,7 +175,18 @@ async def _transcribe(deps: SharedDeps, snap: Snapshot, part: BurstPart, named: 
     return SttResult(part.update_id, reason=FailReason.PROVIDER, failed=tuple(failed))
 
 
-async def _record(deps: SharedDeps, result: SttResult, *, latency_ms: int) -> None:
+async def _capped(deps: SharedDeps, snap: Snapshot, order: Sequence[str]) -> tuple[str, ...]:
+    """The paid providers in `order` (STT or TTS) whose monthly cap is used up: no call goes to them (T51). Edge is
+    free, so it is never capped."""
+    capped: list[str] = []
+    for provider in order:
+        if provider in PAYABLE and not (await cost.allowance(deps, Provider(provider), snap=snap)).allowed:
+            capped.append(provider)
+            log.warning("speech_provider_capped", bot=deps.bot.value, provider=provider)
+    return tuple(capped)
+
+
+async def _record(deps: SharedDeps, result: SttResult, *, latency_ms: int, google_usd_micros_per_min: int) -> None:
     """The row's outcome and, for an answered call, its usage, in one unit of work."""
     now = deps.clock.now()
     transcript = result.transcript
@@ -187,7 +206,8 @@ async def _record(deps: SharedDeps, result: SttResult, *, latency_ms: int) -> No
             at=now,
         )
         if transcript is not None:
-            await cost.record_usage(s, bot=deps.bot, at=now, usage=domain.usage_of(transcript))
+            usage = domain.usage_of(transcript, google_usd_micros_per_min=google_usd_micros_per_min)
+            await cost.record_usage(s, bot=deps.bot, at=now, usage=usage)
 
 
 async def _usable_providers(deps: SharedDeps) -> tuple[str, ...]:
@@ -397,7 +417,9 @@ async def _synthesize(deps: SharedDeps, snap: Snapshot, script: str, *, requeste
     order = domain.pick_tts(snap[defaults.SPEECH_TTS_PROVIDER], await _usable_tts(deps))
     if not order:
         return TtsResult(reason=domain.SkipReason.NO_PROVIDER)
-    failed: list[TtsAttempt] = []
+    capped = await _capped(deps, snap, order)  # skipped like a failed provider: Edge, else text only
+    failed = [TtsAttempt(provider=provider, code=ErrorCode.COST_CAP_REACHED) for provider in capped]
+    order = tuple(provider for provider in order if provider not in capped)
     for provider in order:
         started = deps.clock.now()
         try:

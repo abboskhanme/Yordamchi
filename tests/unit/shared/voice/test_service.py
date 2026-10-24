@@ -19,10 +19,12 @@ from tests.factories import (
     OWNER_ID,
     SECOND_SPEECH_KEYS,
     Fakes,
+    add_usage,
     make_media_update,
     make_owner_origin,
     make_project,
     make_transcript,
+    make_usage,
     origin_of,
     store_secret,
 )
@@ -46,6 +48,7 @@ from yordamchi.shared.burst import service as burst
 from yordamchi.shared.burst import store as burst_store
 from yordamchi.shared.burst.domain import BurstEvents, BurstPart, CloseReason, TranscriptState, TurnInput
 from yordamchi.shared.cost import store as cost_store
+from yordamchi.shared.cost.domain import Provider
 from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox.domain import UpdateKind
@@ -382,6 +385,68 @@ async def test_logs_hold_no_transcript(
     fields = " ".join(str(getattr(record, "yd_fields", {})) for record in caplog.records)
     assert "BonviHR'da" not in fields
     assert GOOGLE_KEY not in fields
+
+
+# --- monthly caps (NFR-COST-02, SPEC §3.2.11 step 6) ----------------------------------------------------------------
+async def _spent(deps: SharedDeps, provider: str, dollars: int) -> None:
+    """This month's paid spend on `provider`, as earlier calls recorded it."""
+    usage = make_usage(provider=Provider(provider), model="m", cost_usd_micros=dollars * 1_000_000)
+    await add_usage(deps.db, usage, at=deps.clock.now(), bot=deps.bot)
+
+
+async def test_a_provider_at_its_cap_is_skipped_and_stt_falls_back(
+    deps: DevDeps, fakes: Fakes, google: FakeTranscriber, openrouter: FakeTranscriber, loop: _Loop
+) -> None:
+    await _keys(deps, fakes, "google_api_key", "openrouter_api_key")
+    await _spent(deps, GOOGLE, 40)  # the $40 Google cap is used up
+    part = await _voice_note(deps, fakes)
+    openrouter.script(
+        make_transcript(SPOKEN, provider=OPENROUTER, model="google/gemini-3.8-flash", cost_usd_micros=410)
+    )
+    result = await _transcribe(deps, part, loop)
+
+    assert (result.ok, result.provider) == (True, OPENROUTER)
+    assert result.failed == (Attempt(GOOGLE, ErrorCode.COST_CAP_REACHED),)
+    assert (google.calls, len(openrouter.calls)) == ([], 1)  # no paid call went to the capped provider
+    assert fakes.messenger.sent() == []  # it worked: nothing to tell the owner
+
+
+async def test_with_every_provider_at_its_cap_the_owner_is_told_plainly(
+    deps: DevDeps, fakes: Fakes, google: FakeTranscriber, openrouter: FakeTranscriber, loop: _Loop
+) -> None:
+    await _keys(deps, fakes, "google_api_key", "openrouter_api_key")
+    await _spent(deps, GOOGLE, 40)
+    await _spent(deps, OPENROUTER, 10)
+    part = await _voice_note(deps, fakes)
+    result = await _transcribe(deps, part, loop)
+
+    assert (result.ok, result.reason) == (False, FailReason.PROVIDER)
+    assert (google.calls, openrouter.calls, fakes.messenger.sent("download")) == ([], [], [])
+    [(chat, text, reply_to)] = _sent(fakes)
+    assert (chat, reply_to) == (DEV_GROUP_ID, part.message_id)
+    assert text == (
+        "Ovozli xabarni matnga o'gira olmadim: Google Gemini — oylik xarajat limiti tugagan; OpenRouter (Gemini) — "
+        "oylik xarajat limiti tugagan. Matn bilan yozing yoki qayta yuboring."
+    )
+    assert (await _row(deps)).error_code == "cost_cap_reached"
+
+
+async def test_google_stt_is_priced_from_the_audio_length(
+    deps: DevDeps, fakes: Fakes, google: FakeTranscriber, loop: _Loop
+) -> None:
+    await _keys(deps, fakes, "google_api_key")
+    google.script(make_transcript(SPOKEN, audio_ms=90_000))
+    await _transcribe(deps, await _voice_note(deps, fakes), loop)
+    await settings.record_version(
+        deps, make_owner_origin(), defaults.COST_GOOGLE_STT_USD_MICROS_PER_MIN, 0, reason="change"
+    )  # a free-tier key
+    google.script(make_transcript(SPOKEN, audio_ms=90_000))
+    await _transcribe(deps, await _voice_note(deps, fakes, update_id=2), loop)
+
+    async with deps.db.read() as s:
+        priced, free = await cost_store.list_usage_records(s)
+    assert (priced.provider, priced.is_paid_api, priced.cost_usd_micros) == (GOOGLE, True, 3_000)  # 1.5 min × $0.002
+    assert (free.is_paid_api, free.cost_usd_micros) == (False, 0)
 
 
 # --- restart (SPEC §2.7) --------------------------------------------------------------------------------------------

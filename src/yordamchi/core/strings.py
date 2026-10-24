@@ -76,6 +76,62 @@ ERR_VAULT_DECRYPT_FAILED = Msg("«{name}» kalitini ochib bo'lmadi (ombor o'zgar
 ERR_VAULT_SECRET_NOT_FOUND = Msg("«{name}» degan kalit omborda yo'q.")
 
 # --- cost ---
+# "xarajat?" (UC-07): each amount is "bugun / 7 kun / shu oy". Paid spend is money; the Claude plan's figure is an
+# API-equivalent estimate within the subscription and is always labelled so.
+COST_HEAD = Msg("Xarajat · bugun / 7 kun / shu oy")
+COST_PAID = Msg("Pullik API: {today} / {week} / {month}")
+COST_PROVIDER = Msg("• {provider}: {today} / {week} / {month} · limit {cap}, {pct}% ishlatildi")
+COST_PROVIDER_PAUSED = Msg(
+    "• {provider}: {today} / {week} / {month} · limit {cap} tugadi — pullik chaqiruvlar to'xtatilgan"
+)
+COST_PROVIDER_OFF = Msg("• {provider}: {today} / {week} / {month} · limit $0 — pullik chaqiruvlar o'chirilgan")
+COST_USES = Msg("Nimaga: {uses}")
+COST_USE_ITEM = Msg("{use} {today} / {week} / {month}")
+COST_PLAN = Msg("Claude obunasi (API narxida taxmin; obuna doirasida, pul to'lanmaydi): {today} / {week} / {month}")
+COST_TURNS = Msg("Ishlar: {today} / {week} / {month} · vaqt: {time}")
+COST_CLAUDE_LIMITS = Msg("Claude limiti (ClaudeManager): 5 soat {five} · 7 kun {seven}")
+COST_PROJECTS = Msg("Eng faol loyihalar (shu oy; Claude — taxmin): {projects}")
+COST_PROJECT = Msg("{project} — {turns} ish, {estimate}")
+COST_PROJECT_WITH_PAID = Msg("{project} — {turns} ish, {estimate} + pullik {paid}")
+COST_BOTS = Msg("Botlar (shu oy): {bots}")
+COST_BOT_ITEM = Msg("{bot} — pullik {paid}, Claude taxmin {estimate}")
+COST_BOT_DEV = Msg("dev")
+COST_BOT_PERSONAL = Msg("shaxsiy")
+COST_PROVIDER_GOOGLE = Msg("Google Gemini")
+COST_PROVIDER_OPENROUTER = Msg("OpenRouter")
+COST_PROVIDER_OPENAI = Msg("OpenAI")
+COST_USE_STT = Msg("STT")
+COST_USE_TTS = Msg("TTS")
+COST_USE_ROUTING = Msg("routing")
+COST_USE_REPORT = Msg("hisobot")
+COST_USE_VIDEO = Msg("video")
+COST_USE_QA = Msg("savol-javob")
+COST_NAME = Msg("{name}")  # a provider or use without its own label: its ledger name
+COST_MINUTES = Msg("{minutes} daq")
+COST_HOURS = Msg("{hours} soat {minutes} daq")
+COST_PERCENT = Msg("{value}%")
+COST_UNKNOWN = Msg("noma'lum")
+# NFR-COST-02: once per provider, month and cap each. The pause names what still works and how to raise the cap.
+COST_CAP_WARNING = Msg(
+    "{provider}: oylik limitning {pct} foizi ishlatildi ({spent} / {cap}). {cap} ga yetganda pullik chaqiruvlar "
+    "to'xtaydi."
+)
+COST_CAP_REACHED = Msg(
+    "{provider}: oylik limit ({cap}) tugadi — {spent} sarflandi. Pullik chaqiruvlar to'xtatildi: ovozni boshqa "
+    "provayder taniydi (u ham bo'lmasa, aytaman), ovozli javoblar Edge orqali yoki faqat matnda bo'ladi. Limitni "
+    "oshirish uchun ayting, masalan: «{provider} limitini {suggested} dollar qil»."
+)
+# `schedule.cost_summary_at` (off by default): one line a day.
+COST_SUMMARY = Msg(
+    "Xarajat, so'nggi 24 soat: pullik API {paid} (shu oy {month}) · Claude {estimate} — obuna doirasida, pul "
+    "to'lanmaydi · {turns} ta ish"
+)
+# Why a voice note skipped a provider (the voice failure line names it: "Google Gemini — oylik xarajat …").
+COST_STT_PROBLEM_CAP = Msg("oylik xarajat limiti tugagan")
+ERR_COST_CAP_REACHED = Msg(
+    "{provider}: oylik xarajat limiti ({cap}) tugagan — pullik chaqiruv qilinmadi. Limitni oshirish uchun ayting."
+)
+
 # --- access ---
 # --- outbox ---
 # The caption of a `.md` file that replaces a text longer than `outbox.max_parts` messages (NFR-CAP-03). `summary`

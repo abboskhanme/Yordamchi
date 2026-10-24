@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 14:57:00.437693
+Create Date: 2026-10-24 15:05:28.686715
 """
 
 from collections.abc import Sequence
@@ -59,6 +59,15 @@ def upgrade() -> None:
             postgresql_where=sa.text("status IN ('holding', 'open')"),
         )
 
+    op.create_table(
+        "cap_notices",
+        sa.Column("provider", sa.String(length=16), nullable=False),
+        sa.Column("month", sa.String(length=7), nullable=False),
+        sa.Column("level", sa.Integer(), nullable=False),
+        sa.Column("cap_usd", sa.Integer(), nullable=False),
+        sa.Column("sent_at", sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("provider", "month", "level", "cap_usd", name=op.f("pk_cap_notices")),
+    )
     op.create_table(
         "decisions",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -691,6 +700,7 @@ def downgrade() -> None:
         batch_op.drop_index("ix_decisions_input_sha256_status")
 
     op.drop_table("decisions")
+    op.drop_table("cap_notices")
     with op.batch_alter_table("bursts", schema=None) as batch_op:
         batch_op.drop_index(
             "uq_bursts_bot_chat_id_assembling",

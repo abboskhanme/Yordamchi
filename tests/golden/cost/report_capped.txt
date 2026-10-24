@@ -1,0 +1,9 @@
+Xarajat · bugun / 7 kun / shu oy
+Pullik API: $1.20 / $4.80 / $11.02
+• Google Gemini: <$0.01 / <$0.01 / <$0.01 · limit $40, 0% ishlatildi
+• OpenRouter: $1.20 / $4.80 / $11.02 · limit $10 tugadi — pullik chaqiruvlar to'xtatilgan
+• OpenAI: $0 / $0 / $0 · limit $0 — pullik chaqiruvlar o'chirilgan
+Nimaga: STT $1.00 / $4.00 / $10.02 · TTS $0.20 / $0.80 / $1.00
+Claude obunasi (API narxida taxmin; obuna doirasida, pul to'lanmaydi): $0 / ~$2.00 / ~$6.00
+Ishlar: 0 / 1 / 3 · vaqt: 0 daq / 45 daq / 2 soat 0 daq
+Botlar (shu oy): dev — pullik $10.02, Claude taxmin ~$6.00 · shaxsiy — pullik $1.00, Claude taxmin $0

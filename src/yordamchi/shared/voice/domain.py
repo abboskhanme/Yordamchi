@@ -27,7 +27,7 @@ from yordamchi.core.errors import ErrorCode, ExternalError, SttTermInvalid
 from yordamchi.core.paths import BotName
 from yordamchi.core.text import BotText, join
 from yordamchi.ports.speech import SpeechAudio, SpeechKeyCheck, Transcript
-from yordamchi.shared.cost.domain import Provider, Usage
+from yordamchi.shared.cost.domain import Provider, Usage, audio_cost_micros
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings.domain import Snapshot
 from yordamchi.shared.vault.domain import SecretRef
@@ -211,6 +211,7 @@ _PROBLEMS: Final[Mapping[ErrorCode, S.Msg]] = {
     ErrorCode.AUTH_FAILED: S.STT_PROBLEM_AUTH,
     ErrorCode.RATE_LIMITED: S.STT_PROBLEM_RATE_LIMITED,
     ErrorCode.CALL_TIMED_OUT: S.STT_PROBLEM_TIMEOUT,
+    ErrorCode.COST_CAP_REACHED: S.COST_STT_PROBLEM_CAP,  # skipped: its monthly cap is used up (T51)
 }
 _REASONS: Final[Mapping[FailReason, S.Msg]] = {
     FailReason.NO_KEY: S.STT_REASON_NO_KEY,
@@ -270,16 +271,19 @@ def notice_target(snap: Snapshot, message_id: int | None) -> Notice:
     return Notice(chat_id=snap[defaults.ACCESS_OWNER_ID], reply_to=None)
 
 
-def usage_of(transcript: Transcript) -> Usage:
-    """The `usage_records` row of one answered STT call. A call is paid when the provider reported a cost above 0;
-    Google reports none, so its calls record 0 until the P2 caps (T51) price them."""
-    cost = transcript.cost_usd_micros or 0
+def usage_of(transcript: Transcript, *, google_usd_micros_per_min: int = 0) -> Usage:
+    """The `usage_records` row of one answered STT call. A call is paid when its cost is above 0. Google reports no
+    cost, so its call is priced from the audio length at `cost.google_stt_usd_micros_per_min` (T51; 0 = unpaid)."""
+    reported = transcript.cost_usd_micros
+    if reported is None and transcript.provider == GOOGLE:
+        reported = audio_cost_micros(transcript.audio_ms, google_usd_micros_per_min)
+    amount = reported or 0
     return Usage(
         source=USAGE_SOURCE,
         provider=Provider(transcript.provider),
         model=transcript.model,
-        is_paid_api=cost > 0,
-        cost_usd_micros=cost,
+        is_paid_api=amount > 0,
+        cost_usd_micros=amount,
         duration_ms=transcript.latency_ms,
         units={"audio_ms": transcript.audio_ms, **transcript.units},
     )
@@ -639,7 +643,8 @@ def notice_ref(key: str, now: datetime) -> str:
 
 def tts_usage_of(audio: SpeechAudio, *, duration_ms: int) -> Usage:
     """The `usage_records` row of one answered TTS call. Edge is free; OpenRouter and Google report no cost on this
-    path (OpenRouter prices TTS per character, `units.characters`), so they record 0 until T51 prices them."""
+    path (OpenRouter prices TTS per character, `units.characters`), so they record 0: TTS has no price setting yet,
+    though a provider capped by its other spend is still skipped (T51)."""
     cost = audio.cost_usd_micros or 0
     return Usage(
         source=TTS_USAGE_SOURCE,

@@ -31,6 +31,7 @@ class ErrorCode(StrEnum):
     VAULT_DECRYPT_FAILED = "vault_decrypt_failed"
     VAULT_SECRET_NOT_FOUND = "vault_secret_not_found"  # noqa: S105  # an error code, not a password
     # --- cost ---
+    COST_CAP_REACHED = "cost_cap_reached"
     # --- access ---
     # --- outbox ---
     # --- burst ---
@@ -207,6 +208,14 @@ class VaultSecretNotFound(DomainError):
 
 
 # --- cost ---
+class CostCapReached(DomainError):
+    """A paid call was not made: the provider's monthly cap is used up (NFR-COST-02) and there is no free fallback.
+    `cap` is the cap as shown (`$40`)."""
+
+    def __init__(self, *, provider: str, cap: str) -> None:
+        super().__init__(ErrorCode.COST_CAP_REACHED, provider=provider, cap=cap)
+
+
 # --- access ---
 # --- outbox ---
 # --- burst ---

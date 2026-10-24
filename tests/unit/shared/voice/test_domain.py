@@ -245,6 +245,21 @@ def test_usage_records_the_reported_cost_in_micros_and_the_counters() -> None:
     )
 
 
+def test_a_google_call_is_priced_from_its_audio_and_a_reported_cost_wins() -> None:
+    priced = domain.usage_of(make_transcript(audio_ms=60_000), google_usd_micros_per_min=2_000)
+    require_valid_usage(priced)
+    assert (priced.provider, priced.is_paid_api, priced.cost_usd_micros) == (Provider.GOOGLE, True, 2_000)
+    reported = domain.usage_of(
+        make_transcript(provider="openrouter", cost_usd_micros=410), google_usd_micros_per_min=2_000
+    )
+    assert reported.cost_usd_micros == 410  # the provider's own figure, never the Google estimate
+
+
+def test_a_capped_provider_is_named_in_the_failure() -> None:
+    result = SttResult(1, reason=FailReason.PROVIDER, failed=(Attempt("google", ErrorCode.COST_CAP_REACHED),))
+    assert domain.reason_text(result) == "Google Gemini — oylik xarajat limiti tugagan"
+
+
 # --- speech keys ----------------------------------------------------------------------------------------------------
 def test_speech_keys_are_picked_out_of_the_stored_secrets_once_each() -> None:
     refs = [

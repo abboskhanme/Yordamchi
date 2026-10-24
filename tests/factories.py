@@ -15,7 +15,7 @@ from functools import partial
 from pathlib import Path
 from typing import Final
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 
 from tests.fakes.agent import FakeAgentRuntime
 from tests.fakes.assistant import FakeAssistant
@@ -69,7 +69,9 @@ from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOr
 from yordamchi.shared.burst import domain as burst_domain
 from yordamchi.shared.burst import store as burst_store
 from yordamchi.shared.burst.domain import BurstPart, BurstStatus, CloseReason, RunningTurn, TurnInput, WindowSettings
-from yordamchi.shared.cost.domain import Provider, Usage
+from yordamchi.shared.cost import service as cost_service
+from yordamchi.shared.cost.domain import Allowance, Figures, Period, Provider, Usage, UsageTotal
+from yordamchi.shared.cost.models import UsageRecord
 from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.health import store as health_store
 from yordamchi.shared.health.models import HealthEvent
@@ -272,6 +274,91 @@ def make_usage(
         project_id=project_id,
         turn_id=turn_id,
     )
+
+
+def make_turn_usage(
+    project_id: str = "BonviHR", *, turn_id: int = 1, cost_usd_micros: int = 400_000, duration_ms: int = 600_000
+) -> Usage:
+    """A finished turn on the Claude plan: its API-equivalent estimate, never money."""
+    return make_usage(
+        source="turn",
+        provider=Provider.ANTHROPIC_PLAN,
+        model="opus",
+        is_paid_api=False,
+        cost_usd_micros=cost_usd_micros,
+        duration_ms=duration_ms,
+        units={"input_tokens": 1200, "output_tokens": 300},
+        project_id=project_id,
+        turn_id=turn_id,
+    )
+
+
+async def add_usage(db: Database, *usages: Usage, at: datetime, bot: BotName = BotName.DEV) -> None:
+    """Record `usages` at `at` the way callers do (one unit of work, through `cost.service.record_usage`)."""
+    async with db.uow() as s:
+        for usage in usages:
+            await cost_service.record_usage(s, bot=bot, at=at, usage=usage)
+
+
+async def add_usage_rows(db: Database, rows: Sequence[tuple[datetime, Usage]], *, bot: BotName = BotName.DEV) -> None:
+    """Many ledger rows in one statement (the 400-day report budget test)."""
+    values = [
+        {
+            "bot": bot.value,
+            "at": at,
+            "source": usage.source,
+            "provider": usage.provider.value,
+            "is_paid_api": usage.is_paid_api,
+            "model": usage.model,
+            "project_id": usage.project_id,
+            "turn_id": usage.turn_id,
+            "cost_usd_micros": usage.cost_usd_micros,
+            "units_json": dict(usage.units),
+            "duration_ms": usage.duration_ms,
+        }
+        for at, usage in rows
+    ]
+    async with db.uow() as s:
+        await s.execute(insert(UsageRecord), values)
+
+
+def usd(dollars: int, cents: int = 0) -> int:
+    """Whole dollars and cents as micro-USD, so tests never write a float."""
+    return dollars * 1_000_000 + cents * 10_000
+
+
+def make_allowance(
+    provider: Provider = Provider.OPENROUTER, *, cap_usd: int = 10, spent: int = 0, warn_pct: int = 80
+) -> Allowance:
+    return Allowance(provider=provider, month="2026-10", cap_usd=cap_usd, warn_pct=warn_pct, spent_usd_micros=spent)
+
+
+def make_usage_total(
+    provider: Provider,
+    source: str,
+    *,
+    paid: bool,
+    today: int = 0,
+    week: int = 0,
+    month: int = 0,
+    turns: tuple[int, int, int] = (0, 0, 0),
+    duration_ms: tuple[int, int, int] = (0, 0, 0),
+    bot: BotName = BotName.DEV,
+) -> UsageTotal:
+    """A ledger group as the store adds it up: micro-USD for today, the last 7 days and this month (the last 24 h
+    equal today here)."""
+    costs = (today, week, month)
+    figures = {
+        period: Figures(
+            cost_usd_micros=costs[index],
+            calls=1 if costs[index] or turns[index] else 0,
+            turns=turns[index],
+            duration_ms=duration_ms[index],
+        )
+        for index, period in enumerate((Period.TODAY, Period.WEEK, Period.MONTH))
+    }
+    figures[Period.DAY] = figures[Period.TODAY]
+    return UsageTotal(bot=bot, provider=provider.value, source=source, is_paid_api=paid, figures=figures)
 
 
 # --- access ---

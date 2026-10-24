@@ -31,6 +31,7 @@ from yordamchi.shared.settings.registry import (
     TimeOfDay,
     adds_items,
     always,
+    decreases,
     disables,
     increases,
     removes_items,
@@ -164,6 +165,19 @@ SCHEDULE_COST_SUMMARY_AT = Setting(
     group=Group.SCHEDULES,
     bots=DEV,
     doc="Daily cost summary time; empty = off (the owner asks 'xarajat?').",
+)
+# Google STT reports no cost, so its calls are priced from the audio length (T51). Lowering the price lets more real
+# spend through the Google cap, so it asks; 0 = a free-tier key (calls stay unpaid).
+COST_GOOGLE_STT_USD_MICROS_PER_MIN = Setting(
+    "cost.google_stt_usd_micros_per_min",
+    int,
+    2_000,
+    check=Range(0, 1_000_000),
+    group=Group.CAPS,
+    bots=BOTH,
+    weakens=decreases,
+    doc="Estimated micro-USD price of one audio minute of Google STT; counts against caps.google_monthly_usd.",
+    unit="micro-USD/min",
 )
 
 # --- access ---

@@ -14,11 +14,14 @@ from tests.factories import (
     FAKE_KEYS,
     OWNER_ID,
     Fakes,
+    add_usage,
     drain_outbox,
     make_owner_origin,
     make_speech_audio,
     make_synthesizers,
+    make_usage,
     store_secret,
+    usd,
 )
 from tests.fakes.clock import FakeClock
 from tests.fakes.speech import FakeSynthesizer
@@ -37,6 +40,7 @@ from yordamchi.core.paths import BotName
 from yordamchi.core.text import BotText
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.shared.cost import store as cost_store
+from yordamchi.shared.cost.domain import Provider
 from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.outbox import service as outbox
 from yordamchi.shared.outbox.domain import Kind
@@ -275,6 +279,50 @@ async def test_no_adapter_at_all_is_said_once(deps: PersonalDeps, fakes: Fakes) 
     assert result.reason is SkipReason.NO_PROVIDER
     _, texts = await _sent(deps, fakes)
     assert texts == [S.VOICE_SKIPPED(reason=S.TTS_REASON_NO_PROVIDER())]
+
+
+# --- monthly caps (NFR-COST-02, T51) --------------------------------------------------------------------------------
+async def _spent(deps: SharedDeps, provider: Provider, dollars: int) -> None:
+    """This month's paid spend on `provider` (its STT calls, say): the cap is one budget per provider."""
+    usage = make_usage(provider=provider, model="m", cost_usd_micros=usd(dollars))
+    await add_usage(deps.db, usage, at=deps.clock.now(), bot=deps.bot)
+
+
+async def test_paid_tts_at_its_cap_goes_to_edge_and_says_why(
+    deps: PersonalDeps, fakes: Fakes, synthesizers: dict[str, FakeSynthesizer]
+) -> None:
+    await _keys(deps, fakes, "openrouter_api_key", "google_api_key")
+    await _spent(deps, Provider.OPENROUTER, 10)
+    await _spent(deps, Provider.GOOGLE, 40)
+
+    result = await _speak(deps)
+
+    assert result.provider == EDGE
+    assert result.failed == (
+        TtsAttempt(OPENROUTER, ErrorCode.COST_CAP_REACHED),
+        TtsAttempt(GOOGLE, ErrorCode.COST_CAP_REACHED),
+    )
+    assert synthesizers[OPENROUTER].calls == synthesizers[GOOGLE].calls == []  # no paid call was made
+    voices, texts = await _sent(deps, fakes)
+    assert len(voices) == 1
+    assert texts == [
+        S.TTS_FELL_BACK(provider=S.SPEECH_OPENROUTER(), problem=S.COST_STT_PROBLEM_CAP(), fallback=S.SPEECH_EDGE())
+    ]
+
+
+async def test_paid_tts_at_its_cap_without_edge_is_text_only(
+    deps: PersonalDeps, fakes: Fakes, synthesizers: dict[str, FakeSynthesizer]
+) -> None:
+    deps = replace(deps, synthesizers={OPENROUTER: synthesizers[OPENROUTER]})
+    await _keys(deps, fakes, "openrouter_api_key")
+    await _spent(deps, Provider.OPENROUTER, 10)
+
+    result = await _speak(deps)
+
+    assert (result.ok, result.reason, synthesizers[OPENROUTER].calls) == (False, SkipReason.PROVIDER, [])
+    voices, texts = await _sent(deps, fakes)
+    assert voices == []
+    assert texts == [S.VOICE_SKIPPED(reason="OpenRouter (Gemini) — oylik xarajat limiti tugagan")]
 
 
 # --- the owner's switches ------------------------------------------------------------------------------------------
