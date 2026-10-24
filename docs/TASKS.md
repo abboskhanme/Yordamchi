@@ -6,7 +6,7 @@ Source: `docs/SPEC.md` (approved 2026-10-23). `plan-manager` · 2026-10-23. Path
 scratch repo). (2) Orchestrator: start spikes T03–T06 now (no deps), and T07 once T01 lands. Tell the T01 agent that its
 done criterion includes the pre-carved shared-file blocks and every §4.3 P1 default (rule R2).
 
-**Status:** done 18 (T01–T14, T16, T17, T22, T23) · in progress 4 (T15, T18, T19, T20) · blocked on owner 3 (T38, T39, T43) · todo: the rest.
+**Status:** done 18 (T01–T14, T16, T17, T22, T23) · in progress 5 (T15, T18, T19, T20, T28) · blocked on owner 3 (T38, T39, T43) · todo: the rest.
 
 **Critical path (P1):** T01 → T02 → T08 → T17 → T20 → T24 → {T29 T30 T31 T32} → T34 → T36 → T42 → T43 → T44 → T47.
 Joins it: T03 → T10 → T24 (spikes gate the executor) and T07 → T18 → T24 (gate). Day-one owner items on it:
@@ -166,7 +166,7 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 | T25 | U5c gate eval suite (Claude) incl. CI-deploy + secret-scan fixtures | test-backend | T07, T11, T18 | yes | `tests/eval/gate/`, `tests/fixtures/claude/tool_calls/` | — | UC-13 (all bullets), NFR-SEC-06, NFR-OPS-02 | meets `thresholds.toml` | todo |
 | T26 | U7c routing eval ≥ 120 (80/20/20, ≥ 15 projects) | test-backend | T12, T20 | yes | `tests/eval/routing/`, `tests/fixtures/llm/routing/` | — | UC-10 (≥ 97 % / ≥ 90 % / ≥ 90 %, ≤ 1 silent wrong) | meets thresholds; fixtures recorded live | todo |
 | T27 | burst dev eval (≥ 24) + secrets eval (≥ 10 formats + unknown) | test-backend | T08, T16 | yes | `tests/eval/{burst,secrets}/` | — | UC-02 (dev), UC-04 | meets thresholds | todo |
-| T28 | U10b installer, plists, check script | ship-devops | T01, T23 | yes | `scripts/install.py`, `ops/launchd/*.plist.tmpl`, `bots/cli/check.py` (core-only imports) | — | NFR-OPS-01, UC-01 (join-groups off, privacy/admin rights, empty commands), NFR-SEC-02 (modes, `master.key`, `tmutil`), NFR-SEC-04, NFR-REL-02 | dry run against a temp HOME passes (no `launchctl`) | todo |
+| T28 | U10b installer, plists, check script | ship-devops | T01, T23 | yes | `scripts/install.py`, `ops/launchd/*.plist.tmpl`, `bots/cli/check.py` (core-only imports) | — | NFR-OPS-01, UC-01 (join-groups off, privacy/admin rights, empty commands), NFR-SEC-02 (modes, `master.key`, `tmutil`), NFR-SEC-04, NFR-REL-02 | dry run against a temp HOME passes (no `launchctl`) | in progress (2026-10-24) |
 
 ## Phase 8 — Turn satellites [parallel, max 5]
 
