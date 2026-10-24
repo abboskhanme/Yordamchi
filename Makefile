@@ -19,8 +19,12 @@ imports:
 	$(RUN) lint-imports
 
 # Includes the architecture rules (tests/architecture, A1–A9) with the network closed (pytest-socket).
+# Each checkout gets its own pytest temp root under the system temp dir: parallel runs (agent worktrees) sharing
+# one root clean up each other's dirs and fail on the cleanup warnings. It stays under $TMPDIR on purpose: the
+# gate eval treats /private/tmp as a temp root, so the default location must not move there.
+PYTEST_TEMPROOT ?= $(shell python3 -c 'import hashlib,os,tempfile;print(os.path.join(tempfile.gettempdir(),"yordamchi-"+hashlib.sha1(os.getcwd().encode()).hexdigest()[:10]))')
 test:
-	$(RUN) pytest
+	mkdir -p $(PYTEST_TEMPROOT) && PYTEST_DEBUG_TEMPROOT=$(PYTEST_TEMPROOT) $(RUN) pytest
 
 # The supervisor's own interpreter and venv, stdlib unittest only (no pytest dependency).
 supervisor-test:
