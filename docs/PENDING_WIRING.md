@@ -233,3 +233,20 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Once routing is wired, count its clarifying questions in the burst eval's "asks nothing" measure. T45 owner grading is still to come.
 - [ ] When executor sessions exist, extend the secrets leak search to the Claude/Codex transcripts.
 - [ ] Gap: an edit to a message already in a running turn is not a continuation (`burst/domain.py` `continues()`); decide in T24/T29.
+
+## From T18b (project hooks, stash, fetch)
+- [x] T18b done (ab79be9). The `githooks/` wrappers cover pre-commit, prepare-commit-msg, commit-msg, post-commit, post-checkout, post-merge, pre-rebase, post-rewrite and pre-push.
+- [ ] T24: `YORDAMCHI_PY` in `spec.env` for every session; commits and checkouts fail without it.
+- [ ] T24: `GateScope.turn_started_at` (tz-aware UTC); without it every `stash drop|clear` asks.
+- [ ] Docs: STACK/CONVENTIONS port table: `Git.stash_entries` is new.
+
+## From T21 (settings)
+- [ ] T34 `bots/dev`:
+  - "sozlamalaring qanday?" → `settings.service.show_settings(deps, origin)`;
+  - a change by chat → `handle_request(deps, origin, text, ask=partial(gate.service.ask_setting_change, deps))`;
+  - "oldingi holatiga qaytar" → `revert_setting(deps, origin, key, ask=…)`;
+  - "ha"/"yo'q" go through `gate.answer_decision` (settings decisions are in `pending_items`).
+- [ ] T34 assistant pools: size them from `assistant.warm_clients`, and re-warm after `models.*` / `assistant.warm_clients` changes.
+- [ ] T20 follow-up: pass `models.routing_effort` as `effort=` on routing asks; route the settings intent to `handle_request`.
+- [ ] P3: a conversational `AskOwner` for the personal bot (stores `PendingChange.to_json()`, then `apply_pending_change`).
+- [ ] SPEC §4.3: add `timeouts.settings_s`, `assistant.warm_clients`, `models.routing_effort` and the `DictOf` check; mention `prompts/dev/settings_context.md` in §3.2.15.

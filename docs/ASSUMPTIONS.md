@@ -289,3 +289,13 @@ question. Correct any line and it changes.
 - [2026-10-24] Platform deploy files (T17b) → any of 7 files in the working tree makes the default branch deploy; an unknown default branch makes every branch deploy; `DEPLOY_RULES_VERSION` = 2 forces a recheck → fail closed.
 - [2026-10-24] Secrets eval → `sk-ant-api` keys are stored (only `sk-ant-oat` is refused, SPEC §4.5); unknown-format keys may stay in the inbox payload but never reach a reply or a log (UC-04 wording); the leak search counts any 16-char fragment.
 - [2026-10-24] Redact fix → `generic_secret` stops at `&`, `#` and brackets; neither it nor `telegram_bot_url` re-matches a value that is already masked → T27-B1/B2.
+
+## Project hooks (T18b) and settings (T21), merged 2026-10-24
+- [2026-10-24] Project hooks in bot sessions → every git hook goes through `githook.py`, which `exec`s the project's own hook (repo-local `core.hooksPath`, e.g. husky, else `.git/hooks`), with the same argv, stdin and exit code; a hooks dir outside the repo or the git common dir is never followed; an empty or `/dev/null` hooksPath means no hooks → husky and pre-commit keep working, and nothing escapes the repo.
+- [2026-10-24] pre-push → the secret scan runs first and cannot be skipped; the project's pre-push runs only after a clean scan → NFR-SEC-10.
+- [2026-10-24] Stash safety → `stash drop|clear` asks when the tree was dirty before the turn or when stash entries older than the turn start exist (whole-second precision, so it may over-ask once, never miss) → the owner's stashes are his data.
+- [2026-10-24] Fetching over ssh → `git-upload-pack <path>` is a built-in read-only pattern; a custom `--upload-pack` and jump-only hosts still ask → it's git's read protocol, not owner policy.
+- [2026-10-24] Settings weakening → the asker is injected; the dev bot uses a gate `settings_weaken` decision (a small protected-core addition in `dev/gate/service.py`, keyed on that kind and tested) → `shared` can't import `dev`.
+- [2026-10-24] A settings request is all-or-nothing: if any part weakens a safeguard, the whole request waits for one "ha"; a revert follows the same rule; repeating the request reuses the open decision → one question at most.
+- [2026-10-24] Settings list → a grouped summary plus the full list as a `.md` file; values are masked first, then truncated (found and fixed a prefix leak); English doc strings are hidden from the owner (NFR-LANG-01).
+- [2026-10-24] NL settings interpretation → an unknown key from the model counts as "unclear" and changes nothing; the clarifying question comes from a fixed template, not from model text → injection-safe (NFR-SEC-09).
