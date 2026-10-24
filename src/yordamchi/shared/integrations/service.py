@@ -56,7 +56,7 @@ from yordamchi.ports.agent import McpHttpServer
 from yordamchi.ports.keystore import Sealed
 from yordamchi.ports.mcp import McpTool, OAuthAuthorized, OAuthCallback, OAuthClientConfig, OAuthGrant
 from yordamchi.shared.access import service as access
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.audit import service as audit
 from yordamchi.shared.audit.domain import AuditActor, AuditKind
 from yordamchi.shared.deps import SharedDeps
@@ -170,12 +170,6 @@ async def _find(deps: SharedDeps, name: str) -> IntegrationView:
     return found
 
 
-def _own(deps: SharedDeps, origin: OwnerOrigin) -> None:
-    if origin.bot is not deps.bot:
-        msg = f"an owner origin of the {origin.bot} bot cannot change {deps.bot} integrations"
-        raise ValueError(msg)
-
-
 def _failed(name: str, error: YordamchiError) -> IntegrationFailed:
     reason = domain.reason_of(error.code)
     why, fix = domain.failure_parts(reason)
@@ -267,7 +261,7 @@ async def add_integration(
     Re-adding an integration that is failing (a new token, "qayta ulan" after an expired grant) re-validates it in
     place; re-adding a working one without a new token raises `IntegrationExists`.
     """
-    _own(deps, origin)
+    require_owner_origin(origin, deps.bot)
     plan = domain.plan_add(name=request.name, url=request.url, said_in=deps.bot, both=request.both)
     snap = await settings.snapshot(deps)
     async with deps.db.read() as s:
@@ -347,7 +341,7 @@ def _added_text(view: IntegrationView, *, reconnected: bool) -> BotText:
 
 async def add_api_key(deps: SharedDeps, origin: OwnerOrigin, request: AddApiKey) -> BotText:
     """Store a plain API key integration: a name, a base URL, what it is for, and the vaulted key (by id)."""
-    _own(deps, origin)
+    require_owner_origin(origin, deps.bot)
     plan = domain.plan_add(name=request.name, url=request.base_url, said_in=deps.bot, both=request.both)
     now = deps.clock.now()
     auth = AuthKind.HEADER if request.header_name else AuthKind.BEARER
@@ -541,7 +535,7 @@ async def complete_oauth(
     """The owner pasted the redirect URL (intake vaulted it as `oauth_callback_url`: pass its `secret`) or typed just
     the code (`pasted`). Resumes the waiting flow and returns its outcome; a code is single-use, so the vaulted URL
     is removed at once."""
-    _own(deps, origin)
+    require_owner_origin(origin, deps.bot)
     raw = await vault.open_secret(deps, secret.name) if secret is not None else (pasted or "")
     callback = domain.parse_callback(raw)
     if callback is None:
@@ -580,7 +574,7 @@ async def shutdown_integrations(deps: SharedDeps, state: IntegrationsState) -> N
 async def remove_integration(deps: SharedDeps, state: IntegrationsState, origin: OwnerOrigin, name: str) -> BotText:
     """Mark it removed: absent from the next session (UC-08 AC); `restore_integration` brings it back for 30 days.
     Its vault secret stays (masked, in the pre-push hash file) until the owner removes the key itself."""
-    _own(deps, origin)
+    require_owner_origin(origin, deps.bot)
     view = await _find(deps, name)
     _cancel_flow(state, view.slug)
     now = deps.clock.now()
@@ -596,7 +590,7 @@ async def remove_integration(deps: SharedDeps, state: IntegrationsState, origin:
 
 async def restore_integration(deps: SharedDeps, origin: OwnerOrigin, name: str) -> BotText:
     """Undo a removal of the last 30 days, unless the name is taken again meanwhile."""
-    _own(deps, origin)
+    require_owner_origin(origin, deps.bot)
     now = deps.clock.now()
     async with deps.db.uow() as s:
         removed = await store.list_removed_integrations(s, since=now - domain.RESTORE_WINDOW)
@@ -614,7 +608,7 @@ async def restore_integration(deps: SharedDeps, origin: OwnerOrigin, name: str) 
 
 async def rename_integration(deps: SharedDeps, origin: OwnerOrigin, name: str, new_name: str) -> BotText:
     """A new display name and slug; sessions see the new server name from their next open."""
-    _own(deps, origin)
+    require_owner_origin(origin, deps.bot)
     view = await _find(deps, name)
     slug, display_name = domain.slugify(new_name), " ".join(new_name.split())[:64]
     now = deps.clock.now()
@@ -634,7 +628,7 @@ async def rename_integration(deps: SharedDeps, origin: OwnerOrigin, name: str, n
 async def assign_integration(deps: SharedDeps, origin: OwnerOrigin, name: str, bots: Sequence[BotName]) -> BotText:
     """Per-bot assignment (SPEC §2.3): the dev bot may give its integration to the personal bot, or to both; the
     personal bot keeps its own for itself."""
-    _own(deps, origin)
+    require_owner_origin(origin, deps.bot)
     view = await _find(deps, name)
     assigned = domain.check_assignment(deps.bot, bots)
     now = deps.clock.now()

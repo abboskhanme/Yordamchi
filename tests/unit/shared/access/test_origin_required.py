@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Final, cast
 
 import pytest
+from sqlalchemy import func, select
 
 from tests.factories import (
     DEV_GROUP_ID,
@@ -37,17 +38,21 @@ from yordamchi.dev.servers import service as servers
 from yordamchi.dev.turns import service as turns
 from yordamchi.shared.access import domain
 from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
+from yordamchi.shared.audit.models import AuditEvent
 from yordamchi.shared.burst import domain as burst_domain
 from yordamchi.shared.burst.domain import CloseReason
 from yordamchi.shared.inbox import domain as inbox_domain
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox import store as inbox_store
+from yordamchi.shared.integrations import service as integrations
+from yordamchi.shared.integrations.models import Integration
+from yordamchi.shared.integrations.service import AddApiKey, AddIntegration, IntegrationsState
 from yordamchi.shared.settings import defaults, store
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import ChangeItem, PendingChange, Proposal
 from yordamchi.shared.vault import service as vault
 from yordamchi.shared.vault import store as vault_store
-from yordamchi.shared.vault.domain import NewSecret
+from yordamchi.shared.vault.domain import NewSecret, SecretRef
 from yordamchi.shared.voice import service as voice
 
 SRC: Final = Path(domain.__file__).resolve().parents[2]
@@ -117,6 +122,10 @@ async def _answer_owner(deps: DevDeps, fakes: Fakes) -> object:
     return await questions.answer_owner(deps, turns.TurnsState(), FAKE, item)
 
 
+INTEGRATION_URL: Final = "https://hr.bonvi.example.uz/mcp"
+STORED_KEY: Final = SecretRef(id=1, name="generic_secret", kind="generic_secret", last4="abcd", bots=(BotName.DEV,))
+
+
 async def _require_matching_origin(deps: DevDeps, fakes: Fakes) -> object:
     del fakes
     inbox_domain.require_matching_origin(FAKE, make_update(1), deps.bot)
@@ -163,6 +172,27 @@ ENTRIES: Final[dict[str, Entry]] = {
         deps, FAKE, "bonvi-srv"
     ),
     "yordamchi.dev.questions.service.answer_owner": _answer_owner,
+    "yordamchi.shared.integrations.service.add_integration": lambda deps, _: integrations.add_integration(
+        deps, IntegrationsState(), FAKE, AddIntegration("Bonvi HR", INTEGRATION_URL)
+    ),
+    "yordamchi.shared.integrations.service.add_api_key": lambda deps, _: integrations.add_api_key(
+        deps, FAKE, AddApiKey("Ob-havo", "https://api.weather.example.uz/v1", "ob-havo", STORED_KEY)
+    ),
+    "yordamchi.shared.integrations.service.complete_oauth": lambda deps, _: integrations.complete_oauth(
+        deps, IntegrationsState(), FAKE, pasted="http://localhost:33418/callback?code=c0de1234&state=st-1"
+    ),
+    "yordamchi.shared.integrations.service.remove_integration": lambda deps, _: integrations.remove_integration(
+        deps, IntegrationsState(), FAKE, "Bonvi HR"
+    ),
+    "yordamchi.shared.integrations.service.restore_integration": lambda deps, _: integrations.restore_integration(
+        deps, FAKE, "Bonvi HR"
+    ),
+    "yordamchi.shared.integrations.service.rename_integration": lambda deps, _: integrations.rename_integration(
+        deps, FAKE, "Bonvi HR", "Kadrlar"
+    ),
+    "yordamchi.shared.integrations.service.assign_integration": lambda deps, _: integrations.assign_integration(
+        deps, FAKE, "Bonvi HR", [BotName.DEV, BotName.PERSONAL]
+    ),
 }
 
 
@@ -224,3 +254,38 @@ async def test_the_gate_no_longer_approves_a_deploy_for_a_lookalike(dev_deps: De
         gate.AnswerKind.APPROVED,
         pending.id,
     )  # the owner's own "ha" still does
+
+
+INTEGRATION_ENTRIES: Final = sorted(name for name in ENTRIES if ".integrations." in name)
+
+
+@pytest.mark.parametrize("name", INTEGRATION_ENTRIES)
+async def test_a_lookalike_origin_changes_no_integration(dev_deps: DevDeps, fakes: Fakes, name: str) -> None:
+    """T50 entries: refused before the registry, the vault or the MCP server is touched (no row, no audit, no call)."""
+    async with dev_deps.db.uow() as s:
+        s.add(
+            Integration(
+                slug="bonvi_hr",
+                display_name="Bonvi HR",
+                kind="mcp_http",
+                url=INTEGRATION_URL,
+                description="",
+                auth="none",
+                bots_json=["dev"],
+                tool_policy_json={"dev": [], "personal": []},
+                tools_cache_json=[],
+                status="ok",
+                created_at=fakes.clock.now(),
+            )
+        )
+    with pytest.raises(TypeError, match="OwnerOrigin"):
+        await ENTRIES[name](dev_deps, fakes)
+    async with dev_deps.db.read() as s:
+        rows = list((await s.scalars(select(Integration))).all())
+        audits = await s.scalar(select(func.count()).select_from(AuditEvent))
+    assert [(row.slug, row.display_name, row.bots_json, row.removed_at) for row in rows] == [
+        ("bonvi_hr", "Bonvi HR", ["dev"], None)
+    ]
+    assert audits == 0
+    assert fakes.mcp.list_calls == []
+    assert len(INTEGRATION_ENTRIES) == 7
