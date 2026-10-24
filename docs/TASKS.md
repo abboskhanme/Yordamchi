@@ -245,7 +245,7 @@ Waves: {T50 T51 T52 T54 T55} → {T53 T56 T57} → T58 → T59 → T60.
 
 Waves: {T70 T71 T72 T73 T74} → {T75 T76} → T77 → T78 → T79.
 
-## P4 — Codex (coarse)
+## P4 — Codex (coarse) — **ON HOLD by owner (2026-10-24): do not start until the owner explicitly asks.**
 
 - [ ] T90 `adapters/codex` (app-server runtime + guard) — build-integration — deps: T79, X08 — UC-17
 - [ ] T91 `switch_executor` intent + handoff summary + switch back to the Claude session — build-backend — deps: T90 — UC-17
@@ -257,4 +257,4 @@ Waves: {T70 T71 T72 T73 T74} → {T75 T76} → T77 → T78 → T79.
 - T38 — waiting on X03 (Gemini + OpenRouter keys) and X04 (20 voice notes); asked 2026-10-23
 - T39 — X01 done; X02 dropped, X07 approved (2026-10-24); waits only on T34
 - T43 — X01 done; waiting on X05 (`pmset`), the token rotation and the ffmpeg pin
-- X08 (P4) — ChatGPT plan + `codex login` (money: owner decision). Ask at P3 start, so it does not gate T90
+- X08 (P4) — ON HOLD: the owner will say when. Do not ask at P3 start; do not start T90–T93 until he asks.

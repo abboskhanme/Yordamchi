@@ -350,3 +350,4 @@ question. Correct any line and it changes.
 - [2026-10-24] Offline vs dead (T32b) → network errors (timeouts, DNS, connect, 5xx) mean offline: no kickstart, no alert, restarts during offline aren't counted as a crash loop; non-network failures (401, 409, …) keep the 120 s restart rule; a stuck loop (no attempt for 120 s) restarts; old-format heartbeats use the old rule → a Wi-Fi drop no longer causes restart loops.
 - [2026-10-24] Network-gap notice → after ≥ 5 min offline the bot posts "Internet uzilgan edi HH:MM–HH:MM" once it's back (the wake-gap pattern).
 - [2026-10-24] Factories name clash → the servers ORM `ServerCheck` is imported as `ServerCheckRow` in `tests/factories.py` (digest has a domain `ServerCheck`).
+- [2026-10-24] P4 (Codex executor) → on hold by the owner: not started and not proposed until he asks explicitly; progress figures exclude it → the owner's decision.
