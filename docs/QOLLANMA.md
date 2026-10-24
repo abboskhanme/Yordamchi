@@ -88,7 +88,7 @@ Telefonda o'qish uchun. Qo'shtirnoq ichidagi bot javoblari — botning aynan o'z
 - `BonviHR'ni «bonvi» deb tani` — qisqa nom qo'shish.
 - `BonviHR tavsifi: kadrlar tizimi` — tavsif yozish.
 - `BonviHR'ni arxivla` / `BonviHR'ni arxivdan chiqar`.
-- Bot umuman tegmaydigan papkalar: `sozlama: projects.excluded`. Hozir unda `OvozYoz` bor — bot uni ko'rmaydi, ro'yxatga olmaydi va unda ishlamaydi. Ro'yxatdan nom olib tashlansa, bot bir marta so'raydi.
+- Bot umuman tegmasligi kerak bo'lgan papka: `sozlama: OvozYoz'ni projects.excluded'ga qo'sh`. Shundan keyin bot uni ko'rmaydi, ro'yxatga olmaydi va unda ishlamaydi. Ro'yxatdan nom olib tashlansa, bot bir marta so'raydi.
 
 <!-- SCREENSHOT: ishlayotgan topshiriqning jonli qatori va natija xabari -->
 

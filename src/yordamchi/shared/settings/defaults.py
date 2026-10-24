@@ -375,7 +375,7 @@ PROJECTS_ARCHIVED = Setting(
 PROJECTS_EXCLUDED = Setting(
     "projects.excluded",
     list[str],
-    ["OvozYoz"],  # the owner, 2026-10-24: a code sample only, never to be touched (docs/ASSUMPTIONS.md)
+    [],
     check=MaxLen(1000),
     group=Group.ROUTING,
     bots=DEV,

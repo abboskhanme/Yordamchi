@@ -205,11 +205,16 @@ def subprocess_runner(env: Mapping[str, str]) -> Runner:
     return run
 
 
+DOWNLOAD_USER_AGENT: Final = "Yordamchi-installer/1.0"
+
+
 def urllib_download(url: str, dest: Path, *, timeout: float) -> None:
     if not url.startswith("https://"):
         msg = "only https downloads are allowed"
         raise ValueError(msg)
-    with urllib.request.urlopen(url, timeout=timeout) as response, dest.open("wb") as handle:  # noqa: S310  # https only
+    # Cloudflare (ffmpeg.martin-riedl.de) answers urllib's default `Python-urllib/3.x` agent with 403.
+    request = urllib.request.Request(url, headers={"User-Agent": DOWNLOAD_USER_AGENT})  # noqa: S310  # https only
+    with urllib.request.urlopen(request, timeout=timeout) as response, dest.open("wb") as handle:  # noqa: S310
         shutil.copyfileobj(response, handle)
 
 

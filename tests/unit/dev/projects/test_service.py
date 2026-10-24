@@ -164,9 +164,10 @@ async def test_an_unreadable_root_changes_nothing(dev_deps: DevDeps, root: Path)
 
 
 async def test_an_excluded_folder_is_never_registered_listed_or_found(dev_deps: DevDeps, root: Path) -> None:
-    """Owner, 2026-10-24: OvozYoz is a code sample only. `projects.excluded` keeps it (by default) out of the registry,
-    the listing, routing and every lookup, so no turn can open a session in it."""
-    assert defaults.PROJECTS_EXCLUDED.default == ["OvozYoz"]
+    """`projects.excluded` keeps a folder out of the registry, the listing, routing and every lookup, so no turn can
+    open a session in it (owner, 2026-10-24, about OvozYoz: the owner decides whether to close it)."""
+    assert defaults.PROJECTS_EXCLUDED.default == []
+    await settings.record_version(dev_deps, ORIGIN, defaults.PROJECTS_EXCLUDED, ["OvozYoz"], reason="change")
     make_project_folder(root, "BonviHR")
     make_project_folder(root, "OvozYoz", readme="# OvozYoz\n\nO'zbekcha ovozni matnga aylantiruvchi ilova.\n")
     report = await service.sync_projects(dev_deps)
