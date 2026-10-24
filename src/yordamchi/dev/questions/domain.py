@@ -243,9 +243,10 @@ def question_text(project: str, questions: Sequence[AgentQuestion]) -> BotText:
 
 # --- what the owner said ----------------------------------------------------------------------------------------
 def answer_text(item: TurnInput) -> str:
-    """What the owner said in the burst, one line per part: texts, captions and transcripts. A voice note that was not
-    understood is left out (its marker is no answer)."""
-    said = (part.text for part in item.parts if part.transcript not in _UNHEARD)
+    """What the owner said in the burst in his own words, one line per part: texts, captions and transcripts. A voice
+    note that was not understood is left out (its marker is no answer), and so is what he forwarded: someone else's
+    words answer no question and approve no decision (NFR-SEC-09, `TurnInput.own_parts`)."""
+    said = (part.text for part in item.own_parts if part.transcript not in _UNHEARD)
     return "\n".join(text.strip() for text in said if text and text.strip())
 
 
@@ -256,8 +257,8 @@ def spoken_text(item: TurnInput) -> str:
 
 
 def reply_to_of(item: TurnInput) -> int | None:
-    """The bot message the burst replies to (its first reply)."""
-    return next((part.reply_to_message_id for part in item.parts if part.reply_to_message_id is not None), None)
+    """The bot message the burst replies to (its first reply in the owner's own words)."""
+    return item.own_reply_to
 
 
 def _without_names(text: str, names: Iterable[str]) -> str:

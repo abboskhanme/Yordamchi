@@ -5,6 +5,7 @@ returns them for a request with `output_schema`.
 
 Recorded fixtures live in `tests/fixtures/llm/<suite>/<key>.json` with `key = fixture_key(request)`; a request with
 no recording fails loudly (a stale key means the prompt changed: re-record with `pytest -m live --record-llm`).
+A suite may key its fixtures its own way: `FakeAssistant.key` (default `fixture_key`, which routing keeps).
 """
 
 import hashlib
@@ -28,6 +29,7 @@ READY = RuntimeStatus(installed=True, version="2.1.309", logged_in=True, auth_me
 
 type Scripted = AssistantReply | Exception | str | dict[str, JsonValue]
 type Responder = Callable[[AssistantRequest], AssistantReply]
+type FixtureKey = Callable[[AssistantRequest], str]
 
 
 def fixture_key(request: AssistantRequest) -> str:
@@ -71,11 +73,13 @@ class FakeAssistant:
         status: RuntimeStatus = READY,
         responder: Responder | None = None,
         fixtures: dict[str, AssistantReply] | None = None,
+        key: FixtureKey | None = None,
     ) -> None:
         self.provider = provider
         self.status = status
         self.responder = responder
         self.fixtures = fixtures
+        self.key: FixtureKey = key or fixture_key  # how a request finds its recorded reply
         self._queued: defaultdict[str, deque[Scripted]] = defaultdict(deque)
         self.requests: list[AssistantRequest] = []
         self.resets: list[tuple[AssistantKind, str | None]] = []
@@ -111,7 +115,7 @@ class FakeAssistant:
                 return self._reply(request, json.dumps(item, ensure_ascii=False), structured=item)
             return self._reply(request, item) if isinstance(item, str) else item
         if self.fixtures is not None:
-            key = fixture_key(request)
+            key = self.key(request)
             if key not in self.fixtures:
                 msg = f"no recorded reply {key}; re-record with `pytest -m live --record-llm`"
                 raise LookupError(msg)

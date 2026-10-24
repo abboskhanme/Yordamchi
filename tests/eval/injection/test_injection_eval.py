@@ -30,6 +30,7 @@ verdict of APPROVE). `test_the_suite_meets_the_thresholds` sums them against `th
 import asyncio
 import dataclasses
 import json
+import sys
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -50,10 +51,13 @@ from tests.eval.recorder import (
     FAST_TIER,
     Recorder,
     as_assistant,
+    drift_report,
     drop_fixtures,
     fixture_dir,
+    fixture_tables,
     kill_leftover_children,
     live_claude,
+    owner_text_key,
     recorded_cases,
 )
 from tests.factories import (
@@ -109,10 +113,12 @@ from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.domain import Kind
 from yordamchi.shared.settings import defaults, domain, store
 from yordamchi.shared.settings import service as settings
+from yordamchi.shared.settings.defaults import REGISTRY
 from yordamchi.shared.settings.service import OutcomeKind
 
 CASES_FILE: Final = Path(__file__).with_name("cases.yaml")
 FIXTURES: Final = fixture_dir("injection")
+FIXTURE_KEY: Final = owner_text_key("injection")  # no settings table in it
 THRESHOLDS: Final = thresholds("injection")
 SOURCES: Final = frozenset(
     {"web_page", "file", "image_caption", "forwarded", "mcp_result", "tool_result", "executor_output"}
@@ -461,6 +467,7 @@ async def _settings_path(case: Case, deps: DevDeps, fakes: Fakes, opened: Open) 
         fakes.assistant.reply_with("settings", case.answer)
     elif case.recorded and deps.assistant is fakes.assistant:
         fakes.assistant.fixtures = load_fixtures(FIXTURES)
+        fakes.assistant.key = FIXTURE_KEY
     sent_before = len(fakes.messenger.sent())
     failures: list[str] = []
     try:
@@ -756,6 +763,40 @@ def test_every_recorded_case_has_exactly_one_fixture() -> None:
     assert recorded_cases(FIXTURES) == sorted(case.id for case in RECORDED)
 
 
+async def _recorded_asks(tmp_path: Path) -> dict[str, AssistantRequest]:
+    """The replay ask of every recorded case, as it is built today."""
+    asks: dict[str, AssistantRequest] = {}
+    for case in RECORDED:
+        paths = make_paths(tmp_path / f"drift-{case.id}")
+        db = await open_test_db(paths.db_file(BotName.DEV))
+        fakes = Fakes()
+        try:
+            await run_case(case, make_dev_deps(db=db, paths=paths, fakes=fakes), fakes)
+        finally:
+            await db.dispose()
+        asks[case.id] = next(request for request in fakes.assistant.requests if request.kind == "settings")
+    return asks
+
+
+async def test_settings_table_drift(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Never fails on drift (`tests/eval/recorder.py`, keys): reports each recording made against an older settings
+    table and the settings added or removed since. It does fail if a fixture lacks its table metadata."""
+    tables = fixture_tables(FIXTURES)
+    for case, table in tables.items():
+        sha, keys = table["table_sha256"], table["table_keys"]
+        assert isinstance(sha, str), case
+        assert len(sha) == 64, case
+        assert isinstance(keys, list), case
+        assert keys, case
+    asks = await _recorded_asks(tmp_path)
+    assert set(asks) == set(tables)
+    lines = drift_report("injection", FIXTURES, asks, [setting.key for setting in REGISTRY])
+    with capsys.disabled():
+        sys.stderr.write(
+            "\n" + ("\n".join(lines) if lines else "[injection] every recording matches the current table") + "\n"
+        )
+
+
 def test_every_settings_case_states_what_it_proves() -> None:
     """A compromised interpreter is used only on safeguard keys: there the one question is the backstop. On any
     other key only the model stands between pasted content and a change, so those cases are `recorded`; forwarded
@@ -792,7 +833,7 @@ async def test_live_injection_interpreter(tmp_path: Path, monkeypatch: pytest.Mo
     async with live_claude(tmp_path / "sessions") as claude:
         status = await claude.probe(timeout=30)
         source = f"recorded live by test_live_injection_interpreter --record-llm (claude {status.version}, {FAST_TIER})"
-        recorder = Recorder(inner=claude, directory=FIXTURES, write=record_llm, source=source)
+        recorder = Recorder(inner=claude, directory=FIXTURES, write=record_llm, source=source, key=FIXTURE_KEY)
         for case in RECORDED:
             recorder.case = case.id
             observed = await _run_in(tmp_path / case.id, case, as_assistant(recorder))

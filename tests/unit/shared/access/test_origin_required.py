@@ -23,6 +23,7 @@ from tests.factories import (
     gate_asker,
     make_decision,
     make_owner_origin,
+    make_part,
     make_update,
 )
 from yordamchi.core.paths import BotName
@@ -31,9 +32,13 @@ from yordamchi.dev.gate import service as gate
 from yordamchi.dev.gate import store as gate_store
 from yordamchi.dev.gate.service import DecisionReply
 from yordamchi.dev.projects import service as projects
+from yordamchi.dev.questions import service as questions
+from yordamchi.dev.servers import service as servers
 from yordamchi.dev.turns import service as turns
 from yordamchi.shared.access import domain
 from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
+from yordamchi.shared.burst import domain as burst_domain
+from yordamchi.shared.burst.domain import CloseReason
 from yordamchi.shared.inbox import domain as inbox_domain
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox import store as inbox_store
@@ -103,6 +108,15 @@ async def _add_secrets(deps: DevDeps, fakes: Fakes) -> object:
         return await vault.add_secrets(s, fakes.keystore, origin=FAKE, secrets=[secret], at=fakes.clock.now())
 
 
+async def _answer_owner(deps: DevDeps, fakes: Fakes) -> object:
+    """A bare "ha" burst, the only open item a deploy decision (`_written` checks it stays pending)."""
+    part = make_part(1, text="ha")
+    item = burst_domain.turn_input(
+        1, DEV_GROUP_ID, [part], opened_at=fakes.clock.now(), closed_at=fakes.clock.now(), reason=CloseReason.QUIET
+    )
+    return await questions.answer_owner(deps, turns.TurnsState(), FAKE, item)
+
+
 async def _require_matching_origin(deps: DevDeps, fakes: Fakes) -> object:
     del fakes
     inbox_domain.require_matching_origin(FAKE, make_update(1), deps.bot)
@@ -144,6 +158,11 @@ ENTRIES: Final[dict[str, Entry]] = {
     "yordamchi.dev.turns.service.answer_revert": lambda deps, _: turns.answer_revert(
         deps, FAKE, turns.RevertReply("ha")
     ),
+    "yordamchi.dev.servers.service.add_server_host": lambda deps, _: servers.add_server_host(deps, FAKE, "bonvi-srv"),
+    "yordamchi.dev.servers.service.remove_server_host": lambda deps, _: servers.remove_server_host(
+        deps, FAKE, "bonvi-srv"
+    ),
+    "yordamchi.dev.questions.service.answer_owner": _answer_owner,
 }
 
 

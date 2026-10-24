@@ -54,7 +54,7 @@ from yordamchi.dev.turns.domain import PendingQuestion, TurnStatus
 from yordamchi.dev.turns.service import TurnsState
 from yordamchi.persistence import bulk
 from yordamchi.persistence.uow import Session
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.burst.domain import TurnInput
 from yordamchi.shared.outbox import domain as outbox_domain
 from yordamchi.shared.outbox import service as outbox
@@ -261,7 +261,9 @@ async def answer_owner(deps: DevDeps, state: TurnsState, origin: OwnerOrigin, it
     """The router's step 3 for one closed burst: a gate decision or an agent question takes it (module docstring), or
     it asks which project's question it answers. None: it answers nothing open — route it as usual. An unknown
     `#id` raises `DecisionNotFound` once the burst is recorded, so `guarded()` tells the owner and it is not re-read.
+    Anything but this bot's `OwnerOrigin` raises before anything is read (`require_owner_origin`).
     """
+    origin = require_owner_origin(origin, deps.bot)
     routable = item.interrupt is None and not item.synthetic  # pre-parse takes those (SPEC §6.1)
     text = domain.answer_text(item) if routable else ""
     if not text:

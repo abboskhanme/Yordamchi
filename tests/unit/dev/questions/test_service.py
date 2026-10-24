@@ -54,6 +54,7 @@ from yordamchi.dev.turns.service import TurnsState
 from yordamchi.ports.agent import QuestionAsked, ToolDenied, TurnResult
 from yordamchi.shared.burst import service as burst
 from yordamchi.shared.burst.domain import BurstPart, TurnInput
+from yordamchi.shared.inbox.domain import ForwardSource
 from yordamchi.shared.outbox import service as outbox
 from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.models import OutboxMessage
@@ -299,6 +300,26 @@ async def test_a_number_past_the_options_is_told_and_the_question_stays_open(
     assert await texts(dev_deps, "notice") == [S.QUESTION_OUT_OF_RANGE(project=PROJECT, count=2)]
     assert (await question(dev_deps, question_id)).status == "open"
     assert fakes.agents.answers == []
+
+
+async def test_a_forwarded_number_or_yes_answers_no_question(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    """NFR-SEC-09 (T33): what the owner forwarded is someone else's words. It answers no question and approves
+    nothing; the owner's own "1" next to the same forward still does."""
+    _turn_id, question_id = await ask(dev_deps, fakes, state)
+    for update_id, said in ((10, "1"), (11, "ha"), (12, "ikkinchisi")):
+        forwarded = await owner_says(dev_deps, make_part(update_id, text=said, forward=ForwardSource.USER))
+        assert await answer(dev_deps, state, forwarded) is None
+    assert fakes.agents.answers == []
+    assert (await question(dev_deps, question_id)).status == "open"
+
+    own = make_part(13, at_s=1.0, text="1")
+    mixed = await owner_says(dev_deps, make_part(14, text="2", forward=ForwardSource.USER), own)
+    outcome = await answer(dev_deps, state, mixed)
+    assert outcome is not None
+    assert outcome.outcome is AnswerOutcome.ANSWERED
+    assert len(fakes.agents.answers) == 1
 
 
 # --- the callback is gone: the answer goes in as a message ----------------------------------------------------------

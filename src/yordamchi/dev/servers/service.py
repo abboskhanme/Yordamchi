@@ -50,7 +50,7 @@ from yordamchi.dev.turns import service as turns
 from yordamchi.dev.turns.domain import INVESTIGATION_WALL, TurnKind, TurnRequest
 from yordamchi.dev.turns.service import Submitted, TurnsState
 from yordamchi.persistence import bulk
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.outbox import service as outbox
 from yordamchi.shared.outbox.domain import Kind
 from yordamchi.shared.settings import defaults
@@ -418,6 +418,7 @@ async def investigate_server(
 async def add_server_host(deps: DevDeps, origin: OwnerOrigin, host: str) -> BotText:
     """ "bonvi-srv serverini kuzat": watch one more `~/.ssh/config` alias. A jump-only host is refused
     (`ServerJumpOnly`); a malformed alias raises `SettingInvalid`. The caller sends the reply."""
+    origin = require_owner_origin(origin, deps.bot)
     snap = await settings.snapshot(deps)
     alias = host.strip()
     if domain.is_jump_only(alias, _rules(snap)):
@@ -433,6 +434,7 @@ async def add_server_host(deps: DevDeps, origin: OwnerOrigin, host: str) -> BotT
 
 async def remove_server_host(deps: DevDeps, origin: OwnerOrigin, host: str) -> BotText:
     """ "bonvi-srv'ni kuzatma": stop watching an alias; its past checks age out with retention."""
+    origin = require_owner_origin(origin, deps.bot)
     snap = await settings.snapshot(deps)
     hosts = list(snap[defaults.SERVERS_HOSTS])
     alias = host.strip()

@@ -15,6 +15,7 @@ structured answer the case gives, or the real model's answer replayed from `test
 """
 
 import dataclasses
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,10 +36,13 @@ from tests.eval.recorder import (
     FAST_TIER,
     Recorder,
     as_assistant,
+    drift_report,
     drop_fixtures,
     fixture_dir,
+    fixture_tables,
     kill_leftover_children,
     live_claude,
+    owner_text_key,
     recorded_cases,
 )
 from tests.factories import (
@@ -61,7 +65,7 @@ from yordamchi.dev.deps import DevDeps
 from yordamchi.dev.gate import service as gate_service
 from yordamchi.dev.gate import store as gate_store
 from yordamchi.dev.gate.service import AnswerKind, DecisionReply
-from yordamchi.ports.assistant import Assistant
+from yordamchi.ports.assistant import Assistant, AssistantRequest
 from yordamchi.shared.settings import defaults, domain, service, store
 from yordamchi.shared.settings.defaults import REGISTRY
 from yordamchi.shared.settings.registry import AnySetting, Group, SettingValue
@@ -69,6 +73,7 @@ from yordamchi.shared.settings.service import OutcomeKind, SettingsOutcome
 
 CASES_FILE: Final = Path(__file__).with_name("cases.yaml")
 FIXTURES: Final = fixture_dir("settings")
+FIXTURE_KEY: Final = owner_text_key("settings")  # no settings table in it
 THRESHOLDS: Final = thresholds("settings")
 LANGS: Final = frozenset({"uz", "ru", "en", "mixed"})
 CHANGE_KINDS: Final = frozenset({"applied", "reverted", "asked"})
@@ -303,6 +308,7 @@ async def run_case(case: Case, deps: DevDeps, fakes: Fakes) -> Observed:
         fakes.assistant.reply_with("settings", case.answer)
     elif deps.assistant is fakes.assistant:
         fakes.assistant.fixtures = load_fixtures(FIXTURES)
+        fakes.assistant.key = FIXTURE_KEY
     await _set_up(case, deps)
     start = await _max_row_id(deps)
     before = (await service.snapshot(deps)).values
@@ -523,6 +529,40 @@ def test_every_recorded_case_has_exactly_one_fixture() -> None:
     assert recorded_cases(FIXTURES) == sorted(case.id for case in RECORDED)
 
 
+async def _recorded_asks(tmp_path: Path) -> dict[str, AssistantRequest]:
+    """The replay ask of every recorded case, as it is built today."""
+    asks: dict[str, AssistantRequest] = {}
+    for case in RECORDED:
+        paths = make_paths(tmp_path / f"drift-{case.id}")
+        db = await open_test_db(paths.db_file(BotName.DEV))
+        fakes = Fakes()
+        try:
+            await run_case(case, make_dev_deps(db=db, paths=paths, fakes=fakes), fakes)
+        finally:
+            await db.dispose()
+        asks[case.id] = next(request for request in fakes.assistant.requests if request.kind == "settings")
+    return asks
+
+
+async def test_settings_table_drift(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Never fails on drift (`tests/eval/recorder.py`, keys): reports each recording made against an older settings
+    table and the settings added or removed since. It does fail if a fixture lacks its table metadata."""
+    tables = fixture_tables(FIXTURES)
+    for case, table in tables.items():
+        sha, keys = table["table_sha256"], table["table_keys"]
+        assert isinstance(sha, str), case
+        assert len(sha) == 64, case
+        assert isinstance(keys, list), case
+        assert keys, case
+    asks = await _recorded_asks(tmp_path)
+    assert set(asks) == set(tables)
+    lines = drift_report("settings", FIXTURES, asks, [setting.key for setting in REGISTRY])
+    with capsys.disabled():
+        sys.stderr.write(
+            "\n" + ("\n".join(lines) if lines else "[settings] every recording matches the current table") + "\n"
+        )
+
+
 @pytest.mark.live
 @pytest.mark.skipif(not LIVE_CLI.exists(), reason="claude CLI not installed at ~/.local/bin/claude")
 async def test_live_settings_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record_llm: bool) -> None:
@@ -535,7 +575,7 @@ async def test_live_settings_model(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     async with live_claude(tmp_path / "sessions") as claude:
         status = await claude.probe(timeout=30)
         source = f"recorded live by test_live_settings_model --record-llm (claude {status.version}, {FAST_TIER})"
-        recorder = Recorder(inner=claude, directory=FIXTURES, write=record_llm, source=source)
+        recorder = Recorder(inner=claude, directory=FIXTURES, write=record_llm, source=source, key=FIXTURE_KEY)
         for case in RECORDED:
             recorder.case = case.id
             if problems := failures_of(case, await _run_in(tmp_path / case.id, case, as_assistant(recorder))):
