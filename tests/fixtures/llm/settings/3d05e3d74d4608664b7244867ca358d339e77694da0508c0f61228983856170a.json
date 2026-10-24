@@ -1,0 +1,18 @@
+{
+  "case": "language_reply_russian",
+  "duration_ms": 2590,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",
+  "structured": {
+    "changes": [
+      {
+        "key": "lang.reply",
+        "value": "ru"
+      }
+    ],
+    "keys": [],
+    "outcome": "change"
+  },
+  "text": "{\"outcome\":\"change\",\"changes\":[{\"key\":\"lang.reply\",\"value\":\"ru\"}],\"keys\":[]}"
+}

@@ -18,8 +18,10 @@ A model change is no rotation: `set_model()` on the client before the ask.
 
 **Prompts (SPEC §5.4 revised, spike S4).** The custom system prompt (`prompts/dev/<kind>_system.md`, rendered by
 the caller) is frozen per client and holds only fixed parts. `request.instructions`, the current owner-editable
-block, goes into every ask as `additionalContext` from the `UserPromptSubmit` hook (`guard.GuardBridge`, the same
-bridge the executor uses). `prompt_version` is logged and echoed in the reply; a change never rotates.
+block, goes into every ask: as `additionalContext` from the `UserPromptSubmit` hook (`guard.GuardBridge`, the same
+bridge the executor uses) when it fits `guard.CONTEXT_HOOK_MAX_BYTES`, else as the delimited block that opens the
+user message (`guard.message_with_context`; the CLI cuts a longer `additionalContext` to a ~2 KB preview).
+`prompt_version` is logged and echoed in the reply; a change never rotates.
 
 **Session options (SPEC §5.3, dev Assistant column).** `options.build_options` + `options.session_env` (cli_path, the
 clean env, `ENABLE_CLAUDEAI_MCP_SERVERS=false`, `SendMessage`/`ListAgents` disallowed), then the assistant's own
@@ -57,7 +59,7 @@ from typing import Any, Final, cast
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ClaudeSDKError
 
 from yordamchi.adapters.claude import cli, control, proctree
-from yordamchi.adapters.claude.guard import GuardBridge
+from yordamchi.adapters.claude.guard import GuardBridge, message_with_context
 from yordamchi.adapters.claude.options import Launch, build_options, session_env
 from yordamchi.adapters.claude.stream import StreamTranslator
 from yordamchi.core import aio, proc
@@ -477,7 +479,8 @@ class ClaudeAssistant:
         profile = request.profile
         key = self._key(profile)
         pool = self._pool(request.kind)
-        content = await cli.user_content(request.prompt, request.images)
+        # The instructions ride the UserPromptSubmit hook when short, else they open the message (guard.py).
+        content = await cli.user_content(message_with_context(request.prompt, request.instructions), request.images)
         await self._bounded(pool.lock.acquire(), idle)
         try:
             pool.profile = profile

@@ -64,9 +64,10 @@ from yordamchi.dev.projects.domain import FAIL_CLOSED, DeployBranches
 from yordamchi.persistence import bulk
 from yordamchi.persistence.uow import Session
 from yordamchi.ports.agent import GuardFn, GuardVerdict, ToolCall
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.audit import service as audit
 from yordamchi.shared.audit.domain import AuditActor, AuditKind
+from yordamchi.shared.burst.domain import TurnInput
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import PendingChange, Snapshot
@@ -683,6 +684,26 @@ class DecisionReply:
     names: tuple[str, ...] = ()
     open_questions: tuple[PendingItem, ...] = ()
 
+    @classmethod
+    def of(
+        cls,
+        item: TurnInput,
+        *,
+        mentioned_projects: tuple[str, ...] = (),
+        names: tuple[str, ...] = (),
+        open_questions: tuple[PendingItem, ...] = (),
+    ) -> "DecisionReply":
+        """The reply a closed burst makes, in the owner's own words only (`TurnInput.own_text`): what he forwarded is
+        material and can never approve a decision. A burst of forwarded messages alone is a reply of no words, which
+        binds to nothing. The way pre-parse (T34) builds it."""
+        return cls(
+            text=item.own_text,
+            reply_to_message_id=item.own_reply_to,
+            mentioned_projects=mentioned_projects,
+            names=names,
+            open_questions=open_questions,
+        )
+
 
 class AnswerKind(StrEnum):
     NOT_AN_APPROVAL = "not_an_approval"  # not about a decision: questions or routing take the message
@@ -718,10 +739,8 @@ class _Resolved:
 async def answer_decision(deps: DevDeps, origin: OwnerOrigin, reply: DecisionReply) -> DecisionAnswer:
     """Bind an owner message to a decision and resolve it (R-18: a stray "ha" approves nothing). Only an owner
     update can approve (`origin`); executor output never reaches this. Raises `DecisionNotFound` for an unknown
-    `#id`."""
-    if origin.bot is not deps.bot:
-        msg = f"an owner origin of the {origin.bot} bot cannot answer {deps.bot} decisions"
-        raise ValueError(msg)
+    `#id`. Anything but this bot's `OwnerOrigin` raises before a decision is read (`TypeError`, `ValueError`)."""
+    origin = require_owner_origin(origin, deps.bot)
     snap = await settings.snapshot(deps)
     now = deps.clock.now()
     async with deps.db.read() as s:

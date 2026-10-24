@@ -45,7 +45,7 @@ from yordamchi.dev.projects.domain import (
     WorkflowStat,
 )
 from yordamchi.dev.projects.models import Project as ProjectRow
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import Snapshot
@@ -450,6 +450,7 @@ async def deploy_branches(
 # --- the owner's edits (UC-18) --------------------------------------------------------------------------------------
 async def alias_project(deps: DevDeps, origin: OwnerOrigin, name: str, alias: str) -> BotText:
     """ "BonviHR'ni 'hr' deb ham tani": `alias` now names the project, for routing too, from the next message."""
+    origin = require_owner_origin(origin, deps.bot)
     snap = await settings.snapshot(deps)
     projects = await _views(deps, snap)
     project = domain.resolve_project(name, projects)
@@ -464,6 +465,7 @@ async def alias_project(deps: DevDeps, origin: OwnerOrigin, name: str, alias: st
 
 async def archive_project(deps: DevDeps, origin: OwnerOrigin, name: str, *, archived: bool) -> BotText:
     """ "X'ni arxivla" / "X'ni arxivdan chiqar": an archived project answers only to its exact name (UC-18 AC)."""
+    origin = require_owner_origin(origin, deps.bot)
     snap = await settings.snapshot(deps)
     projects = await _views(deps, snap)
     project = domain.resolve_project(name, projects)
@@ -484,6 +486,7 @@ async def archive_project(deps: DevDeps, origin: OwnerOrigin, name: str, *, arch
 
 async def describe_project(deps: DevDeps, origin: OwnerOrigin, name: str, text: str) -> BotText:
     """ "X tavsifi: …": the owner's one-line description replaces the one built from README/CLAUDE.md/SPEC."""
+    origin = require_owner_origin(origin, deps.bot)
     snap = await settings.snapshot(deps)
     project = domain.resolve_project(name, await _views(deps, snap))
     descriptions = domain.with_description(snap[defaults.PROJECTS_DESCRIPTIONS], project, text)

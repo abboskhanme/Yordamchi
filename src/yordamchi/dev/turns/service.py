@@ -108,7 +108,7 @@ from yordamchi.ports.agent import (
     UsageWindow,
 )
 from yordamchi.ports.clock import Clock
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.audit import service as audit
 from yordamchi.shared.audit.domain import AuditActor, AuditKind
 from yordamchi.shared.burst.domain import RunningTurn, TurnInput
@@ -295,6 +295,18 @@ class RevertReply:
     reply_to_message_id: int | None = None
     mentioned_projects: tuple[str, ...] = ()
     others_pending: bool = False
+
+    @classmethod
+    def of(
+        cls, item: TurnInput, *, mentioned_projects: tuple[str, ...] = (), others_pending: bool = False
+    ) -> "RevertReply":
+        """The reply a closed burst makes, in the owner's own words only: a forwarded "ha" reverts nothing."""
+        return cls(
+            text=item.own_text,
+            reply_to_message_id=item.own_reply_to,
+            mentioned_projects=mentioned_projects,
+            others_pending=others_pending,
+        )
 
 
 class RevertOutcome(StrEnum):
@@ -2112,10 +2124,8 @@ async def _revert(deps: DevDeps, root: Path, row: Turn) -> domain.RevertPlan:
 async def answer_revert(deps: DevDeps, origin: OwnerOrigin, reply: RevertReply) -> RevertAnswer:
     """The owner's "ha" / "yo'q" to a wrong-target revert offer (UC-10 AC: only on "ha" are exactly those files
     reverted). Anything else, or an answer that names no single offer, is `NOT_FOR_ME`: gate binding or routing
-    takes the message. Only an owner update answers (`origin`)."""
-    if origin.bot is not deps.bot:
-        msg = f"an owner origin of the {origin.bot} bot cannot answer {deps.bot} revert offers"
-        raise ValueError(msg)
+    takes the message. Only an owner update answers (`origin`, checked at runtime: `require_owner_origin`)."""
+    origin = require_owner_origin(origin, deps.bot)
     async with deps.db.read() as s:
         offers = await store.list_turns_with_revert(s, RevertStatus.OFFERED.value)
     verdict = gate_domain.reply_verdict(reply.text, names=reply.mentioned_projects)

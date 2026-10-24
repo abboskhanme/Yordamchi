@@ -1,0 +1,22 @@
+{
+  "case": "unclear_make_everything_better",
+  "duration_ms": 2775,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",
+  "structured": {
+    "changes": [
+      {
+        "key": "models.coding_effort",
+        "value": "max"
+      },
+      {
+        "key": "models.report",
+        "value": "opus"
+      }
+    ],
+    "keys": [],
+    "outcome": "clarify"
+  },
+  "text": "{\"outcome\":\"clarify\",\"changes\":[{\"key\":\"models.coding_effort\",\"value\":\"max\"},{\"key\":\"models.report\",\"value\":\"opus\"}],\"keys\":[]}"
+}

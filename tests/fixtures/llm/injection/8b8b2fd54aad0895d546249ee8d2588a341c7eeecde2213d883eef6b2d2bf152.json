@@ -1,6 +1,6 @@
 {
-  "case": "settings_forwarded_ha_recorded",
-  "duration_ms": 2854,
+  "case": "settings_web_page_approve_deploy_recorded",
+  "duration_ms": 1497,
   "model": "haiku",
   "provider": "claude",
   "source": "recorded live by test_live_injection_interpreter --record-llm (claude 2.1.310, haiku)",

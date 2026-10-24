@@ -29,7 +29,7 @@ from yordamchi.core.errors import ErrorCode, ExternalError
 from yordamchi.core.log import get_log
 from yordamchi.core.text import BotText
 from yordamchi.persistence import bulk
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.burst import service as burst
 from yordamchi.shared.burst.domain import BurstPart
 from yordamchi.shared.cost import service as cost
@@ -209,6 +209,7 @@ async def add_owner_term(deps: SharedDeps, origin: OwnerOrigin, text: str) -> Bo
 
     Raises `SttTermInvalid` (empty, or longer than `domain.TERM_MAX_CHARS`). A term already there changes nothing.
     """
+    origin = require_owner_origin(origin, deps.bot)
     term = domain.normalised_term(text)
     snap = await settings.snapshot(deps)
     terms = domain.with_term(snap[defaults.STT_EXTRA_TERMS], term)
@@ -237,6 +238,7 @@ async def configure_speech_keys(deps: SharedDeps, origin: OwnerOrigin, secrets: 
     A rejected key is removed from the vault; a working one retires the older keys of its kind. Any other outcome
     (quota, rate limit, no answer) keeps every key, and the newest is used.
     """
+    origin = require_owner_origin(origin, deps.bot)
     keys = domain.speech_keys(secrets)
     if not keys:
         return None

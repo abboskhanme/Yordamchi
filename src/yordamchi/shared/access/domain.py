@@ -41,6 +41,24 @@ class OwnerOrigin:
     chat_id: int
 
 
+def require_owner_origin(origin: object, bot: BotName | None = None) -> OwnerOrigin:
+    """`origin` as the proof that a call acts on a verified owner update of `bot`, checked at runtime too.
+
+    The type annotation is not enough: an object shaped like an origin (`.bot`, `.update_id`, …) is what untrusted
+    content or a wiring bug could at most build, and it must change nothing. Raises `TypeError` for anything that is
+    not an `OwnerOrigin` minted here, `ValueError` for an origin of the other bot (`bot=None`: a caller that serves
+    whichever bot the origin names); both before anything is read or written. Every public entry that takes an
+    `origin` calls this first.
+    """
+    if not isinstance(origin, OwnerOrigin):
+        msg = f"this needs the OwnerOrigin of a verified owner update, not a {type(origin).__name__}"
+        raise TypeError(msg)
+    if bot is not None and origin.bot is not bot:
+        msg = f"an owner origin of the {origin.bot} bot cannot change or answer anything on the {bot} bot"
+        raise ValueError(msg)
+    return origin
+
+
 class EventType(StrEnum):
     """The update kinds the policy tells apart; every other kind is `OTHER` and never served."""
 

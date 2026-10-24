@@ -1,13 +1,13 @@
 {
-  "case": "show_settings",
-  "duration_ms": 1775,
+  "case": "revert_last_change",
+  "duration_ms": 1908,
   "model": "haiku",
   "provider": "claude",
   "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",
   "structured": {
     "changes": [],
     "keys": [],
-    "outcome": "show"
+    "outcome": "revert"
   },
-  "text": "{\"outcome\":\"show\",\"changes\":[],\"keys\":[]}"
+  "text": "{\"outcome\":\"revert\",\"changes\":[],\"keys\":[]}"
 }

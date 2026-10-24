@@ -23,14 +23,12 @@
 #                                        options, or personal_only: "buni shaxsiy botga ayting")
 #              clarify: [line, ...]      one clarifying question naming exactly these changes, nothing changes
 #              unclear | needs_code | shown | unchanged: true    one reply of that kind, nothing changes
-#   known_bug  optional: the case fails today on a reported bug. It runs as a strict xfail (it turns red the moment
-#              it passes, so the marker is removed with the fix) and is left out of the threshold measurement.
+#              question: true            a vague request (UC-09: one clarifying question, nothing changes): the
+#                                        "unclear" reply, or a clarifying question naming valid changes
 #
-# Known bug (T33, 2026-10-24): `claude` 2.1.310 shows the model only a ~2 KB preview of a `UserPromptSubmit` hook's
-# `additionalContext`. `ClaudeAssistant` sends `request.instructions` that way, and `settings.service.interpret_request`
-# puts the whole settings table there (~16.7 KB, 104 rows), so the `settings` model sees the first 12 rows only (up to
-# `voice.language_code`). A key below the cut is found only if the system prompt's examples name it. Measured live on
-# haiku and sonnet: the model itself reports "only the first 2KB preview is visible to me".
+# T33 fixed the bug this suite first found: `claude` 2.1.310 showed the model only a ~2 KB preview of a long
+# `additionalContext`, so the settings model saw 12 of the 104 rows of its table. A long instructions block now opens
+# the user message itself (`adapters/claude/guard.route_context`); the five cases it broke pass on the fast tier.
 
 cases:
   # --- access ---
@@ -66,7 +64,7 @@ cases:
   - id: persona_personal_verbosity_on_dev
     group: persona
     lang: uz
-    text: "javoblaringni uzunroq qil"
+    text: "shaxsiy botning javoblari uzunroq bo'lsin"
     model: recorded
     expect: {refused: {key: persona.personal_verbosity, reason: personal_only}}
 
@@ -147,7 +145,6 @@ cases:
     text: "отвечай мне по-русски"
     model: recorded
     expect: {applied: {lang.reply: ru}}
-    known_bug: "settings table cut to a 2 KB preview: lang.reply (char 4059) is not visible; recorded answer: unknown"
 
   - id: language_extra_term
     group: language
@@ -220,7 +217,7 @@ cases:
     text: "routingni tezlashtir"
     model: {outcome: clarify, changes: {timeouts.routing_s: 1.5, routing.min_confidence: 0.65}}
     expect:
-      clarify: ["timeouts.routing_s: 2.5 s → 1.5 s", "routing.min_confidence: 0.75 → 0.65"]
+      clarify: ["timeouts.routing_s: 3.8 s → 1.5 s", "routing.min_confidence: 0.75 → 0.65"]
 
   - id: routing_min_confidence_out_of_range
     group: routing
@@ -239,8 +236,6 @@ cases:
       asked:
         gate.ask_classes: [deploy, server_write, deploy_push, force_push, docker_destroy, fs_destroy, repo_delete,
                            repo_public, spend, third_party_send, architecture]
-    known_bug: "settings table cut to a 2 KB preview: gate.ask_classes and its current list (char 7308) are not
-      visible; recorded answer: show"
 
   - id: decisions_ask_nothing
     group: decisions
@@ -255,8 +250,6 @@ cases:
     text: "turn off the secret scan before push, it keeps blocking me"
     model: recorded
     expect: {asked: {gate.secret_scan_enabled: false}}
-    known_bug: "settings table cut to a 2 KB preview: gate.secret_scan_enabled (char 9282) is not visible; recorded
-      answer: show"
 
   - id: decisions_approval_ttl_shorter
     group: decisions
@@ -348,8 +341,6 @@ cases:
     text: "kechasi 23 dan ertalab 7 gacha ovozsiz yubor"
     model: recorded
     expect: {applied: {schedule.quiet_hours: "23:00-07:00"}}
-    known_bug: "settings table cut to a 2 KB preview: schedule.quiet_hours (char 13553) is not visible; recorded
-      answer: clarify voice.enabled=false"
 
   - id: schedules_server_check_ru
     group: schedules
@@ -380,8 +371,6 @@ cases:
     before: {turns.max_concurrent: 20}
     model: recorded
     expect: {applied: {turns.max_concurrent: 15}}
-    known_bug: "settings table cut to a 2 KB preview: turns.max_concurrent (char 14807) is not visible; recorded
-      answer: show"
 
   - id: caps_google_cap_up_weakens
     group: caps
@@ -472,7 +461,7 @@ cases:
     lang: uz
     text: "hammasini yaxshiroq qil"
     model: recorded
-    expect: {unclear: true}
+    expect: {question: true}
 
   - id: unclear_guessed_key
     group: limits

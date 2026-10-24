@@ -23,7 +23,7 @@ from yordamchi.core.paths import BotName
 from yordamchi.persistence import bulk
 from yordamchi.persistence.uow import Session
 from yordamchi.ports.keystore import Keystore, Sealed
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.audit import service as audit
 from yordamchi.shared.audit.domain import AuditActor, AuditKind
 from yordamchi.shared.deps import SharedDeps
@@ -107,7 +107,9 @@ async def add_secrets(
     - Every value joins the masking set at once; masking a value whose transaction later rolls back is harmless.
 
     After the caller's transaction commits it runs `publish_secrets(deps)`, which refreshes `secret-hashes.json`.
+    Anything but an `OwnerOrigin` raises `TypeError` before anything is written.
     """
+    origin = require_owner_origin(origin)
     if not secrets:
         return ()
     key_fp = keystore.fingerprint()
@@ -154,9 +156,7 @@ async def remove_secret(deps: SharedDeps, origin: OwnerOrigin, name: str) -> Sec
 
     Raises `VaultSecretNotFound`, and nothing changes.
     """
-    if origin.bot is not deps.bot:
-        msg = f"an owner origin of the {origin.bot} bot cannot remove {deps.bot} secrets"
-        raise ValueError(msg)
+    origin = require_owner_origin(origin, deps.bot)
     now = deps.clock.now()
     async with deps.db.uow() as s:
         row = await store.find_active_secret(s, name)

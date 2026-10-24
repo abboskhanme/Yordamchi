@@ -15,6 +15,11 @@
 - **`can_use_tool`** is reached under bypass only by `AskUserQuestion` and by calls no mode auto-approves; the latter
   go through the guard again, in the cwd their PreToolUse input carried (the SDK's context has none). A call whose
   PreToolUse was not seen gets the session's last known cwd.
+- **The per-turn context** (`spec.context_provider`, SPEC §5.4 after spike S4) reaches the model on every turn, by one
+  of two roads that `route_context` picks: a short block (≤ `CONTEXT_HOOK_MAX_BYTES`) is the `UserPromptSubmit`
+  hook's `additionalContext`; a longer one opens the user message itself (`message_with_context`), because
+  `claude` 2.1.310 shows the model only a ~2 KB preview of a longer `additionalContext` (T33: the settings table was
+  cut after 12 of its 104 rows). `assistant.py` and `executor.py` both build their user message with it.
 
 Logs carry the tool name, reason code and error type only, never tool input or answers.
 """
@@ -22,6 +27,7 @@ Logs carry the tool name, reason code and error type only, never tool input or a
 import asyncio
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Final
 
 from claude_agent_sdk import HookMatcher
@@ -52,6 +58,16 @@ ASK_TOOL: Final = "AskUserQuestion"
 HOOK_MARGIN_S: Final = 5.0  # the CLI's hook timeout = our guard timeout + this
 CONTEXT_HOOK_TIMEOUT_S: Final = 10.0  # SPEC §5.3: UserPromptSubmit(context, timeout 10)
 CWDS_REMEMBERED_MAX: Final = 256  # tool_use_id → cwd kept for can_use_tool; most calls never reach it
+# The per-turn context: `additionalContext` longer than ~2 KB reaches the model as a cut preview (claude 2.1.310), so
+# only a block well under that rides the hook. UTF-8 bytes, not characters: Cyrillic and Uzbek apostrophes are 2+.
+CONTEXT_HOOK_MAX_BYTES: Final = 1_500
+CONTEXT_HEADER: Final = "Current instructions / data from Yordamchi (authoritative, replaces earlier):"
+CONTEXT_OPEN: Final = "<yordamchi-context>"
+CONTEXT_CLOSE: Final = "</yordamchi-context>"
+_MARKERS: Final = (
+    (CONTEXT_CLOSE, "</yordamchi-context-quoted>"),
+    (CONTEXT_OPEN, "<yordamchi-context-quoted>"),
+)
 REASON_TIMEOUT: Final = "guard_timeout"
 REASON_ERROR: Final = "guard_error"
 REASON_DENIED: Final = "denied"
@@ -76,6 +92,42 @@ def allow_output(*, explicit: bool) -> HookJSONOutput:
         return SyncHookJSONOutput()
     specific = PreToolUseHookSpecificOutput(hookEventName="PreToolUse", permissionDecision="allow")
     return SyncHookJSONOutput(hookSpecificOutput=specific)
+
+
+@dataclass(frozen=True, slots=True)
+class ContextRoute:
+    """Where one turn's context goes: `hook` is the `additionalContext` ("" = none), `inline` the block that opens the
+    user message ("" = none). At most one of them is set."""
+
+    hook: str = ""
+    inline: str = ""
+
+
+def _quoted(text: str) -> str:
+    """`text` with the block's markers defused, so neither the context nor the message after it can close the block
+    early or open a second one that claims Yordamchi's authority."""
+    for marker, defused in _MARKERS:
+        text = text.replace(marker, defused)
+    return text
+
+
+def route_context(context: str) -> ContextRoute:
+    """A context that fits `CONTEXT_HOOK_MAX_BYTES` rides the hook as it is; a longer one becomes the delimited block
+    that opens the user message: `CONTEXT_HEADER`, then the context between `CONTEXT_OPEN` and `CONTEXT_CLOSE`."""
+    if not context:
+        return ContextRoute()
+    if len(context.encode("utf-8")) <= CONTEXT_HOOK_MAX_BYTES:
+        return ContextRoute(hook=context)
+    return ContextRoute(inline=f"{CONTEXT_HEADER}\n{CONTEXT_OPEN}\n{_quoted(context)}\n{CONTEXT_CLOSE}")
+
+
+def message_with_context(text: str, context: str) -> str:
+    """The user message of one turn: the long context block first (when `route_context` puts it inline), then the
+    message itself, its markers defused. A short or empty context leaves the message as it is (the hook carries it)."""
+    inline = route_context(context).inline
+    if not inline:
+        return text
+    return f"{inline}\n\n{_quoted(text)}"
 
 
 def _mapping(value: Any) -> dict[str, JsonValue]:
@@ -176,21 +228,31 @@ class GuardBridge:
             return deny_output(REASON_ERROR)
 
     # --- UserPromptSubmit: the per-turn context (SPEC §5.4) -----------------------------------------------------
+    def current_context(self) -> str:
+        """The session's context now ("" when it has none, or its provider fails: a missing context must not block
+        the turn; the frozen prompt still holds)."""
+        provider = self._spec.context_provider
+        if provider is None:
+            return ""
+        try:
+            text: object = provider()  # caller code: trust its type only after checking it
+        except Exception as error:  # fail open on the context only; the guard itself still fails closed
+            log.error("turn_context_failed", error_type=type(error).__name__)
+            return ""
+        return text if isinstance(text, str) else ""
+
+    def message_text(self, text: str) -> str:
+        """`text` as this turn's user message: with the context block in front when it is too long for the hook."""
+        return message_with_context(text, self.current_context())
+
     async def user_prompt_submit(
         self, data: HookInput, tool_use_id: str | None, context: HookContext
     ) -> HookJSONOutput:
         del data, tool_use_id, context
-        provider = self._spec.context_provider
-        if provider is None:
+        hook = route_context(self.current_context()).hook
+        if not hook:  # nothing, or a long context: that one opens the user message instead (`message_text`)
             return SyncHookJSONOutput()
-        try:
-            text = provider()
-        except Exception as error:  # a missing context must not block the turn; the frozen prompt still holds
-            log.error("turn_context_failed", error_type=type(error).__name__)
-            return SyncHookJSONOutput()
-        if not text:
-            return SyncHookJSONOutput()
-        specific = UserPromptSubmitHookSpecificOutput(hookEventName="UserPromptSubmit", additionalContext=text)
+        specific = UserPromptSubmitHookSpecificOutput(hookEventName="UserPromptSubmit", additionalContext=hook)
         return SyncHookJSONOutput(hookSpecificOutput=specific)
 
     # --- can_use_tool -------------------------------------------------------------------------------------------

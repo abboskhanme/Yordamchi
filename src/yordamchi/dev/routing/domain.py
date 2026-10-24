@@ -763,8 +763,10 @@ def require_routable(item: TurnInput) -> None:
 
 
 def item_text(item: TurnInput) -> str:
-    """Everything the owner said in the burst: texts, captions and transcripts, in order."""
-    return " ".join(part.text for part in item.parts if part.text)
+    """Everything the owner said in the burst in his own words: texts, captions and transcripts, in order. What he
+    forwarded is material: it names no project, answers no clarification and corrects no route (NFR-SEC-09); it
+    reaches the routing model flagged `forwarded` (`llm_prompt`) and the executor labelled (`turns.domain`)."""
+    return item.own_text
 
 
 def plan_route(
@@ -874,10 +876,12 @@ def prompt_slots() -> dict[str, str]:
     }
 
 
-def _part_json(kind: UpdateKind, text: str | None) -> JsonObject:
+def _part_json(kind: UpdateKind, text: str | None, *, forwarded: bool = False) -> JsonObject:
     part: JsonObject = {"kind": kind.value}
     if text:
         part["text"] = text[:LLM_TEXT_MAX]
+    if forwarded:  # only when set: the owner's own parts keep the shape the recorded routing answers are keyed by
+        part["forwarded"] = True
     return part
 
 
@@ -920,7 +924,7 @@ def llm_prompt(
         if entry.project_id in known
     ]
     payload: JsonObject = {
-        "message": [_part_json(part.kind, part.text) for part in item.parts],
+        "message": [_part_json(part.kind, part.text, forwarded=part.forwarded) for part in item.parts],
         "named": list[JsonValue](plan.mentions.named),
         "maybe_named": list[JsonValue](plan.mentions.hints),
         "reply_to": plan.reply_project,
@@ -1195,7 +1199,8 @@ _MATERIAL: Final = {
 
 def material(item: TurnInput, scrub: Callable[[str], str]) -> BotText:
     """What a question quotes (UC-02 AC "quotes or names the material"): the start of the text, else the media."""
-    text = " ".join(item_text(item).split())
+    text = " ".join(part.text for part in item.parts if part.text)  # forwarded material is quoted too
+    text = " ".join(text.split())
     if text:
         return S.ROUTING_MATERIAL_QUOTE(text=scrub(shorten(text, EXCERPT_MAX)))
     return _MATERIAL.get(item.parts[0].kind, S.ROUTING_MATERIAL_MESSAGE)()

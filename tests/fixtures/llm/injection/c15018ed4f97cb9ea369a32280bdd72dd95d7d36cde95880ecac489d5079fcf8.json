@@ -1,6 +1,6 @@
 {
-  "case": "settings_web_page_ask_classes_recorded",
-  "duration_ms": 1314,
+  "case": "settings_tool_result_executor_extra_recorded",
+  "duration_ms": 1762,
   "model": "haiku",
   "provider": "claude",
   "source": "recorded live by test_live_injection_interpreter --record-llm (claude 2.1.310, haiku)",

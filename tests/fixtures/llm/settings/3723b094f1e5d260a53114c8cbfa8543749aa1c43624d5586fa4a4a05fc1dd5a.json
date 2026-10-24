@@ -1,6 +1,6 @@
 {
   "case": "persona_personal_verbosity_on_dev",
-  "duration_ms": 4115,
+  "duration_ms": 3256,
   "model": "haiku",
   "provider": "claude",
   "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",

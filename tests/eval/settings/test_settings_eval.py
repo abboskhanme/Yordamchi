@@ -26,7 +26,6 @@ from tests.eval.casefile import (
     CaseFileError,
     as_bool,
     as_list,
-    as_optional_str,
     as_str,
     fields,
     load_cases,
@@ -79,7 +78,7 @@ FLAG_KINDS: Final[Mapping[str, OutcomeKind]] = {
     "shown": OutcomeKind.SHOWN,
     "unchanged": OutcomeKind.UNCHANGED,
 }
-KINDS: Final = CHANGE_KINDS | {"refused", "clarify"} | set(FLAG_KINDS)
+KINDS: Final = CHANGE_KINDS | {"refused", "clarify", "question"} | set(FLAG_KINDS)
 PERSONAL_ONLY: Final = "personal_only"  # a refusal by scope; every other refusal reason is a `SettingInvalid` reason
 REQUEST_UPDATE_ID: Final = 7001  # the owner's message; "ha" is the next update
 DEV_GROUPS: Final = tuple(
@@ -107,7 +106,6 @@ class Case:
     before: tuple[tuple[str, JsonValue], ...]  # stored versions before the message, oldest first
     answer: dict[str, JsonValue] | None  # the model's structured answer; None: replayed from the recording
     expect: Expect
-    known_bug: str | None = None  # fails today on this reported bug: a strict xfail, outside the thresholds
 
     @property
     def recorded(self) -> bool:
@@ -204,9 +202,7 @@ def _expect(raw: object, where: str, group: Group) -> Expect:
 
 def _case(raw: Mapping[str, object]) -> Case:
     case_id = as_str(raw["id"], "case id")
-    data = fields(
-        raw, case_id, required={"id", "group", "lang", "text", "model", "expect"}, optional={"before", "known_bug"}
-    )
+    data = fields(raw, case_id, required={"id", "group", "lang", "text", "model", "expect"}, optional={"before"})
     group = Group(as_str(data["group"], f"{case_id} group"))
     lang = as_str(data["lang"], f"{case_id} lang")
     if lang not in LANGS:
@@ -221,22 +217,11 @@ def _case(raw: Mapping[str, object]) -> Case:
         before=before,
         answer=_answer(data["model"], f"{case_id} model"),
         expect=_expect(data["expect"], f"{case_id} expect", group),
-        known_bug=as_optional_str(data.get("known_bug"), f"{case_id} known_bug"),
     )
 
 
 CASES: Final = tuple(_case(raw) for raw in load_cases(CASES_FILE))
 RECORDED: Final = tuple(case for case in CASES if case.recorded)
-MEASURED: Final = tuple(case for case in CASES if case.known_bug is None)
-
-
-def _param(case: Case) -> object:
-    """A case as a test parameter; a known bug is a strict xfail on its failing assertion only (any other error,
-    such as a stale recording, stays red)."""
-    if case.known_bug is None:
-        return pytest.param(case, id=case.id)
-    marks = pytest.mark.xfail(strict=True, raises=AssertionError, reason=f"BUG: {case.known_bug}")
-    return pytest.param(case, id=case.id, marks=marks)
 
 
 # --- one case -------------------------------------------------------------------------------------------------------
@@ -431,12 +416,30 @@ def _quiet_failures(observed: Observed) -> list[str]:
     return failures
 
 
+def _question_failures(observed: Observed) -> list[str]:
+    """One clarifying question and nothing else: the "unclear" reply, or "which one" naming at least one change."""
+    failures = _quiet_failures(observed)
+    texts = [str(text) for op, text in observed.replies if op == "send_text"]
+    one = len(observed.replies) == len(texts) == 1
+    unclear = one and observed.kind == "unclear" and texts == [S.SETTINGS_UNCLEAR()]
+    marker = "\x00"  # splits the catalog line into the text before and after its options
+    before, after = str(S.SETTINGS_CLARIFY(options=marker)).split(marker)
+    first = S.SETTINGS_CLARIFY_OPTION(number=1, change=marker).split(marker)[0]
+    named = one and texts[0].startswith(before + first) and texts[0].endswith(after)
+    clarify = observed.kind == "clarify" and named
+    if not (unclear or clarify):
+        failures.append(f"outcome {observed.kind!r} replied {list(observed.replies)}: expected one clarifying question")
+    return failures
+
+
 def failures_of(case: Case, observed: Observed) -> list[str]:
     """Every way `observed` differs from the case's expectation (empty when it matches)."""
     expect = case.expect
     failures: list[str] = []
     if observed.prompts != (case.text,):
         failures.append(f"the settings model was asked {list(observed.prompts)}, expected once with the owner's text")
+    if expect.kind == "question":  # either clarifying reply will do; it must be one, and nothing may move
+        return failures + _question_failures(observed)
     if observed.kind != expect.kind:
         detail = f"{type(observed.error).__name__}" if observed.error is not None else f"{observed.outcome}"
         return [*failures, f"outcome {observed.kind!r} ({detail}), expected {expect.kind!r}"]
@@ -473,7 +476,7 @@ def test_the_case_file_covers_every_group_and_language() -> None:
     assert RECORDED, "a subset replays the real model's answers"
 
 
-@pytest.mark.parametrize("case", [_param(case) for case in CASES])
+@pytest.mark.parametrize("case", CASES, ids=[case.id for case in CASES])
 async def test_case(case: Case, dev_deps: DevDeps, fakes: Fakes) -> None:
     observed = await run_case(case, dev_deps, fakes)
     assert failures_of(case, observed) == []
@@ -494,23 +497,22 @@ async def _run_in(root: Path, case: Case, assistant: Assistant | None = None) ->
 
 
 async def test_the_suite_meets_the_thresholds(tmp_path: Path) -> None:
-    """[settings] over every case but the known bugs (each is a strict xfail in `test_case`, and listed in the
-    report); a known bug may not hide a whole group, a weakening kind or the out-of-range subset."""
-    assert len(MEASURED) >= len(CASES) - 5, "more known bugs than T33 reported: fix them, do not grow the list"
-    results = {case.id: await _run_in(tmp_path / case.id, case) for case in MEASURED}
-    matched = {case.id for case in MEASURED if failures_of(case, results[case.id]) == []}
+    """[settings] over every case: each must match exactly, so a group, a weakening kind or the out-of-range
+    subset can never pass on a case that went wrong."""
+    results = {case.id: await _run_in(tmp_path / case.id, case) for case in CASES}
+    matched = {case.id for case in CASES if failures_of(case, results[case.id]) == []}
     assert matched == set(results), sorted(set(results) - matched)
 
     for group in DEV_GROUPS:
-        changed = [case.id for case in MEASURED if case.group is group and case.expect.kind in CHANGE_KINDS]
+        changed = [case.id for case in CASES if case.group is group and case.expect.kind in CHANGE_KINDS]
         assert len(changed) >= THRESHOLDS["changes_per_group_min"], f"group {group.value}: {changed}"
 
-    weakening = [case for case in MEASURED if case.expect.kind == "asked"]
+    weakening = [case for case in CASES if case.expect.kind == "asked"]
     assert weakening, "no case weakens a safeguard: its threshold would pass on nothing"
     for case in weakening:
         assert len(results[case.id].questions) == THRESHOLDS["weakening_questions_per_change"], case.id
 
-    out_of_range = [case for case in MEASURED if case.expect.refused_reason == "out_of_range"]
+    out_of_range = [case for case in CASES if case.expect.refused_reason == "out_of_range"]
     assert out_of_range, "no case is out of range: its threshold would pass on nothing"
     stored = sum(len(results[case.id].rows) for case in out_of_range)
     assert stored <= THRESHOLDS["out_of_range_stored_max"]
@@ -524,11 +526,11 @@ def test_every_recorded_case_has_exactly_one_fixture() -> None:
 @pytest.mark.live
 @pytest.mark.skipif(not LIVE_CLI.exists(), reason="claude CLI not installed at ~/.local/bin/claude")
 async def test_live_settings_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record_llm: bool) -> None:
-    """The real `settings` model on every recorded case; `--record-llm` writes its answers as the fixtures. A known
-    bug must still fail here, and nothing else may."""
+    """The real `settings` model on every recorded case; `--record-llm` writes its answers as the fixtures."""
     scrub_live_env(monkeypatch)
     if record_llm:
-        drop_fixtures(FIXTURES, [case.id for case in RECORDED])
+        # the whole suite is recorded again: every old fixture goes, a renamed case's included
+        drop_fixtures(FIXTURES, {*recorded_cases(FIXTURES), *(case.id for case in RECORDED)})
     failures: dict[str, list[str]] = {}
     async with live_claude(tmp_path / "sessions") as claude:
         status = await claude.probe(timeout=30)
@@ -536,10 +538,7 @@ async def test_live_settings_model(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         recorder = Recorder(inner=claude, directory=FIXTURES, write=record_llm, source=source)
         for case in RECORDED:
             recorder.case = case.id
-            problems = failures_of(case, await _run_in(tmp_path / case.id, case, as_assistant(recorder)))
-            if case.known_bug is not None and not problems:
-                failures[case.id] = [f"passes now: drop its known_bug ({case.known_bug})"]
-            elif case.known_bug is None and problems:
+            if problems := failures_of(case, await _run_in(tmp_path / case.id, case, as_assistant(recorder))):
                 failures[case.id] = problems
     assert await kill_leftover_children() == []  # every claude child was closed with the adapter
     assert failures == {}

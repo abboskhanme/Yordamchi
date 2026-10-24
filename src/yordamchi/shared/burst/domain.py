@@ -115,6 +115,11 @@ class BurstPart:
         return self.content.text if self.content.text is not None else self.content.caption
 
     @property
+    def forwarded(self) -> bool:
+        """Someone else's message the owner forwarded: material, never a command (`inbox.ForwardSource`)."""
+        return self.content.forwarded
+
+    @property
     def started_at(self) -> datetime:
         """When the owner began this part. A voice note was being recorded for its duration before it arrived."""
         attachment = self.content.attachment
@@ -326,7 +331,10 @@ def interrupt_of(text: str) -> InterruptKind | None:
 
 def interrupt_of_part(part: BurstPart) -> InterruptKind | None:
     """A text message that is an interrupt word, or a voice note whose transcript is one and has at most
-    `VOICE_INTERRUPT_MAX_WORDS` words. A caption never is: a photo captioned "to'xta" is content."""
+    `VOICE_INTERRUPT_MAX_WORDS` words. A caption never is: a photo captioned "to'xta" is content. A forwarded message
+    never is either: someone else's "to'xta" stops nothing."""
+    if part.forwarded:
+        return None
     if part.kind is UpdateKind.TEXT and part.content.text is not None:
         return interrupt_of(part.content.text)
     transcript = part.transcript_text
@@ -479,6 +487,26 @@ class TurnInput:
     @property
     def synthetic(self) -> bool:
         return any(part.synthetic for part in self.parts)
+
+    @property
+    def own_parts(self) -> tuple[BurstPart, ...]:
+        """The parts in the owner's own words: everything but what he forwarded."""
+        return tuple(part for part in self.parts if not part.forwarded)
+
+    @property
+    def own_text(self) -> str:
+        """The owner's own words, in order: the only text that may be read as a command (an approval, an answer to a
+        question or a clarification, a settings request, a correction). Forwarded parts are material only."""
+        return " ".join(part.text for part in self.own_parts if part.text)
+
+    @property
+    def own_reply_to(self) -> int | None:
+        """The message the owner's own words reply to, if any (a forwarded message replies to nothing here)."""
+        return next((p.reply_to_message_id for p in self.own_parts if p.reply_to_message_id is not None), None)
+
+    @property
+    def forwarded(self) -> bool:
+        return any(part.forwarded for part in self.parts)
 
     @property
     def last_part_at(self) -> datetime:

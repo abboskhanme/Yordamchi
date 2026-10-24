@@ -1,6 +1,6 @@
 {
-  "case": "settings_image_caption_reaction_recorded",
-  "duration_ms": 2258,
+  "case": "settings_file_dev_tone_recorded",
+  "duration_ms": 1839,
   "model": "haiku",
   "provider": "claude",
   "source": "recorded live by test_live_injection_interpreter --record-llm (claude 2.1.310, haiku)",

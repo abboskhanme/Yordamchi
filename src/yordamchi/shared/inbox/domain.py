@@ -27,7 +27,7 @@ from yordamchi.core.json_value import JsonObject, JsonValue
 from yordamchi.core.paths import BotName
 from yordamchi.core.redact import SecretHit
 from yordamchi.core.text import BotText, join
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.vault import domain as vault
 from yordamchi.shared.vault.domain import NewSecret, SecretRef
 
@@ -62,6 +62,57 @@ class UpdateStatus(StrEnum):
 TERMINAL: Final = frozenset({UpdateStatus.ATTACHED, UpdateStatus.IGNORED, UpdateStatus.FAILED})
 
 
+class ForwardSource(StrEnum):
+    """Where a forwarded message came from: Bot API `MessageOrigin.type`, or what the legacy `forward_*` fields say.
+
+    A forwarded message is the owner's update (he forwarded it) but not his words: it is material, never a command
+    (NFR-SEC-09). It never approves a decision, answers a question or a clarification, changes a setting, or stops or
+    redirects a turn; it can still be the material of an instruction the owner gives in his own words.
+    """
+
+    USER = "user"
+    HIDDEN_USER = "hidden_user"  # a user who hides their account when forwarded
+    CHAT = "chat"  # a group, or an anonymous group admin
+    CHANNEL = "channel"  # a channel post, or a linked channel's automatic forward
+    UNKNOWN = "unknown"  # forwarded, but the origin cannot be read
+
+
+_ORIGIN_TYPES: Final[Mapping[str, ForwardSource]] = {
+    "user": ForwardSource.USER,
+    "hidden_user": ForwardSource.HIDDEN_USER,
+    "chat": ForwardSource.CHAT,
+    "channel": ForwardSource.CHANNEL,
+}
+
+
+def forward_of(message: Mapping[str, object]) -> ForwardSource | None:  # noqa: PLR0911  # one per Bot API field
+    """The Telegram -> `IncomingUpdate` translation of forward provenance: None for the owner's own message.
+
+    `message` is the Bot API `Message` as JSON (`message.model_dump(mode="json")` in the handler). `forward_origin`
+    (Bot API 7.0+) is read first, then the legacy fields an older payload carries: `forward_from`,
+    `forward_sender_name`, `forward_from_chat`, `forward_date`, and `is_automatic_forward` (a linked channel's post).
+    Anything that says it is forwarded but names no readable origin is UNKNOWN, and still forwarded.
+    """
+    origin = message.get("forward_origin")
+    if isinstance(origin, Mapping):
+        kind = origin.get("type")
+        return _ORIGIN_TYPES.get(kind, ForwardSource.UNKNOWN) if isinstance(kind, str) else ForwardSource.UNKNOWN
+    if origin is not None:
+        return ForwardSource.UNKNOWN
+    if message.get("forward_from") is not None:
+        return ForwardSource.USER
+    if message.get("forward_sender_name") is not None:
+        return ForwardSource.HIDDEN_USER
+    chat = message.get("forward_from_chat")
+    if isinstance(chat, Mapping):
+        return ForwardSource.CHANNEL if chat.get("type") == "channel" else ForwardSource.CHAT
+    if message.get("is_automatic_forward") is True:
+        return ForwardSource.CHANNEL
+    if chat is not None or message.get("forward_date") is not None:
+        return ForwardSource.UNKNOWN
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class Attachment:
     file_id: str
@@ -87,16 +138,27 @@ class IncomingUpdate:
     media_group_id: str | None = None
     reply_to_message_id: int | None = None
     synthetic: bool = False  # the supervisor's self-test: there is no Telegram message to touch
+    forward: ForwardSource | None = None  # `forward_of(message)`: set when the owner forwarded someone else's message
+
+    @property
+    def forwarded(self) -> bool:
+        return self.forward is not None
 
 
 @dataclass(frozen=True, slots=True)
 class Content:
-    """What `payload_json` holds: the redacted text and caption, the attachment, and the vault ids it referred to."""
+    """What `payload_json` holds: the redacted text and caption, the attachment, the vault ids it referred to, and
+    where it was forwarded from (None: the owner's own words)."""
 
     text: str | None = field(default=None, repr=False)
     caption: str | None = field(default=None, repr=False)
     attachment: Attachment | None = None
     secret_ids: tuple[int, ...] = ()
+    forward: ForwardSource | None = None
+
+    @property
+    def forwarded(self) -> bool:
+        return self.forward is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +191,9 @@ class Accepted:
 
 # --- origin -------------------------------------------------------------------------------------------------------
 def require_matching_origin(origin: OwnerOrigin, update: IncomingUpdate, bot: BotName) -> None:
-    """The `OwnerOrigin` proves this very update came from the owner; anything else is a wiring bug."""
+    """The `OwnerOrigin` proves this very update came from the owner; anything else is a wiring bug. An object that
+    is not an `OwnerOrigin` raises `TypeError`, one for another update `ValueError`."""
+    require_owner_origin(origin)
     same = (
         origin.bot is bot
         and update.bot is bot
@@ -230,6 +294,7 @@ def redacted_content(update: IncomingUpdate, scan: SecretScan, stored: Mapping[s
         caption=redact_text(update.caption, scan.caption, stored),
         attachment=update.attachment,
         secret_ids=tuple(sorted({ref.id for ref in stored.values()})),
+        forward=update.forward,
     )
 
 
@@ -253,6 +318,8 @@ def payload_json(content: Content, scrub: Callable[[str], str]) -> JsonObject:
         "attachment": attachment,
         "secret_ids": secret_ids,
     }
+    if content.forward is not None:  # only when set: the owner's own messages keep the shape they always had
+        payload["forward"] = content.forward.value
     return {key: json_value.map_strings(value, scrub) for key, value in payload.items()}
 
 
@@ -281,8 +348,22 @@ def content_from_json(raw: JsonValue) -> Content:
     ids = raw.get("secret_ids")
     secret_ids = tuple(item for item in ids if isinstance(item, int)) if isinstance(ids, list) else ()
     return Content(
-        text=_str(raw.get("text")), caption=_str(raw.get("caption")), attachment=attachment, secret_ids=secret_ids
+        text=_str(raw.get("text")),
+        caption=_str(raw.get("caption")),
+        attachment=attachment,
+        secret_ids=secret_ids,
+        forward=_forward(raw.get("forward")),
     )
+
+
+def _forward(raw: JsonValue) -> ForwardSource | None:
+    """A stored forward source; anything unreadable that is there at all still counts as forwarded (fail closed)."""
+    if raw is None:
+        return None
+    try:
+        return ForwardSource(raw) if isinstance(raw, str) else ForwardSource.UNKNOWN
+    except ValueError:
+        return ForwardSource.UNKNOWN
 
 
 # --- ack ----------------------------------------------------------------------------------------------------------

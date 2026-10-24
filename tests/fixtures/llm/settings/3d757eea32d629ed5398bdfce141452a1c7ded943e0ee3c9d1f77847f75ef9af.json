@@ -1,18 +1,18 @@
 {
-  "case": "models_routing_sonnet",
-  "duration_ms": 1722,
+  "case": "voice_gender_female",
+  "duration_ms": 2010,
   "model": "haiku",
   "provider": "claude",
   "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",
   "structured": {
     "changes": [
       {
-        "key": "models.routing",
-        "value": "sonnet"
+        "key": "voice.gender",
+        "value": "female"
       }
     ],
     "keys": [],
     "outcome": "change"
   },
-  "text": "{\"outcome\":\"change\",\"changes\":[{\"key\":\"models.routing\",\"value\":\"sonnet\"}],\"keys\":[]}"
+  "text": "{\"outcome\":\"change\",\"changes\":[{\"key\":\"voice.gender\",\"value\":\"female\"}],\"keys\":[]}"
 }

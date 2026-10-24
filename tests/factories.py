@@ -67,7 +67,15 @@ from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.health import store as health_store
 from yordamchi.shared.health.models import HealthEvent
 from yordamchi.shared.health.service import HealthState
-from yordamchi.shared.inbox.domain import Attachment, Content, IncomingUpdate, StoredUpdate, UpdateKind, UpdateStatus
+from yordamchi.shared.inbox.domain import (
+    Attachment,
+    Content,
+    ForwardSource,
+    IncomingUpdate,
+    StoredUpdate,
+    UpdateKind,
+    UpdateStatus,
+)
 from yordamchi.shared.outbox import service as outbox_service
 from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.models import OutboxMessage
@@ -192,8 +200,9 @@ def make_update(
     caption: str | None = None,
     attachment: Attachment | None = None,
     synthetic: bool = False,
+    forward: ForwardSource | None = None,
 ) -> IncomingUpdate:
-    """An owner message in the bot's own chat, as a handler would build it."""
+    """An owner message in the bot's own chat, as a handler would build it (`forward`: he forwarded it)."""
     return IncomingUpdate(
         bot=bot,
         update_id=update_id,
@@ -205,6 +214,7 @@ def make_update(
         caption=caption,
         attachment=attachment,
         synthetic=synthetic,
+        forward=forward,
     )
 
 
@@ -506,6 +516,7 @@ def make_part(
     reply_to_message_id: int | None = None,
     synthetic: bool = False,
     start: datetime = DEFAULT_START,
+    forward: ForwardSource | None = None,
 ) -> BurstPart:
     """A part received `at_s` seconds after `start`, built the way the burst builds it (`part_from_update`): a voice
     note starts out waiting for its transcript. Without `kind`, a text if `text` is given, else a photo."""
@@ -521,7 +532,9 @@ def make_part(
         reply_to_message_id=reply_to_message_id,
         synthetic=synthetic,
         received_at=start + timedelta(seconds=at_s),
-        content=Content(text=text, caption=caption, attachment=_attachment(update_id, part_kind, duration_s)),
+        content=Content(
+            text=text, caption=caption, attachment=_attachment(update_id, part_kind, duration_s), forward=forward
+        ),
     )
     return burst_domain.part_from_update(stored)
 

@@ -426,10 +426,19 @@ async def interpret_request(deps: SharedDeps, text: str) -> Interpretation:
     return interpretation
 
 
-async def handle_request(deps: SharedDeps, origin: OwnerOrigin, text: str, *, ask: AskOwner) -> SettingsOutcome:
+async def handle_request(  # noqa: PLR0911  # one return per outcome kind
+    deps: SharedDeps, origin: OwnerOrigin, text: str, *, ask: AskOwner
+) -> SettingsOutcome:
     """One owner message about settings ("javoblaring qisqaroq bo'lsin", "oldingi holatiga qaytar"): interpret it,
-    then change, revert, show, or answer with one clarifying question. The restated change is the reply."""
+    then change, revert, show, or answer with one clarifying question. The restated change is the reply.
+
+    `text` is the owner's own words (`TurnInput.own_text`): what he forwarded is material and never a settings
+    request (NFR-SEC-09). A message with no words of his own is no request: UNCLEAR, with no model asked and nothing
+    queued."""
     owner = _owner_origin(origin, deps.bot)
+    if not text.strip():
+        log.info("settings_request_without_own_words")
+        return SettingsOutcome(OutcomeKind.UNCLEAR)
     interpretation = await interpret_request(deps, text)
     if interpretation.intent is Intent.CHANGE:
         return await apply_proposals(deps, owner, interpretation.proposals, ask=ask)

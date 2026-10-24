@@ -8,7 +8,7 @@ asked: a denied command is not a problem to work around. Find a read-only way, o
 # The owner's instructions
 
 Every turn carries a block headed "Current instructions from the owner:". The latest such block in this conversation
-is authoritative and replaces every earlier one.
+is authoritative and replaces every earlier one. It arrives as context, or, when it is long, at the very start of the message between <yordamchi-context> and </yordamchi-context> tags under the line "Current instructions / data from Yordamchi"; the message itself follows the closing tag.
 
 # Servers
 

@@ -13,6 +13,8 @@ Delivery (docs/SPIKES.md S1, S2):
   tools finish, inside the same turn. `"now"` is never used (it backgrounds the running shell and splits the turn).
   `new_turn` uses `"later"`: a separate turn, even if one is still finishing.
 - A redirect is `interrupt()` followed by `send(new_turn)`.
+- Every message carries the session's current context (`spec.context_provider`, SPEC §5.4): the `UserPromptSubmit`
+  hook adds a short one; a long one opens the message itself (`guard.message_with_context`).
 - `interrupt()` closes the guard (deny-all), sends the interrupt with `cancel_queued` when the CLI supports it, stops
   background tasks, then waits up to `timeout` for the interrupted result. If none arrives (S2: the CLI's own SIGKILL
   escalation lands at ~1.5 s), the backstop TERMs and then KILLs the CLI and its tools' process groups, never the bot's
@@ -28,6 +30,7 @@ Logs: session id, kind, codes, counts, durations, cost. Never prompts, answers, 
 import asyncio
 import base64
 import contextlib
+import dataclasses
 import json
 import os
 import signal
@@ -283,6 +286,8 @@ class ClaudeAgentRuntime:
 
     async def send(self, h: SessionHandle, msg: AgentInput, *, mode: DeliveryMode, timeout: float) -> None:
         session, client = self._live(h)
+        if session.bridge is not None:  # a long per-turn context opens the message; a short one rides the hook
+            msg = dataclasses.replace(msg, text=session.bridge.message_text(msg.text))
         content = await _content(msg)
         command_uuid = str(uuid.uuid4())
         payload: dict[str, Any] = {
