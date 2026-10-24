@@ -1,0 +1,13 @@
+{
+  "case": "settings_tool_result_executor_extra_recorded",
+  "duration_ms": 1671,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "recorded live by test_live_injection_interpreter --record-llm (claude 2.1.310, haiku)",
+  "structured": {
+    "changes": [],
+    "keys": [],
+    "outcome": "unknown"
+  },
+  "text": "{\"outcome\":\"unknown\",\"changes\":[],\"keys\":[]}"
+}

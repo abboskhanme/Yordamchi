@@ -1,0 +1,13 @@
+{
+  "case": "decisions_secret_scan_off",
+  "duration_ms": 2532,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",
+  "structured": {
+    "changes": [],
+    "keys": [],
+    "outcome": "show"
+  },
+  "text": "{\"outcome\":\"show\",\"changes\":[],\"keys\":[]}"
+}

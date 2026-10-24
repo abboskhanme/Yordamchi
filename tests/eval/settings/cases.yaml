@@ -1,0 +1,504 @@
+# Settings eval, dev bot (UC-09; SPEC §3.2.15; REQUIREMENTS §4 UC-09 fixture). T33. Runner: test_settings_eval.py.
+# Thresholds: tests/eval/thresholds.toml [settings] (changes_per_group_min, weakening_questions_per_change,
+# out_of_range_stored_max).
+#
+# Each case is one owner message to the dev bot, said the way he says it (Uzbek, Russian, English, mixed, casual),
+# run through `settings.service.handle_request` on a fresh dev DB with the dev bot's asker (`gate.ask_setting_change`).
+#
+#   id       unique snake_case
+#   group    the settings group the request is about (registry.Group); every group the dev bot holds needs >= 1 case
+#            whose expectation is a change (applied, reverted or asked-then-"ha")
+#   lang     uz | ru | en | mixed
+#   text     the owner's message
+#   before   optional {key: value}: what the owner changed earlier, oldest first (one stored version each)
+#   model    the `settings` model's structured answer (FakeAssistant), or `recorded`: the real model's answer replays
+#            from tests/fixtures/llm/settings/ (recorded live on the fast tier: `models.settings = haiku` is stored
+#            first). An answer is {outcome, changes: {key: value}, keys: [..]}; `changes` and `keys` may be left out.
+#   expect   exactly one of
+#              applied: {key: value}     the exact change, applied at once, restated in one line
+#              reverted: {key: value}    "oldingi holatiga qaytar": the exact previous value, applied at once
+#              asked: {key: value}       weakens a safeguard: exactly one question, nothing changes until "ha",
+#                                        then exactly this change (with `reason: revert` for a revert that asks)
+#              refused: {key, reason}    nothing stored, nothing asked, the owner told why (SettingInvalid with its
+#                                        options, or personal_only: "buni shaxsiy botga ayting")
+#              clarify: [line, ...]      one clarifying question naming exactly these changes, nothing changes
+#              unclear | needs_code | shown | unchanged: true    one reply of that kind, nothing changes
+#   known_bug  optional: the case fails today on a reported bug. It runs as a strict xfail (it turns red the moment
+#              it passes, so the marker is removed with the fix) and is left out of the threshold measurement.
+#
+# Known bug (T33, 2026-10-24): `claude` 2.1.310 shows the model only a ~2 KB preview of a `UserPromptSubmit` hook's
+# `additionalContext`. `ClaudeAssistant` sends `request.instructions` that way, and `settings.service.interpret_request`
+# puts the whole settings table there (~16.7 KB, 104 rows), so the `settings` model sees the first 12 rows only (up to
+# `voice.language_code`). A key below the cut is found only if the system prompt's examples name it. Measured live on
+# haiku and sonnet: the model itself reports "only the first 2KB preview is visible to me".
+
+cases:
+  # --- access ---
+  - id: access_dev_group_id_ru
+    group: access
+    lang: ru
+    text: "смени группу дев бота на -1009998887776, старую удалил"
+    model: {outcome: change, changes: {access.dev_group_id: -1009998887776}}
+    expect: {asked: {access.dev_group_id: -1009998887776}}
+
+  - id: access_owner_id_zero_refused
+    group: access
+    lang: uz
+    text: "owner id ni 0 qilib qo'y"
+    model: {outcome: change, changes: {access.owner_id: 0}}
+    expect: {refused: {key: access.owner_id, reason: out_of_range}}
+
+  # --- persona ---
+  - id: persona_dev_tone_warmer
+    group: persona
+    lang: uz
+    text: "gaplaringni qisqa, lekin iliqroq qil"
+    model: {outcome: change, changes: {persona.dev_tone: "qisqa, iliq, aniq"}}
+    expect: {applied: {persona.dev_tone: "qisqa, iliq, aniq"}}
+
+  - id: persona_seen_reaction_thumbs
+    group: persona
+    lang: en
+    text: "use 👍 instead of the eyes when you've seen my message"
+    model: {outcome: change, changes: {ui.seen_reaction: "👍"}}
+    expect: {applied: {ui.seen_reaction: "👍"}}
+
+  - id: persona_personal_verbosity_on_dev
+    group: persona
+    lang: uz
+    text: "javoblaringni uzunroq qil"
+    model: recorded
+    expect: {refused: {key: persona.personal_verbosity, reason: personal_only}}
+
+  - id: persona_personal_persona_ru
+    group: persona
+    lang: ru
+    text: "личный бот пусть будет построже и без шуток"
+    model: {outcome: change, changes: {persona.personal: "Strict and precise, no jokes."}}
+    expect: {refused: {key: persona.personal, reason: personal_only}}
+
+  # --- prompts ---
+  - id: prompts_executor_extra_mixed
+    group: prompts
+    lang: mixed
+    text: "kod yozganda har doim testlarni run qil, commit message english bo'lsin"
+    model:
+      outcome: change
+      changes: {prompt.dev_executor_extra: "Always run the tests before you finish. Write commit messages in English."}
+    expect:
+      applied: {prompt.dev_executor_extra: "Always run the tests before you finish. Write commit messages in English."}
+
+  - id: prompts_personal_extra_on_dev
+    group: prompts
+    lang: uz
+    text: "shaxsiy bot har doim manbani ko'rsatsin"
+    model: {outcome: change, changes: {prompt.personal_extra: "Always cite the source."}}
+    expect: {refused: {key: prompt.personal_extra, reason: personal_only}}
+
+  # --- voice ---
+  - id: voice_gender_female
+    group: voice
+    lang: uz
+    text: "ovozingni ayolga o'zgartir"
+    before: {voice.gender: male}
+    model: recorded
+    expect: {applied: {voice.gender: female}}
+
+  - id: voice_enabled_ru
+    group: voice
+    lang: ru
+    text: "включи голосовые ответы"
+    model: {outcome: change, changes: {voice.enabled: true}}
+    expect: {applied: {voice.enabled: true}}
+
+  - id: voice_max_words_out_of_range
+    group: voice
+    lang: uz
+    text: "ovozli javob 500 so'zgacha bo'lsin"
+    model: {outcome: change, changes: {voice.max_words: 500}}
+    expect: {refused: {key: voice.max_words, reason: out_of_range}}
+
+  # --- speech ---
+  - id: speech_stt_openrouter_en
+    group: speech
+    lang: en
+    text: "transcribe voice notes through openrouter from now on"
+    model: {outcome: change, changes: {speech.stt_provider: openrouter}}
+    expect: {applied: {speech.stt_provider: openrouter}}
+
+  - id: speech_tts_edge_mixed
+    group: speech
+    lang: mixed
+    text: "TTS ni edge ga o'tkaz, bepul bo'lsin"
+    model: {outcome: change, changes: {speech.tts_provider: edge}}
+    expect: {applied: {speech.tts_provider: edge}}
+
+  - id: speech_stt_whisper_refused
+    group: speech
+    lang: uz
+    text: "transkripsiyani whisper bilan qil"
+    model: {outcome: change, changes: {speech.stt_provider: whisper}}
+    expect: {refused: {key: speech.stt_provider, reason: not_an_option}}
+
+  # --- language ---
+  - id: language_reply_russian
+    group: language
+    lang: ru
+    text: "отвечай мне по-русски"
+    model: recorded
+    expect: {applied: {lang.reply: ru}}
+    known_bug: "settings table cut to a 2 KB preview: lang.reply (char 4059) is not visible; recorded answer: unknown"
+
+  - id: language_extra_term
+    group: language
+    lang: uz
+    text: "'Imzo' so'zini doim shunday to'g'ri yoz"
+    model: {outcome: change, changes: {stt.extra_terms: ["Imzo"]}}
+    expect: {applied: {stt.extra_terms: ["Imzo"]}}
+
+  - id: language_reply_german_refused
+    group: language
+    lang: en
+    text: "answer in German please"
+    model: {outcome: change, changes: {lang.reply: de}}
+    expect: {refused: {key: lang.reply, reason: not_an_option}}
+
+  # --- models ---
+  - id: models_routing_sonnet
+    group: models
+    lang: mixed
+    text: "routing modelini sonnet qil"
+    model: recorded
+    expect: {applied: {models.routing: sonnet}}
+
+  - id: models_report_faster
+    group: models
+    lang: uz
+    text: "hisobotlar uchun tezroq model qo'y"
+    model: {outcome: change, changes: {models.report: haiku}}
+    expect: {applied: {models.report: haiku}}
+
+  - id: models_coding_fable_weakens
+    group: models
+    lang: uz
+    text: "kod yozishga fable modelni qo'y"
+    model: {outcome: change, changes: {models.coding: fable}}
+    expect: {asked: {models.coding: fable}}
+
+  - id: models_coding_gpt_refused
+    group: models
+    lang: mixed
+    text: "codingni gpt-5 ga o'tkaz"
+    model: {outcome: change, changes: {models.coding: gpt-5}}
+    expect: {refused: {key: models.coding, reason: not_an_option}}
+
+  - id: models_coding_effort_en
+    group: models
+    lang: en
+    text: "set coding effort to high, xhigh is overkill"
+    model: {outcome: change, changes: {models.coding_effort: high}}
+    expect: {applied: {models.coding_effort: high}}
+
+  # --- routing / projects ---
+  - id: routing_alias_hr
+    group: routing
+    lang: uz
+    text: "BonviHR'ni 'hr' deb ham tani"
+    model: {outcome: change, changes: {projects.aliases: {hr: BonviHR}}}
+    expect: {applied: {projects.aliases: {hr: BonviHR}}}
+
+  - id: routing_ask_less_ru
+    group: routing
+    lang: ru
+    text: "спрашивай пореже, куда отправлять — бери проект при 65% уверенности"
+    model: {outcome: change, changes: {routing.min_confidence: 0.65}}
+    expect: {applied: {routing.min_confidence: 0.65}}
+
+  - id: routing_faster_clarify
+    group: routing
+    lang: uz
+    text: "routingni tezlashtir"
+    model: {outcome: clarify, changes: {timeouts.routing_s: 1.5, routing.min_confidence: 0.65}}
+    expect:
+      clarify: ["timeouts.routing_s: 2.5 s → 1.5 s", "routing.min_confidence: 0.75 → 0.65"]
+
+  - id: routing_min_confidence_out_of_range
+    group: routing
+    lang: uz
+    text: "routing ishonchini 1.5 qil"
+    model: {outcome: change, changes: {routing.min_confidence: 1.5}}
+    expect: {refused: {key: routing.min_confidence, reason: out_of_range}}
+
+  # --- decisions (gate) ---
+  - id: decisions_stop_asking_migrations
+    group: decisions
+    lang: uz
+    text: "migratsiyalarni so'rama"
+    model: recorded
+    expect:
+      asked:
+        gate.ask_classes: [deploy, server_write, deploy_push, force_push, docker_destroy, fs_destroy, repo_delete,
+                           repo_public, spend, third_party_send, architecture]
+    known_bug: "settings table cut to a 2 KB preview: gate.ask_classes and its current list (char 7308) are not
+      visible; recorded answer: show"
+
+  - id: decisions_ask_nothing
+    group: decisions
+    lang: uz
+    text: "hech narsani so'rama, hammasini o'zing qilaver"
+    model: {outcome: change, changes: {gate.ask_classes: []}}
+    expect: {asked: {gate.ask_classes: []}}
+
+  - id: decisions_secret_scan_off
+    group: decisions
+    lang: en
+    text: "turn off the secret scan before push, it keeps blocking me"
+    model: recorded
+    expect: {asked: {gate.secret_scan_enabled: false}}
+    known_bug: "settings table cut to a 2 KB preview: gate.secret_scan_enabled (char 9282) is not visible; recorded
+      answer: show"
+
+  - id: decisions_approval_ttl_shorter
+    group: decisions
+    lang: uz
+    text: "ruxsatlar 1 soatdan keyin eskirsin"
+    model: {outcome: change, changes: {gate.approval_ttl_min: 60}}
+    expect: {applied: {gate.approval_ttl_min: 60}}
+
+  - id: decisions_approval_ttl_longer_weakens
+    group: decisions
+    lang: uz
+    text: "ruxsatlar 4 soat amal qilsin"
+    model: {outcome: change, changes: {gate.approval_ttl_min: 240}}
+    expect: {asked: {gate.approval_ttl_min: 240}}
+
+  - id: decisions_jump_host_dropped
+    group: decisions
+    lang: mixed
+    text: "server hostida ham so'ramasdan command run qilaver"
+    model: {outcome: change, changes: {gate.jump_only_hosts: []}}
+    expect: {asked: {gate.jump_only_hosts: []}}
+
+  - id: decisions_unknown_class_refused
+    group: decisions
+    lang: uz
+    text: "nuke qilishdan oldin ham so'ra"
+    model:
+      outcome: change
+      changes:
+        gate.ask_classes: [deploy, server_write, deploy_push, force_push, data_loss_db, docker_destroy, fs_destroy,
+                           repo_delete, repo_public, spend, third_party_send, architecture, nuke]
+    expect: {refused: {key: gate.ask_classes, reason: not_an_option}}
+
+  # --- burst ---
+  - id: burst_wait_after_photo_15
+    group: burst
+    lang: uz
+    text: "rasmdan keyin 15 soniya kut"
+    model: recorded
+    expect: {applied: {burst.after_media_s: 15}}
+
+  - id: burst_wait_after_photo_100_refused
+    group: burst
+    lang: uz
+    text: "rasmdan keyin 100 soniya kut"
+    model: recorded
+    expect: {refused: {key: burst.after_media_s, reason: out_of_range}}
+
+  - id: burst_after_voice_ru
+    group: burst
+    lang: ru
+    text: "после голосового жди 4 секунды"
+    model: {outcome: change, changes: {burst.after_voice_s: 4}}
+    expect: {applied: {burst.after_voice_s: 4}}
+
+  - id: burst_already_so
+    group: burst
+    lang: uz
+    text: "rasmdan keyin 10 soniya kut"
+    model: {outcome: change, changes: {burst.after_media_s: 10}}
+    expect: {unchanged: true}
+
+  # --- timeouts ---
+  - id: timeouts_report_en
+    group: timeouts
+    lang: en
+    text: "give the report model up to 5 seconds before you fall back to the template"
+    model: {outcome: change, changes: {timeouts.report_s: 5}}
+    expect: {applied: {timeouts.report_s: 5}}
+
+  - id: timeouts_idle_close_uz
+    group: timeouts
+    lang: uz
+    text: "sessiya 30 daqiqa ishlatilmasa yop"
+    model: {outcome: change, changes: {sessions.idle_close_min: 30}}
+    expect: {applied: {sessions.idle_close_min: 30}}
+
+  - id: timeouts_stt_out_of_range
+    group: timeouts
+    lang: uz
+    text: "ovozni tanishga 2 daqiqa ber"
+    model: {outcome: change, changes: {timeouts.stt_s: 120}}
+    expect: {refused: {key: timeouts.stt_s, reason: out_of_range}}
+
+  # --- schedules ---
+  - id: schedules_quiet_hours
+    group: schedules
+    lang: uz
+    text: "kechasi 23 dan ertalab 7 gacha ovozsiz yubor"
+    model: recorded
+    expect: {applied: {schedule.quiet_hours: "23:00-07:00"}}
+    known_bug: "settings table cut to a 2 KB preview: schedule.quiet_hours (char 13553) is not visible; recorded
+      answer: clarify voice.enabled=false"
+
+  - id: schedules_server_check_ru
+    group: schedules
+    lang: ru
+    text: "проверяй серверы каждые 15 минут"
+    model: {outcome: change, changes: {schedule.server_check_min: 15}}
+    expect: {applied: {schedule.server_check_min: 15}}
+
+  - id: schedules_cost_summary_en
+    group: schedules
+    lang: en
+    text: "send me the cost summary every evening at 21:00"
+    model: {outcome: change, changes: {schedule.cost_summary_at: "21:00"}}
+    expect: {applied: {schedule.cost_summary_at: "21:00"}}
+
+  - id: schedules_quiet_hours_bad_span
+    group: schedules
+    lang: uz
+    text: "tinch soatlar 25:00-07:00 bo'lsin"
+    model: {outcome: change, changes: {schedule.quiet_hours: "25:00-07:00"}}
+    expect: {refused: {key: schedule.quiet_hours, reason: bad_span}}
+
+  # --- caps ---
+  - id: caps_max_concurrent_15
+    group: caps
+    lang: uz
+    text: "15 tadan ko'p loyiha bir vaqtda ishlamasin"
+    before: {turns.max_concurrent: 20}
+    model: recorded
+    expect: {applied: {turns.max_concurrent: 15}}
+    known_bug: "settings table cut to a 2 KB preview: turns.max_concurrent (char 14807) is not visible; recorded
+      answer: show"
+
+  - id: caps_google_cap_up_weakens
+    group: caps
+    lang: mixed
+    text: "Gemini limitini oyiga 100 dollar qil"
+    model: {outcome: change, changes: {caps.google_monthly_usd: 100}}
+    expect: {asked: {caps.google_monthly_usd: 100}}
+
+  - id: caps_max_concurrent_99_refused
+    group: caps
+    lang: uz
+    text: "bir vaqtda 99 ta loyiha ishlayversin"
+    model: {outcome: change, changes: {turns.max_concurrent: 99}}
+    expect: {refused: {key: turns.max_concurrent, reason: out_of_range}}
+
+  - id: caps_wall_time_ru
+    group: caps
+    lang: ru
+    text: "ограничь один ход 30 минутами"
+    model: {outcome: change, changes: {turns.max_wall_min: 30}}
+    expect: {applied: {turns.max_wall_min: 30}}
+
+  # --- limits ---
+  - id: limits_outbox_parts
+    group: limits
+    lang: uz
+    text: "uzun javob 5 qismdan oshsa faylga o'tkaz"
+    model: {outcome: change, changes: {outbox.max_parts: 5}}
+    expect: {applied: {outbox.max_parts: 5}}
+
+  - id: limits_media_retention_en
+    group: limits
+    lang: en
+    text: "keep downloaded media for 14 days"
+    model: {outcome: change, changes: {media.retention_days: 14}}
+    expect: {applied: {media.retention_days: 14}}
+
+  - id: limits_warm_clients_refused
+    group: limits
+    lang: mixed
+    text: "settings uchun 5 ta warm client tut"
+    model: {outcome: change, changes: {assistant.warm_clients: {routing: "2", report: "1", settings: "5"}}}
+    expect: {refused: {key: assistant.warm_clients, reason: not_an_option}}
+
+  # --- servers ---
+  - id: servers_watch_bonvi_srv
+    group: servers
+    lang: uz
+    text: "bonvi-srv serverini ham tekshirib tur"
+    model: {outcome: change, changes: {servers.hosts: [bonvi-srv]}}
+    expect: {applied: {servers.hosts: [bonvi-srv]}}
+
+  - id: servers_bad_host_refused
+    group: servers
+    lang: mixed
+    text: "root@10.0.0.5 ni ham monitor qil"
+    model: {outcome: change, changes: {servers.hosts: [root@10.0.0.5]}}
+    expect: {refused: {key: servers.hosts, reason: bad_host}}
+
+  # --- revert ("oldingi holatiga qaytar") ---
+  - id: revert_last_change
+    group: burst
+    lang: uz
+    text: "oldingi holatiga qaytar"
+    before: {burst.after_media_s: 15}
+    model: recorded
+    expect: {reverted: {burst.after_media_s: 10}}
+
+  - id: revert_named_key_ru
+    group: persona
+    lang: ru
+    text: "тон верни как было, остальное не трогай"
+    before: {persona.dev_tone: "rasmiy", burst.after_media_s: 15}
+    model: {outcome: revert, keys: [persona.dev_tone]}
+    expect: {reverted: {persona.dev_tone: "qisqa, aniq, texnik"}}
+
+  - id: revert_that_loosens_asks
+    group: decisions
+    lang: uz
+    text: "qaytar"
+    before: {gate.approval_ttl_min: 60}
+    model: {outcome: revert}
+    expect: {asked: {gate.approval_ttl_min: 120}, reason: revert}
+
+  # --- unclear, needs code, show ---
+  - id: unclear_make_everything_better
+    group: persona
+    lang: uz
+    text: "hammasini yaxshiroq qil"
+    model: recorded
+    expect: {unclear: true}
+
+  - id: unclear_guessed_key
+    group: limits
+    lang: en
+    text: "make your answers shorter"
+    model: {outcome: change, changes: {answers.max_words: 20}}
+    expect: {unclear: true}
+
+  - id: clarify_faster_answers
+    group: models
+    lang: uz
+    text: "tezroq javob ber"
+    model: {outcome: clarify, changes: {models.report: haiku, timeouts.report_s: 2}}
+    expect:
+      clarify: ["models.report: sonnet → haiku", "timeouts.report_s: 3.5 s → 2 s"]
+
+  - id: needs_code_weather
+    group: schedules
+    lang: uz
+    text: "har kuni ertalab menga ob-havo yubor"
+    model: {outcome: needs_code}
+    expect: {needs_code: true}
+
+  - id: show_settings
+    group: limits
+    lang: uz
+    text: "sozlamalaring qanday?"
+    model: recorded
+    expect: {shown: true}

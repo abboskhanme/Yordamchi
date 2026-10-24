@@ -1,0 +1,18 @@
+{
+  "case": "schedules_quiet_hours",
+  "duration_ms": 2824,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",
+  "structured": {
+    "changes": [
+      {
+        "key": "voice.enabled",
+        "value": false
+      }
+    ],
+    "keys": [],
+    "outcome": "clarify"
+  },
+  "text": "{\"outcome\":\"clarify\",\"changes\":[{\"key\":\"voice.enabled\",\"value\":false}],\"keys\":[]}"
+}

@@ -1,0 +1,18 @@
+{
+  "case": "burst_wait_after_photo_15",
+  "duration_ms": 1488,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",
+  "structured": {
+    "changes": [
+      {
+        "key": "burst.after_media_s",
+        "value": 15
+      }
+    ],
+    "keys": [],
+    "outcome": "change"
+  },
+  "text": "{\"outcome\":\"change\",\"changes\":[{\"key\":\"burst.after_media_s\",\"value\":15}],\"keys\":[]}"
+}

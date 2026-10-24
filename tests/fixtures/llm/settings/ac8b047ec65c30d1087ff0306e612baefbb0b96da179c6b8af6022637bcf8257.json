@@ -1,0 +1,22 @@
+{
+  "case": "unclear_make_everything_better",
+  "duration_ms": 2977,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "recorded live by test_live_settings_model --record-llm (claude 2.1.310, haiku)",
+  "structured": {
+    "changes": [
+      {
+        "key": "persona.personal_verbosity",
+        "value": "medium"
+      },
+      {
+        "key": "ui.seen_reaction",
+        "value": "👀"
+      }
+    ],
+    "keys": [],
+    "outcome": "clarify"
+  },
+  "text": "{\"outcome\":\"clarify\",\"changes\":[{\"key\":\"persona.personal_verbosity\",\"value\":\"medium\"},{\"key\":\"ui.seen_reaction\",\"value\":\"👀\"}],\"keys\":[]}"
+}
