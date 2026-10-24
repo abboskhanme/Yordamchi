@@ -13,7 +13,8 @@ files, the pushed commit's workflows). Nothing here calls the classifier directl
   "ha" it runs exactly once; the next attempt asks afresh (single use).
 - deny:<reason>: denied with the safety-rules text, never asked; a stray "ha" changes nothing.
 - Every case also enters through `can_use_tool` alone (a call no mode auto-approves) and must get the same answer,
-  with an ask there being the one question the hook path then finds pending.
+  with an ask there being the one question the hook path then finds pending. The session's earlier, free call from
+  the case's cwd comes first: the SDK's permission context has no cwd, so the bridge knows it only from PreToolUse.
 - secret_pushes: a real `git push` through `githooks/pre-push`, with the real gate service behind the control socket:
   the push is blocked, the hook names the file and line, the owner is told the same, and the secret appears nowhere.
 
@@ -613,9 +614,24 @@ async def test_gate_case(case: GateCase, dev_db: Database, fakes: Fakes, tmp_pat
     await runners[case.expect.action](world, case)
 
 
+async def earlier_step(world: World) -> None:
+    """The session's previous call, made from the case's cwd (where e.g. an earlier `cd ..` left it): a free Read
+    whose PreToolUse input tells the bridge the session's cwd. It leaves no trace."""
+    data = _fill(_template("read"), world)
+    assert isinstance(data, dict)
+    data["cwd"] = str(world.cwd)
+    data["permission_mode"] = world.setup.permission_mode
+    data["tool_use_id"] = "toolu_eval00earlier"
+    assert await hook(world, data) == (True, "")
+    assert world.events == []
+    assert await decisions(world) == []
+    assert owner_messages(world) == []
+
+
 async def run_fall_through(world: World, case: GateCase) -> None:
     """SPEC §5.2: a call that reaches `can_use_tool` goes through the guard again and gets the same answer; an ask
     asked there is the same one question the hook path then finds pending."""
+    await earlier_step(world)
     data = payload(world, case, 1)
     result = await fall_through(world, data)
     if case.expect.action == "free":

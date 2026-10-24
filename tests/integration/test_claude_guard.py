@@ -19,6 +19,7 @@ from tests.fakes.claude_client import LIVE_CLI, LIVE_SEARCH_PATH, FakeClient, re
 from yordamchi.adapters.claude import control
 from yordamchi.adapters.claude.executor import ClaudeAgentRuntime
 from yordamchi.adapters.claude.guard import (
+    CWDS_REMEMBERED_MAX,
     HOOK_MARGIN_S,
     REASON_ERROR,
     REASON_PARKED,
@@ -329,6 +330,30 @@ async def test_a_fall_through_call_is_allowed_only_by_the_guard() -> None:
     assert denied == PermissionResultDeny(message="FORBIDDEN")
     assert probe.events == [ToolDenied(tool_name="Bash", reason_code="forbidden")]
     assert probe.calls[0].tool_use_id == "toolu_1"
+
+
+async def test_a_fall_through_call_is_judged_in_its_own_cwd_not_the_project_root() -> None:
+    """T25 gate eval `rm_from_a_cwd_outside`: `ToolPermissionContext` has no cwd, so `can_use_tool` takes the one the
+    call's PreToolUse input carried; for a call whose PreToolUse it never saw, the session's last known cwd."""
+    probe = Bridge()
+
+    async def hook(tool_use_id: str, cwd: str) -> None:
+        data = {**_hook_input("hook_deny", "Bash"), "tool_use_id": tool_use_id, "cwd": cwd}
+        await probe.bridge.pre_tool_use(cast("HookInput", data), tool_use_id, CONTEXT)
+
+    async def fall_through(tool_use_id: str) -> str | None:
+        context = ToolPermissionContext(tool_use_id=tool_use_id)
+        await probe.bridge.can_use_tool("Bash", {"command": "rm -rf HRMentor"}, context)
+        return probe.calls[-1].cwd
+
+    assert await fall_through("toolu_first") is None  # nothing seen yet: the gate's own default, as for the hook
+    await hook("toolu_outside", "/Users/owner/Documents/Projects")  # after an earlier `cd ..`
+    await hook("toolu_later", "/Users/owner/Documents/Projects/BonviHR/src")
+    assert await fall_through("toolu_outside") == "/Users/owner/Documents/Projects"
+    assert await fall_through("toolu_unseen") == "/Users/owner/Documents/Projects/BonviHR/src"
+    for index in range(CWDS_REMEMBERED_MAX):  # only the newest ids are kept; an old one gets the last known cwd
+        await hook(f"toolu_{index}", "/Users/owner/Documents/Projects/BonviHR")
+    assert await fall_through("toolu_outside") == "/Users/owner/Documents/Projects/BonviHR"
 
 
 async def test_a_fall_through_call_fails_closed() -> None:

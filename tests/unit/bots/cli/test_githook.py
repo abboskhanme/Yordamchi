@@ -94,6 +94,28 @@ def test_the_patch_reader_names_the_file_and_line_never_the_secret() -> None:
     assert githook.scan_patch(PATCH, NO_HASHES) is None
 
 
+PEM_LINES = (  # assembled, so no key-shaped literal sits in git
+    "-----BEGIN " + "OPENSSH PRIVATE KEY-----",
+    "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW",
+    "-----END " + "OPENSSH PRIVATE KEY-----",
+)
+KEYS_PY = (
+    "diff --git a/deploy/keys.py b/deploy/keys.py\nnew file mode 100644\n--- /dev/null\n+++ b/deploy/keys.py\n"
+    "@@ -0,0 +1,5 @@\n" + "".join(f"+{line}\n" for line in ('DEPLOY_KEY = """', *PEM_LINES, '"""'))
+)
+
+
+def test_a_pem_key_block_inside_a_source_file_is_not_pushed() -> None:
+    """T25 gate eval `pem_block_in_source`: no single line of the block matches the PEM pattern."""
+    assert all(githook.line_rule(line, NO_HASHES) is None for line in PEM_LINES)
+    expected = Hit("deploy/keys.py", 2, "pem_private_key")  # the line the block starts on
+    assert githook.scan_patch(KEYS_PY, NO_HASHES) == expected  # the last file section
+    assert githook.scan_patch(KEYS_PY + PATCH, NO_HASHES) == expected  # a section the next file's header ends
+    assert all(line not in repr(expected) for line in PEM_LINES)
+    unfinished = KEYS_PY.replace(f"+{PEM_LINES[2]}\n", "")  # BEGIN without END is no key block
+    assert githook.scan_patch(unfinished, NO_HASHES) is None
+
+
 def test_binary_and_quoted_paths_are_still_checked_by_name() -> None:
     binary = (
         "diff --git a/keys/app.p12 b/keys/app.p12\nnew file mode 100644\n"

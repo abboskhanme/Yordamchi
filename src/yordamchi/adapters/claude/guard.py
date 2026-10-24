@@ -13,7 +13,8 @@
   `spec.question_parked_message`. Subagents never get `AskUserQuestion` (S3); if one does, it is denied and the
   subagent reports the question instead (§3.2.2 step 6 is the gate's deny + message).
 - **`can_use_tool`** is reached under bypass only by `AskUserQuestion` and by calls no mode auto-approves; the latter
-  go through the guard again.
+  go through the guard again, in the cwd their PreToolUse input carried (the SDK's context has none). A call whose
+  PreToolUse was not seen gets the session's last known cwd.
 
 Logs carry the tool name, reason code and error type only, never tool input or answers.
 """
@@ -50,6 +51,7 @@ type PermissionResult = PermissionResultAllow | PermissionResultDeny
 ASK_TOOL: Final = "AskUserQuestion"
 HOOK_MARGIN_S: Final = 5.0  # the CLI's hook timeout = our guard timeout + this
 CONTEXT_HOOK_TIMEOUT_S: Final = 10.0  # SPEC §5.3: UserPromptSubmit(context, timeout 10)
+CWDS_REMEMBERED_MAX: Final = 256  # tool_use_id → cwd kept for can_use_tool; most calls never reach it
 REASON_TIMEOUT: Final = "guard_timeout"
 REASON_ERROR: Final = "guard_error"
 REASON_DENIED: Final = "denied"
@@ -89,6 +91,8 @@ class GuardBridge:
         self._emit = emit
         self._blocked = blocked
         self._questions: dict[str, asyncio.Future[Mapping[str, str] | None]] = {}
+        self._cwds: dict[str, str] = {}  # tool_use_id → the cwd its PreToolUse input carried
+        self._last_cwd: str | None = None  # the latest PreToolUse cwd (a Bash `cd` persists across calls)
 
     def hooks(self) -> dict[HookEvent, list[HookMatcher]]:
         hooks: dict[HookEvent, list[HookMatcher]] = {
@@ -123,6 +127,17 @@ class GuardBridge:
             return GuardVerdict(allow=False, message=REASON_ERROR, reason_code=REASON_ERROR)
         return checked
 
+    def _remember_cwd(self, call: ToolCall) -> None:
+        """Keep a PreToolUse call's cwd for its `can_use_tool` (kept before the guard runs, so even a hook the CLI
+        timed out leaves it)."""
+        if call.cwd is None:
+            return
+        self._last_cwd = call.cwd
+        if call.tool_use_id:
+            self._cwds[call.tool_use_id] = call.cwd
+            if len(self._cwds) > CWDS_REMEMBERED_MAX:
+                del self._cwds[next(iter(self._cwds))]  # the oldest; it falls back to the last known cwd
+
     def _denied(self, tool_name: str, verdict: GuardVerdict) -> str:
         reason = verdict.reason_code or REASON_DENIED
         self._emit(ToolDenied(tool_name=tool_name, reason_code=reason))
@@ -145,6 +160,7 @@ class GuardBridge:
                 session_id=str(raw.get("session_id") or self._session_id),
                 cwd=str(raw["cwd"]) if raw.get("cwd") else None,
             )
+            self._remember_cwd(call)
             verdict = await self.decide(call)
             if not verdict.allow:
                 return deny_output(self._denied(tool_name, verdict))
@@ -184,12 +200,14 @@ class GuardBridge:
         try:
             if tool_name == ASK_TOOL:
                 return await self._question(tool_input, context)
+            tool_use_id = str(context.tool_use_id or "")
             call = ToolCall(
                 tool_name=tool_name,
                 tool_input=_mapping(tool_input),
-                tool_use_id=str(context.tool_use_id or ""),
+                tool_use_id=tool_use_id,
                 agent_id=context.agent_id or None,
                 session_id=self._session_id,
+                cwd=self._cwds.get(tool_use_id, self._last_cwd),
             )
             verdict = await self.decide(call)
             if verdict.allow:

@@ -10,7 +10,8 @@ hook of the same name in its place (exec: the same argv, stdin, environment and 
 - added or changed files named like a secret: `.env*` (not `.example|.sample|.template`), `*.pem`, `id_rsa*`,
   `*.p12`, `*.keystore`, `credentials*.json`;
 - added lines matching a `core.redact` pattern, or holding a value whose sha256 is in `run/secret-hashes.json`
-  (`{"sha256": [hex…]}`, written by the vault next to the control socket).
+  (`{"sha256": [hex…]}`, written by the vault next to the control socket);
+- a `core.redact` match spanning a file's added lines, e.g. a PEM key block inside a source file.
 
 A hit blocks the push (exit 1) with `YORDAMCHI_SECRET_SCAN_BLOCKED file=… line=… rule=…` (never the secret) and
 reports `secret_blocked` to the bot, which tells the owner. Only the bot's explicit "not enforced" (the owner
@@ -124,14 +125,32 @@ def _diff_path(header: str) -> str:
     return rest[half + 1 :].removeprefix("b/")
 
 
+def spanning_hit(file: str | None, added: Sequence[tuple[int, str]]) -> Hit | None:
+    """A secret no single added line shows because it spans several (a PEM key block inside a source file), found by
+    the `core.redact` patterns over one file section's added lines `(line number, text)` joined in order. The hit
+    names the line the secret starts on."""
+    if file is None:
+        return None
+    text = "\n".join(line for _, line in added)
+    for found in redact.find_secrets(text):
+        if "\n" in found.value:  # a one-line hit was already found (or ruled out) line by line
+            return Hit(file, added[text.count("\n", 0, found.start)][0], found.kind)
+    return None
+
+
 def scan_patch(patch: str, hashes: frozenset[str]) -> Hit | None:
-    """The first secret in `git log -p --unified=0 --no-renames --diff-filter=d` output."""
+    """A secret in `git log -p --unified=0 --no-renames --diff-filter=d` output: the first added line holding one,
+    or, once a file section ends, a secret spanning its added lines (`spanning_hit`)."""
     file: str | None = None
     line = 0
     in_header = False
+    added: list[tuple[int, str]] = []  # the current file section's added lines
     for raw in patch.split("\n"):
         if raw.startswith("diff --git "):
-            file, in_header, line = _diff_path(raw), True, 0
+            hit = spanning_hit(file, added)
+            if hit is not None:
+                return hit
+            file, in_header, line, added = _diff_path(raw), True, 0, []
             rule = name_rule(file)
             if rule is not None:
                 return Hit(file, 1, rule)
@@ -148,8 +167,9 @@ def scan_patch(patch: str, hashes: frozenset[str]) -> Hit | None:
             rule = line_rule(raw[1:], hashes)
             if rule is not None:
                 return Hit(file, line, rule)
+            added.append((line, raw[1:]))
             line += 1
-    return None
+    return spanning_hit(file, added)
 
 
 def load_hashes(path: Path | None) -> frozenset[str] | None:

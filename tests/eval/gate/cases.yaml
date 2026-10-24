@@ -1085,10 +1085,6 @@ cases:
     command: rm -rf HRMentor
     expect: ask:fs_destroy
     reason: delete_outside_project
-    fall_through_xfail: >-
-      BUG(guard, reported): adapters/claude/guard.py GuardBridge.can_use_tool (≈L187-193) builds the ToolCall
-      without the call's cwd, so a fall-through call is judged from the project root (`rm -rf HRMentor` → free).
-      Low impact: PreToolUse runs first and already denied it
   - id: rm_project_root_by_pwd
     labels: [adversarial]
     command: rm -rf "$PWD"
@@ -1522,10 +1518,6 @@ secret_pushes:
         {pem_block}
         """
     expect: {file: deploy/keys.py, line: 2, rule: pem_private_key}
-    xfail: >-
-      BUG(githook, reported): src/yordamchi/bots/cli/githook.py line_rule/scan_patch (≈L83-135) test each added line
-      alone, but core.redact's PEM pattern needs BEGIN…END in one string, so a key block inside any file not named
-      *.pem / id_rsa* is pushed
   - id: pem_file
     files:
       certs/server.pem: |
