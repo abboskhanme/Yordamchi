@@ -431,3 +431,19 @@ async def test_an_update_cannot_point_at_a_burst_that_does_not_exist(dev_deps: D
     with pytest.raises(IntegrityError, match="FOREIGN KEY"):
         async with dev_deps.db.uow() as s:
             await inbox.mark_updates_attached(s, bot=dev_deps.bot, update_ids=[1], burst_id=4040)
+
+
+# --- get_turn_input / cancel_burst (T34: the router's own paths) ------------------------------------------------
+async def test_a_closed_bursts_input_can_be_read_again_and_cancelled_once(dev_deps: DevDeps) -> None:
+    from tests.factories import make_closed_burst, make_part
+
+    async with dev_deps.db.uow() as s:
+        closed = await make_closed_burst(s, make_part(text="holat?"))
+    again = await service.get_turn_input(dev_deps, closed.burst_id)
+    assert again is not None
+    assert (again.burst_id, [part.text for part in again.parts]) == (closed.burst_id, ["holat?"])
+    assert await service.cancel_burst(dev_deps, closed.burst_id)
+    assert not await service.cancel_burst(dev_deps, closed.burst_id)  # handled once
+    assert await service.list_closed_bursts(dev_deps, limit=10) == ()
+    assert await service.get_turn_input(dev_deps, closed.burst_id) is not None  # still readable after it
+    assert await service.get_turn_input(dev_deps, 12345) is None

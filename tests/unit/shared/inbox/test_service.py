@@ -422,3 +422,23 @@ async def test_retention_deletes_finished_rows_after_30_days_and_nulls_payloads_
     assert by_id[33].payload_json is None
     assert by_id[34].payload_json is not None
     assert await service.apply_retention(dev_deps) == 0
+
+
+# --- origin_of_update (T34: work done after the handler returned) -----------------------------------------------
+async def test_a_stored_owner_update_gets_its_origin_back(dev_deps: DevDeps) -> None:
+    update = make_update(41)
+    await service.accept_update(dev_deps, origin_of(update), update)
+    assert await service.origin_of_update(dev_deps, 41) == origin_of(update)
+
+
+async def test_an_unknown_synthetic_or_no_longer_admitted_update_has_no_origin(dev_deps: DevDeps, fakes: Fakes) -> None:
+    from tests.factories import add_setting_row
+
+    synthetic = make_update(42, synthetic=True)
+    await service.accept_update(dev_deps, origin_of(synthetic), synthetic)
+    plain = make_update(43)
+    await service.accept_update(dev_deps, origin_of(plain), plain)
+    assert await service.origin_of_update(dev_deps, 999) is None
+    assert await service.origin_of_update(dev_deps, 42) is None
+    await add_setting_row(dev_deps.db, "access.owner_id", 777, at=fakes.clock.now())  # the owner changed since
+    assert await service.origin_of_update(dev_deps, 43) is None

@@ -173,6 +173,34 @@ async def enqueue_text(
     return await _add_plan(s, row, plan, ref=ref)
 
 
+async def enqueue_reply(
+    deps: SharedDeps,
+    *,
+    chat_id: int,
+    text: BotText,
+    kind: Kind,
+    ref: str,
+    max_parts: int,
+    reply_to: int | None = None,
+    about: About = NO_ABOUT,
+) -> tuple[int, ...]:
+    """`enqueue_text` in its own unit of work, for an answer that has nothing else to commit with it (a `holat?`
+    reply, a routing question, a stop that found nothing): the bot's chat router queues these (T34)."""
+    async with deps.db.uow() as s:
+        return await enqueue_text(
+            s,
+            bot=deps.bot,
+            chat_id=chat_id,
+            text=text,
+            kind=kind,
+            ref=ref,
+            at=deps.clock.now(),
+            max_parts=max_parts,
+            reply_to=reply_to,
+            about=about,
+        )
+
+
 async def enqueue_text_after(
     s: Session,
     *,

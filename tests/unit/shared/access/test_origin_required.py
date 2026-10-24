@@ -132,6 +132,52 @@ async def _require_matching_origin(deps: DevDeps, fakes: Fakes) -> object:
     return None
 
 
+async def _incoming_of(deps: DevDeps, fakes: Fakes) -> object:
+    """The dev bot's Telegram translation: an aiogram message with a lookalike origin never becomes an update."""
+    from aiogram.types import Message
+
+    from tests.factories import TELEGRAM_DATE, tg_chat, tg_user
+    from yordamchi.bots.dev import telegram
+
+    del deps, fakes
+    raw = {
+        "message_id": 1,
+        "date": TELEGRAM_DATE,
+        "chat": tg_chat(DEV_GROUP_ID),
+        "from": tg_user(OWNER_ID),
+        "text": "ha",
+    }
+    return telegram.incoming_of(FAKE, Message.model_validate(raw))
+
+
+async def _member_of(deps: DevDeps, fakes: Fakes) -> object:
+    from aiogram.types import ChatMemberUpdated
+
+    from tests.factories import tg_member_change
+    from yordamchi.bots.dev import telegram
+
+    del deps, fakes
+    raw = tg_member_change(1, user_id=OWNER_ID, chat_id=DEV_GROUP_ID)["my_chat_member"]
+    return telegram.member_of(FAKE, ChatMemberUpdated.model_validate(raw))
+
+
+async def _intake_accepted(deps: DevDeps, fakes: Fakes) -> object:
+    """The running bot's intake hook: a lookalike origin wakes nothing and starts no speech-key job."""
+    import asyncio
+
+    from yordamchi.bots.dev.runtime import Intake
+    from yordamchi.shared.health import service as health
+    from yordamchi.shared.inbox.domain import Accepted
+
+    del fakes
+    intake = Intake(deps=deps, health=health.new_state(deps, version="test"), wake=asyncio.Event())
+    try:
+        intake.accepted(FAKE, Accepted(update_id=1, duplicate=False))
+    finally:
+        assert not intake.wake.is_set()
+    return None
+
+
 ENTRIES: Final[dict[str, Entry]] = {
     "yordamchi.shared.inbox.domain.require_matching_origin": _require_matching_origin,
     "yordamchi.shared.settings.service.record_version": lambda deps, _: settings.record_version(
@@ -193,6 +239,9 @@ ENTRIES: Final[dict[str, Entry]] = {
     "yordamchi.shared.integrations.service.assign_integration": lambda deps, _: integrations.assign_integration(
         deps, FAKE, "Bonvi HR", [BotName.DEV, BotName.PERSONAL]
     ),
+    "yordamchi.bots.dev.telegram.incoming_of": _incoming_of,
+    "yordamchi.bots.dev.telegram.member_of": _member_of,
+    "yordamchi.bots.dev.runtime.accepted": _intake_accepted,
 }
 
 

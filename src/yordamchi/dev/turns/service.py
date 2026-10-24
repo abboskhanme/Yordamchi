@@ -537,12 +537,15 @@ class RoutedTurn:
     submitted: Submitted | None = None
 
 
-async def route_turn(deps: DevDeps, state: TurnsState, item: TurnInput, facts: RouteFacts = NO_FACTS) -> RoutedTurn:
+async def route_turn(
+    deps: DevDeps, state: TurnsState, item: TurnInput, facts: RouteFacts = NO_FACTS, *, images: Sequence[str] = ()
+) -> RoutedTurn:
     """A closed burst → routing → a delivery, atomically (SPEC §3.2.1 step 7, NFR-REL-05): `routing.record_route`,
     the first reply ("→ BonviHR", queued so it goes out before the progress line) and `submit` share one unit of
     work, so a burst is never routed without its delivery, nor delivered twice. Routing's follow-up rule reads this
     feature's `running_turns`. A question, a report or a projectless intent writes no delivery: the caller handles
-    `routed` (send the question and `set_clarification_message`, answer the report, …)."""
+    `routed` (send the question and `set_clarification_message`, answer the report, …). `images` are the burst's
+    photos saved by `save_images`; they go into the delivery."""
     facts = replace(facts, running=await running_turns(deps))
     planned = await routing.decide_route(deps, item, facts)
     decision = planned.decision
@@ -566,12 +569,57 @@ async def route_turn(deps: DevDeps, state: TurnsState, item: TurnInput, facts: R
                     kind=Kind.ECHO,
                 )
             merge = decision.outcome is Outcome.MERGE
-            request = domain.request_from_input(item, to_project, kind=kind, merge=merge, route_id=routed.route_id)
+            request = domain.request_from_input(
+                item, to_project, kind=kind, merge=merge, route_id=routed.route_id, images=images
+            )
             submitted = await submit(s, request=request, at=now)
     if submitted is not None:
         state.poke()
         log.info("turn_routed", project=to_project, turn_id=submitted.turn_id, merged=submitted.merged)
     return RoutedTurn(routed=routed, submitted=submitted)
+
+
+def _write_private_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "wb") as file:
+        file.write(data)
+
+
+async def save_images(deps: DevDeps, item: TurnInput) -> tuple[str, ...]:
+    """The burst's photos (and images sent as files), downloaded into `media/<yyyymmdd>/` for the agent's image
+    blocks: at most `MAX_INPUT_IMAGES`, each ≤ 20 MB, within `MEDIA_DOWNLOAD_TIMEOUT_S` each. A download that fails is
+    logged and left out; the part's label still tells the agent an image was there. `shared/health` purges the
+    folder after `media.retention_days`."""
+    wanted = [
+        (part, suffix)
+        for part in item.parts
+        if part.content.attachment is not None
+        and (suffix := domain.image_suffix(part.kind, part.content.attachment.mime)) is not None
+    ][:MAX_INPUT_IMAGES]
+    if not wanted:
+        return ()
+    snap = await settings.snapshot(deps)
+    day = timefmt.local(deps.clock.now(), snap[defaults.UI_TIMEZONE]).strftime("%Y%m%d")
+    saved: list[str] = []
+    for part, suffix in wanted:
+        attachment = part.content.attachment
+        if attachment is None:
+            continue
+        try:
+            data = await deps.messenger.download(
+                attachment.file_id, max_bytes=domain.MEDIA_MAX_BYTES, timeout=domain.MEDIA_DOWNLOAD_TIMEOUT_S
+            )
+        except ExternalError as error:
+            log.warning(
+                "turn_image_unsaved", burst_id=item.burst_id, update_id=part.update_id, error_code=error.code.value
+            )
+            continue
+        path = deps.paths.media / day / f"burst-{item.burst_id}-{part.update_id}{suffix}"
+        await asyncio.to_thread(_write_private_bytes, path, data)
+        saved.append(str(path))
+    log.info("turn_images_saved", burst_id=item.burst_id, images=len(saved))
+    return tuple(saved)
 
 
 # --- the scheduler (SPEC §5.6) --------------------------------------------------------------------------------------

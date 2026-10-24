@@ -66,6 +66,12 @@ async def list_inbound_updates(s: AsyncSession, bot: str) -> list[InboundUpdate]
     return list((await s.scalars(query)).all())
 
 
+async def get_inbound_update(s: AsyncSession, bot: str, update_id: int) -> InboundUpdate | None:
+    """The row of `(bot, update_id)`, if intake stored it."""
+    query = select(InboundUpdate).where(InboundUpdate.bot == bot, InboundUpdate.update_id == update_id)
+    return await s.scalar(query)
+
+
 async def list_updates_with_status(s: AsyncSession, bot: str, status: str, *, limit: int) -> list[InboundUpdate]:
     """Oldest first by `update_id` (IX bot, status, update_id)."""
     query = (

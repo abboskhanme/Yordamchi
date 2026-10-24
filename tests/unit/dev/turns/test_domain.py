@@ -488,3 +488,13 @@ def test_retention_keeps_turns_400_days_texts_30_and_steps_7() -> None:
     assert domain.turn_cutoff(NOW) == NOW - timedelta(days=400)
     assert domain.delivery_text_cutoff(NOW) == NOW - timedelta(days=30)
     assert domain.progress_cutoff(NOW) == NOW - timedelta(days=7)
+
+
+def test_only_photos_and_images_sent_as_files_reach_the_agent_as_images() -> None:
+    from yordamchi.shared.inbox.domain import UpdateKind
+
+    assert domain.image_suffix(UpdateKind.PHOTO, None) == ".jpg"
+    assert domain.image_suffix(UpdateKind.DOCUMENT, "image/PNG") == ".png"
+    assert domain.image_suffix(UpdateKind.DOCUMENT, "application/pdf") is None
+    assert domain.image_suffix(UpdateKind.VIDEO, "video/mp4") is None
+    assert domain.image_suffix(UpdateKind.VOICE, "audio/ogg") is None

@@ -375,6 +375,28 @@ def request_from_input(
     )
 
 
+# Telegram serves bots files of at most 20 MB. Photos go to the agent as image blocks, which the adapter reads; a file
+# saved under the data dir is never named to the agent, because the gate forbids it to read there (R-22).
+MEDIA_MAX_BYTES: Final = 20 * 1024 * 1024
+MEDIA_DOWNLOAD_TIMEOUT_S: Final = 30.0  # one photo from Telegram's file endpoint (mechanism, as the outbox's)
+_IMAGE_SUFFIXES: Final[Mapping[str, str]] = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+
+def image_suffix(kind: UpdateKind, mime: str | None) -> str | None:
+    """The file suffix of an owner part the agent can see as an image (a photo, or an image sent as a file), or None.
+    Telegram sends every photo as JPEG."""
+    if kind is UpdateKind.PHOTO:
+        return ".jpg"
+    if kind is UpdateKind.DOCUMENT and mime is not None:
+        return _IMAGE_SUFFIXES.get(mime.lower())
+    return None
+
+
 def title_of(text: str) -> str:
     """`turns.title`: the instruction's first line, within 120 characters."""
     first = next((line.strip() for line in text.splitlines() if line.strip()), "")

@@ -86,6 +86,10 @@ async def list_bursts_with_status(
     return list((await s.scalars(query)).all())
 
 
+async def get_burst(s: AsyncSession, *, bot: str, burst_id: int) -> Burst | None:
+    return await s.scalar(select(Burst).where(Burst.id == burst_id, Burst.bot == bot))
+
+
 async def list_bursts(s: AsyncSession, bot: str) -> list[Burst]:
     """Every burst of one bot, oldest first."""
     return list((await s.scalars(select(Burst).where(Burst.bot == bot).order_by(Burst.id))).all())

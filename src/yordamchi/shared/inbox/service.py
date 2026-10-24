@@ -23,7 +23,9 @@ from yordamchi.core.paths import BotName
 from yordamchi.persistence import bulk
 from yordamchi.persistence.uow import Session
 from yordamchi.ports.keystore import Keystore
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access import domain as access_domain
+from yordamchi.shared.access import service as access
+from yordamchi.shared.access.domain import Admit, Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.inbox import domain, store
 from yordamchi.shared.inbox.domain import (
@@ -210,6 +212,27 @@ async def list_received_updates(deps: SharedDeps, *, limit: int) -> tuple[Stored
     async with deps.db.read() as s:
         rows = await store.list_updates_with_status(s, deps.bot.value, UpdateStatus.RECEIVED.value, limit=limit)
     return tuple(_stored_update(row) for row in rows)
+
+
+async def origin_of_update(deps: SharedDeps, update_id: int) -> OwnerOrigin | None:
+    """The `OwnerOrigin` of an update intake stored, judged again by today's access policy: for work done after the
+    handler returned (a burst routed later, or after a restart). Intake stores an update only with the origin minted
+    for it, so its ids are an owner update's; a changed `access.*` setting since then means no origin. A synthetic
+    update (the self-test) or an unknown one has none."""
+    async with deps.db.read() as s:
+        row = await store.get_inbound_update(s, deps.bot.value, update_id)
+    if row is None or row.synthetic:
+        return None
+    arrival = Arrival(
+        bot=deps.bot,
+        update_id=row.update_id,
+        event=EventType.EDITED_MESSAGE if row.kind == UpdateKind.EDITED.value else EventType.MESSAGE,
+        user_id=row.user_id,
+        chat_id=row.chat_id,
+        chat_kind=ChatKind.PRIVATE if row.chat_id > 0 else ChatKind.SUPERGROUP,
+    )
+    verdict = access_domain.admit(arrival, await access.load_policy(deps))
+    return verdict.origin if isinstance(verdict, Admit) else None
 
 
 async def mark_updates_attached(s: Session, *, bot: BotName, update_ids: Collection[int], burst_id: int) -> int:

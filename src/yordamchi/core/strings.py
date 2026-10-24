@@ -689,6 +689,12 @@ HOLAT_ERROR_ITEM = Msg("{code} ({time})")
 HOLAT_NO_ERRORS = Msg("Oxirgi xatolar: yo'q")
 
 # --- wiring (bots) ---
+# SPEC §7: a later phase's intent is recognised and answered, never routed to a project as an instruction.
+NOT_YET = Msg("Bu imkoniyat hali yo'q — {phase} bosqichida qo'shiladi.")
+# SPEC §3.2.5 step 2: "to'xta" with several turns working and no project named or replied to.
+WHICH_RUNNING = Msg("Bir nechta ish ketyapti: {projects}. Qaysi birini to'xtatay? Loyiha nomini yozing.")
+# "davom ettir", "qayta yubor" with no project named, replied to, or left over from the restart.
+WHICH_PROJECT_NAME = Msg("Qaysi loyiha? Loyiha nomini yozing yoki uning xabariga javob qiling.")
 
 # --- web ---
 # adapters/web failures (UC-32 F). `site` is the link's host name.

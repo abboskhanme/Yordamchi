@@ -7,7 +7,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] `core/errors.py` + `core/strings.py`: add a `FileTooLarge(ExternalError, retryable=False)` class (params `limit_mb`, `size_mb`) with codes `file_too_large_in` / `file_too_large_out` and matching Uzbek `S.ERRORS` entries (SPEC §3.2 names `S.FILE_TOO_LARGE_IN`). Then make `adapters/telegram/translate.py` raise it instead of the interim `TelegramFileTooLarge(ProviderUnavailable)`. Do this after T08 merges, because T08 is editing these files.
 - [ ] Optional precise codes: `telegram_chat_migrated` (carries `migrate_to_chat_id`), `telegram_forbidden`, `telegram_request_refused`.
 - [ ] `pyproject.toml` C5: allow `aiohttp` in `yordamchi.adapters.telegram.**`. Then replace the module-name sniffing in `translate_transport()` with real `aiohttp` exception classes.
-- [ ] T34 `bots/dev/app.py`: build `TelegramMessenger(config.token)`, hand `messenger.bot` to the polling runner, and `await messenger.close()` on shutdown.
+- [x] T34 `bots/dev/app.py`: build `TelegramMessenger(config.token)`, hand `messenger.bot` to the polling runner, and `await messenger.close()` on shutdown. Done in T34.
 - [ ] After X01: re-record `tests/fixtures/telegram/` from a test bot.
 
 ## From T13 (STT adapters) — mostly for T19 `shared/voice`
@@ -17,14 +17,15 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] T19 + cost: add an optional `cost_usd_micros` / usage field to `Transcript`, so OpenRouter's `usage.cost` reaches `usage_records` (NFR-COST).
 - [ ] Optional error codes: `stt_audio_unreadable` (ffmpeg failure) and `stt_model_unavailable` (404 or missing model). Both map to `ProviderUnavailable` today.
 - [ ] `pyproject.toml` C5: confine `httpx` to `yordamchi.adapters.gemini`. It comes in transitively through google-genai.
-- [ ] T34 `app.py`: build `GeminiTranscriber(api_key=<vault reader google_api_key>)` and `OpenRouterTranscriber(api_key=<vault reader openrouter_api_key>, ffmpeg=paths.bin / "ffmpeg")`, and call `aclose()` on both at shutdown.
+- [x] T34 `app.py`: build `GeminiTranscriber(api_key=<vault reader google_api_key>)` and `OpenRouterTranscriber(api_key=<vault reader openrouter_api_key>, ffmpeg=paths.bin / "ffmpeg")`, and call `aclose()` on both at shutdown. Done in T34.
 
 ## From T08 (inbox, audit, vault, cost)
 - [ ] Optional setting `timeouts.ack_s` (float 2.5, Range(0.5, 10), TIMEOUTS, BOTH): add it to SPEC §4.3, to `SPEC_KEYS` in `test_registry` and to the inbox defaults block, then replace `inbox.domain.ACK_TIMEOUT_S` with it.
 - [x] T14 done: OwnerOnly mints `OwnerOrigin`; the poller handles offsets. Remaining part → see T34 under "From T14".
 - [x] T15 done: inbox acks are priority-0 outbox rows, written in the same transaction; typing dedupe and repeat are in the outbox.
 - [ ] T16: consume `list_received_updates` and `mark_updates_attached(s, …)`, and add `ForeignKey("bursts.id")` to `inbound_updates.burst_id`.
-- [ ] T34:
+- [x] T34:
+  - `FileKeystore(paths.master_key)`. Done in T34. A missing or insecure master key shows as `master.key` in `holat?`'s degraded line; republished every 10 min.
   - `FileKeystore(paths.master_key)`.
   - `vault.service.publish_secrets(deps)` at startup. `VaultKeyMissing` or `VaultKeyInsecure` → degraded mode, shown in `holat?`. Republish periodically.
   - The retention scheduler calls `{inbox,audit,vault,cost}.service.apply_retention(deps)`.
@@ -43,7 +44,8 @@ after the tasks writing the same files have merged. Remove an item once it is do
 ## From T22 (ssh + macos adapters)
 - [ ] T24 + DEF: add the setting `guard.max_pressure_level` (int, default 2, OneOf(1, 2, 4), a safeguard: raising it weakens it) and use it in the scheduler (SPEC §5.6, revised). An unreadable pressure level queues the turn and logs it.
 - [ ] Error codes `ssh_host_unknown` and `ssh_host_key_rejected` (optionally also `ssh_dns_failed`, `ssh_config_invalid`) in `core/errors.py` and `core/strings.py`, then update `adapters/ssh/translate.py::to_error`. Until then the owner sees a generic "javob bermayapti".
-- [ ] T34 `app.py`:
+- [x] T34 `app.py`:
+  - `OpenSshRemoteShell( Done in T34. MacOsHost in the dev bot; the personal bot's at P3.
   - `OpenSshRemoteShell(ssh="/usr/bin/ssh", path=<login-shell PATH + SYSTEM_PATH, without paths.shims>)`.
   - `MacOsHost(home=paths.home)` in both bots.
 - [ ] T31: pass the ≤ 3 min timeout from settings, and truncate `RemoteResult` output before storing it (`core.proc.run` has no output cap).
@@ -59,12 +61,13 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - `background=True` is a late note that no running turn owns;
   - handle `UsageWindow`;
   - `RuntimeFailed(process_died, retryable)` after a backstop kill means `needs_resume`.
-- [ ] T34 `app.py`: `ClaudeAgentRuntime(cli_path=default_cli_path(home), search_path=proc.build_search_path(paths, login_path), githooks_dir=paths.githooks)`. The startup `os.environ` scrub is still required, because the SDK merges the inherited env.
+- [x] T34 `app.py`: `ClaudeAgentRuntime(cli_path=default_cli_path(home), search_path=proc.build_search_path(paths, login_path), githooks_dir=paths.githooks)`. The startup `os.environ` scrub is still required, because the SDK merges the inherited env. Done in T34.
 - [ ] Prompts: move `guard.SUBAGENT_QUESTION_MESSAGE` (an English constant in the adapter) into `prompts/dev/`.
 - [ ] STACK §8 re-check list: re-verify the private SDK API in `adapters/claude/control.py` (`_query.receive_messages`, `_send_control_request`, `_initialization_result["pid"]`) and the `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS` opt-in on every SDK or CLI upgrade.
 
 ## From T16 (burst)
-- [ ] T34 `app.py`:
+- [x] T34 `app.py`:
+  - run `burst.service.run_bursts( Done in T34. The router marks each burst through routing/turns/questions, or `burst.cancel_burst` for interrupts and commands.
   - run `burst.service.run_bursts(deps, wake=…, notify=…)` under `core.aio.forever`; it does the §2.7 recovery itself;
   - set `wake` after each `accept_update`;
   - `notify` must not block: it wakes the router and starts STT jobs for `events.transcribe`;
@@ -96,7 +99,8 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] T17: `projects.deploy_branches_json` holds fnmatch globs, with `*` when the workflows can't be parsed.
 
 ## From T17 (projects + git)
-- [ ] T34 `app.py`:
+- [x] T34 `app.py`:
+  - set `DevDeps.git = GitCli( Done in T34.
   - set `DevDeps.git = GitCli(build_search_path(paths, login_shell_path))`;
   - run `projects.service.sync_projects(deps)` under `core.aio.forever`, at startup and then every `SCAN_INTERVAL_S` (120 s);
   - add intent rows `alias_project`, `archive_project`, `describe_project` and `list_projects`.
@@ -105,7 +109,8 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] **T17b (orchestrator decision, fail closed):** platform Git integrations deploy without a workflow file. If a project has `vercel.json`, `.vercel/project.json`, `netlify.toml`, `render.yaml`, `railway.json`/`railway.toml` or `app.yaml` (App Engine), its default branch counts as deploying. Small change in `dev/projects/domain.py` plus tests; it can ride with T20 or T24.
 
 ## From T12 (assistant pool)
-- [ ] T34 `app.py`:
+- [x] T34 `app.py`:
+  - build `ClaudeAssistant( Done in T34.
   - build `ClaudeAssistant(cli_path=default_cli_path(home), search_path=..., sessions_dir=DATA/sessions, clock=SystemClock())`;
   - call `warm()` at startup and after a settings change;
   - call `await assistant.close(timeout=...)` at shutdown.
@@ -125,12 +130,12 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - pool per conversation.
 
 ## From T14 (access + bots/common.py)
-- [ ] T34 `bots/<bot>/app.py`:
+- [x] T34 `bots/<bot>/app.py`: Dev bot done in T34; the personal bot's at P3.
   - `dp = common.build_dispatcher(deps, telegram.router)`, with `dp["deps"] = deps`;
   - run the poller: `aio.forever("poller", lambda: common.run_polling(deps, dp, messenger.bot, heartbeat=<T32 writer>))`;
   - handlers take `origin: OwnerOrigin`, build `IncomingUpdate`, and await only `inbox.service.accept_update`;
   - every job runs as `await common.guarded(deps, work(), job="…")`.
-- [ ] T34: the aiogram Message → `IncomingUpdate` translation (attachments, caption, `media_group_id`, `reply_to`) lives in each `bots/<bot>/telegram.py`, because `common.py` is locked.
+- [x] T34: the aiogram Message → `IncomingUpdate` translation (attachments, caption, `media_group_id`, `reply_to`) lives in each `bots/<bot>/telegram.py`, because `common.py` is locked. Dev bot done in T34 (`bots/dev/telegram.incoming_of`); the personal bot's at P3.
 - [ ] T32: the heartbeat writer is the `heartbeat` hook (`PollTick(at, updates)`). Still to add: a polling pause mode (heartbeat at least every 30 s while paused) for self-update probation (P2).
 - [ ] T15 (optional): send the `guarded()` owner notice as a priority-0 outbox row.
 - [ ] T28 check script and QOLLANMA:
@@ -138,7 +143,8 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - The owner must not post as an **anonymous admin**: messages then come from `GroupAnonymousBot` and are dropped.
 
 ## From T15 (outbox)
-- [ ] T34 `app.py`:
+- [x] T34 `app.py`:
+  - `aio.spawn("outbox" Done in T34.
   - `aio.spawn("outbox", aio.forever("outbox", lambda: outbox.run_sender(deps)))`;
   - on shutdown, `outbox.flush_queue(deps, max_priority=1, within_s=5)` (SPEC §2.6);
   - retention calls `outbox.service.apply_retention(deps)`.
@@ -163,7 +169,8 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - per session, `SessionSpec.guard = gate.service.make_guard(deps, lambda: GateScope(project_id, project_root, session_key=agent_sessions.id, policy, turn_id, dirty_before_turn=<git status at turn start>, protected_pids=<bot pid>, mcp lists))`;
   - deliver `DecisionAnswer.delivery` to the turn (`next` or `new_turn`);
   - keep the token → scope map.
-- [ ] T34:
+- [x] T34:
+  - control socket: Done in T34. `bots/dev/control_socket.py`; `status` too.
   - control socket: `control.method_of(line) in control.GATE_METHODS` → `control.dispatch(line, handlers=GateHandlers(...))`, which calls `service.check_shim` and `service.report_secret_block`;
   - run `post_unasked_decisions` and `vault.publish_secrets` at startup and periodically. **Without the hash file, every push is blocked.**
   - retention calls `gate.service.apply_retention`;
@@ -180,7 +187,8 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - (3) the shim allows read-only `git-upload-pack` (fetch or pull from a server remote).
 
 ## From T19 (voice)
-- [ ] T34:
+- [x] T34:
+  - the burst `notify` starts Done in T34.
   - the burst `notify` starts `voice.service.transcribe_parts(deps, events.transcribe, wake=…, notify=…, named=…)` via `aio.spawn`; dev passes `named=(partial(projects.service.list_projects, deps),)`, personal passes `()`;
   - adapters get `api_key=partial(voice.service.read_speech_key, deps, "google"|"openrouter")`, so build deps first and bind late;
   - when `accept_update` returns speech-key secrets, run `voice.service.configure_speech_keys(...)` as a follow-up job;
@@ -203,20 +211,21 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] The SPEC §9.3 "ClaudeManager is running" check needs its process name.
 
 ## From T20 (routing)
-- [ ] Router order (T34/T24):
+- [x] Router order (T34/T24): Done in T34 (`bots/dev/pipeline.py`), with one addition: commands that can never be an answer ("holat?", `/sozlamalar`, "loyihalar") come before step 2, because an only open agent question binds any text (see From T34).
   1. pre-parse: interrupts and the self-test;
   2. `answer_clarification`;
   3. approvals and question answers (`answer_decision`);
   4. `correct_route` (wrong-target intent);
   5. `route_burst`, or `decide_route` + `record_route(s, …)` inside T24's uow.
-- [ ] `RouteFacts` inputs:
+- [ ] `RouteFacts` inputs: T34: all but `reported` (no reader of each project's latest bot message yet; see From T34).
   - `reply_projects` from `message_links`;
   - `reported` activity from outbox/turns;
   - `running` as `RunningTurn(message_ids, media_group_ids, last_part_at)`;
   - `open_questions` / `others_pending` from T29/T18.
-- [ ] The outbox sends `Routed/Resolution/Correction/Expired.reply` before any delivery. After the question is sent, `set_clarification_message(deps, id, message_id)`.
-- [ ] Burst: add `get_turn_input(deps, burst_id)`, so T24 can re-deliver for `Resolution` / `Correction`.
-- [ ] T34:
+- [x] The outbox sends `Routed/Resolution/Correction/Expired.reply` before any delivery. After the question is sent, `set_clarification_message(deps, id, message_id)`. Done in T34 (`outbox.enqueue_reply`; a watcher sets the message id once the question is sent).
+- [x] Burst: add `get_turn_input(deps, burst_id)`, so T24 can re-deliver for `Resolution` / `Correction`. Done in T34 (`burst.service.get_turn_input`).
+- [x] T34:
+  - `warm_routing(deps)` at startup Done in T34.
   - `warm_routing(deps)` at startup and after settings changes;
   - `expire_clarifications(deps)` about every minute;
   - retention calls `routing.service.apply_retention`.
@@ -241,33 +250,35 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Docs: STACK/CONVENTIONS port table: `Git.stash_entries` is new.
 
 ## From T21 (settings)
-- [ ] T34 `bots/dev`:
+- [x] T34 `bots/dev`: Done in T34. A change by chat is a message starting with "sozlama…" (`intents._SETTINGS_REQUEST`).
   - "sozlamalaring qanday?" → `settings.service.show_settings(deps, origin)`;
   - a change by chat → `handle_request(deps, origin, text, ask=partial(gate.service.ask_setting_change, deps))`;
   - "oldingi holatiga qaytar" → `revert_setting(deps, origin, key, ask=…)`;
   - "ha"/"yo'q" go through `gate.answer_decision` (settings decisions are in `pending_items`).
-- [ ] T34 assistant pools: size them from `assistant.warm_clients`, and re-warm after `models.*` / `assistant.warm_clients` changes.
+- [ ] T34 assistant pools: size them from `assistant.warm_clients`, and re-warm after `models.*` / `assistant.warm_clients` changes. T34: a kind at "0" is not warmed, and every kind re-warms after any settings change; the 1-vs-2 (spare) count needs an adapter option (see From T34).
 - [ ] T20 follow-up: pass `models.routing_effort` as `effort=` on routing asks; route the settings intent to `handle_request`.
 - [ ] P3: a conversational `AskOwner` for the personal bot (stores `PendingChange.to_json()`, then `apply_pending_change`).
 - [ ] SPEC §4.3: add `timeouts.settings_s`, `assistant.warm_clients`, `models.routing_effort` and the `DictOf` check; mention `prompts/dev/settings_context.md` in §3.2.15.
 
 ## From T24 (turns)
-- [ ] T34:
+- [x] T34:
+  - build `TurnsState()`, then run `recover_turns(deps)` first; Done in T34.
   - build `TurnsState()`, then run `recover_turns(deps)` first; its `interrupted` list feeds `S.HEALTH_RESTARTED` (T32);
   - `aio.forever("turns", lambda: turns.run_scheduler(deps, state))`.
-- [ ] T34 router:
+- [x] T34 router:
+  - `turns.service.route_turn( Done in T34.
   - `turns.service.route_turn(deps, state, item, facts)`; when `submitted` is None, handle `routed` (an ASK reply + `set_clarification_message`, reports, …);
   - `Correction.MOVED` → `correct_wrong_target(deps, state, from_project=, to_project=, burst_id=)`;
   - when a revert offer is open, call `answer_revert` before `gate.answer_decision`;
   - `gate.answer_decision` results → `deliver_decision(deps, state, answer)`.
-- [ ] T34 intents: `stop_turn`, `stop_all`, `redirect_turn`, `continue_turn`, `retry_delivery`.
-- [ ] T34 control socket scope: `state.scope_for(session_token)`.
-- [ ] T34 lifecycle:
+- [x] T34 intents: `stop_turn`, `stop_all`, `redirect_turn`, `continue_turn`, `retry_delivery`. Done in T34.
+- [x] T34 control socket scope: `state.scope_for(session_token)`. Done in T34.
+- [x] T34 lifecycle: Done in T34. Photos go in as `images` (`turns.service.save_images`); other files are not named to the agent, which may not read under DATA (see From T34).
   - on SIGTERM, `shutdown_turns` before the outbox flush;
   - retention calls `turns.service.apply_retention`;
   - media paths go in via `request_from_input(files=, images=)`.
-- [ ] Burst: `get_turn_input(deps, burst_id)` is needed for `Resolution` and `Correction` re-delivery.
-- [ ] T29: set `state.questions` to a hook that posts `S.AGENT_QUESTION`; answers go through `answer_question(..., fallback_text=)`.
+- [x] Burst: `get_turn_input(deps, burst_id)` is needed for `Resolution` and `Correction` re-delivery. Done in T34.
+- [x] T29: set `state.questions` to a hook that posts `S.AGENT_QUESTION`; answers go through `answer_question(..., fallback_text=)`. Done (T29 + T34 wiring).
 - [ ] T30: read `latest_handoff(deps, project)`. When `needs_synthesis` is set, it carries the last 20 progress lines; a turn-end hook is still to add.
 - [ ] T31: refine `prompts/dev/investigate_system.md`; investigations are `submit_turn(kind=TurnKind.INVESTIGATE)`.
 - [ ] T32: smoke turns need a registered project row; register a hidden `smoke` project or relax the check.
@@ -276,16 +287,18 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Open gap (T20/T27): an edit to a message already in a running turn is not treated as a continuation.
 
 ## From T32 (health)
-- [ ] T34 startup:
+- [x] T34 startup:
+  - `hs = health.new_state( Done in T34.
   - `hs = health.new_state(deps, version=<release>, sdk_version=…, degraded=<missing ffmpeg/gh/node>)`.
   - Order: `turns.recover_turns` → `health.report_start(deps, hs, interrupted=…)` (this runs before the first heartbeat write) → start the loops.
-- [ ] T34 loops:
+- [x] T34 loops:
+  - the poller hook calls `health.record_poll( Done in T34.
   - the poller hook calls `health.record_poll(deps, hs, at=tick.at, updates=tick.updates)`;
   - `aio.forever` runs `health.run_heartbeat(deps, hs)`, `health.run_online(deps)` (dev only) and `health.run_checks(deps, hs, smoke=partial(turns.service.run_smoke_turn, deps, turns_state))`.
-- [ ] T34 daily: `health.apply_retention` and `health.purge_media`.
-- [ ] T34 intent: `show_health` ("holat?", `/holat`) → `health.show_health(deps, hs, work=partial(turns.service.work_status, deps))`.
-- [ ] T34 SIGTERM: after the outbox flush, `health.mark_clean_exit(deps, hs)`.
-- [ ] T34 errors: call `health.note_error(deps, hs, code)` wherever error codes surface.
+- [x] T34 daily: `health.apply_retention` and `health.purge_media`. Done in T34. At `schedule.retention_at`, with every feature's retention.
+- [x] T34 intent: `show_health` ("holat?", `/holat`) → `health.show_health(deps, hs, work=partial(turns.service.work_status, deps))`. Done in T34.
+- [x] T34 SIGTERM: after the outbox flush, `health.mark_clean_exit(deps, hs)`. Done in T34.
+- [x] T34 errors: call `health.note_error(deps, hs, code)` wherever error codes surface. Done in T34. Every job of the dev bot runs through `bots/dev/jobs.run`.
 - [ ] P2: `health.set_mode(deps, hs, Mode.PAUSED | Mode.PROBATION)`.
 - [ ] T35: goldens for `domain.holat_text`.
 - [ ] Gate probe (SPEC §5.6, `ssh yordamchi-nohost true` must be denied) is not run yet. It needs a dry-run gate check API.
@@ -293,12 +306,12 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] `pressure` health events are not recorded yet.
 
 ## From T30 (digest)
-- [ ] T34 `app.py`:
+- [ ] T34 `app.py`: T34: done but `server_checks`, whose reader is the T30 follow-up of From T31 (`latest_statuses` returns `HostStatus`, not `ServerCheck`); `server_status` goes to `dev/servers` meanwhile.
   - `DigestState(turns=turns_state, server_checks=<T31 reader>)`;
   - `turns_state.turn_ended = partial(digest.service.refresh_after_turn, state=digest_state)`;
   - `aio.forever("digest", lambda: digest.service.run_digest_poll(deps, digest_state))`;
   - `digest.service.warm_report(deps)` at startup and after settings changes.
-- [ ] T34 router: when `route_turn` submits nothing and the intent is in `digest.domain.REPORT_INTENTS`:
+- [x] T34 router: when `route_turn` submits nothing and the intent is in `digest.domain.REPORT_INTENTS`: Done in T34. `needs_server_check` and `server_status` go to `servers.answer_server_status`.
   - call `digest.service.answer_report(deps, digest_state, digest.domain.question_of(item, routed.decision, route_id=routed.route_id))`;
   - hand `needs_server_check` to T31;
   - `/hisobot [X]` takes the same path.
@@ -312,14 +325,16 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - QOLLANMA lines.
 
 ## From T29 (questions)
-- [ ] T34:
+- [x] T34:
+  - `state.questions = questions.service.open_question`; Done in T34.
   - `state.questions = questions.service.open_question`;
   - startup: `recover_questions(deps, state)` after `recover_turns`;
   - retention: `questions.service.apply_retention`.
-- [ ] T34 router step 3: after `answer_revert`, call `answer_owner(...)`. It handles gate decisions and agent questions, so it replaces the direct call to `gate.answer_decision`.
-- [ ] T34: when `answer_owner` returns ASKED and the outbox has sent `message_key`, call `routing.set_clarification_message(...)`.
-- [ ] T34: a routing `Resolution` with `Intent.ANSWER` → `answer_clarified(deps, state, item, asked=get_turn_input(resolution.burst_id), project_id=…)`. `burst.get_turn_input` is still to build. Skip `Resolution.reply` here, so the owner doesn't get "→ X" twice.
-- [ ] T34 `RouteFacts`:
+- [x] T34 router step 3: after `answer_revert`, call `answer_owner(...)`. It handles gate decisions and agent questions, so it replaces the direct call to `gate.answer_decision`. Done in T34.
+- [x] T34: when `answer_owner` returns ASKED and the outbox has sent `message_key`, call `routing.set_clarification_message(...)`. Done in T34.
+- [x] T34: a routing `Resolution` with `Intent.ANSWER` → `answer_clarified(deps, state, item, asked=get_turn_input(resolution.burst_id), project_id=…)`. `burst.get_turn_input` is still to build. Skip `Resolution.reply` here, so the owner doesn't get "→ X" twice. Done in T34.
+- [x] T34 `RouteFacts`:
+  - `open_questions = await waiting_projects(deps)`; Done in T34.
   - `open_questions = await waiting_projects(deps)`;
   - set `others_pending` (routing) and `RevertReply.others_pending` (turns) when `open_items` or `gate.pending_items` is non-empty.
 - [ ] Outbox: `ForeignKey("questions.id", ondelete="SET NULL")` on `message_links.question_id`.
@@ -330,12 +345,14 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - QOLLANMA: how to answer ("2", option text, own words, voice, reply, "BonviHR 2").
 
 ## From T31 (servers)
-- [ ] T34 `app.py`:
+- [x] T34 `app.py`:
+  - `aio.forever("servers" Done in T34.
   - `aio.forever("servers", lambda: servers.run_server_checks(deps))`;
   - retention calls `servers.service.apply_retention`.
-- [ ] T34 router: `server_status` → `answer_server_status(...)` as a guarded background job (a fresh check can take up to 150 s).
-- [ ] T34 router: a server investigation (the text names a configured host) → `investigate_server(...)`.
-- [ ] T34 intents:
+- [x] T34 router: `server_status` → `answer_server_status(...)` as a guarded background job (a fresh check can take up to 150 s). Done in T34.
+- [x] T34 router: a server investigation (the text names a configured host) → `investigate_server(...)`. Done in T34. Other intents about a named host: status from `dev/servers`, work to the project.
+- [x] T34 intents:
+  - "X serverini kuzat" Done in T34.
   - "X serverini kuzat" → `add_server_host`;
   - "X'ni kuzatma" → `remove_server_host`;
   - both raise `ServerJumpOnly` / `ServerNotWatched` / `SettingInvalid`.
@@ -346,5 +363,16 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] X06: the owner's host list, then a live SSH test.
 
 ## From T32b (offline ≠ dead)
-- [ ] T34 poller hook: `health.record_poll(deps, hs, at=tick.at, updates=tick.updates, error=tick.error)`. `error` is now required.
+- [x] T34 poller hook: `health.record_poll(deps, hs, at=tick.at, updates=tick.updates, error=tick.error)`. `error` is now required. Done in T34.
 - [ ] SPEC §2.8: the heartbeat fields `last_poll_attempt_at`, `last_poll_error_kind`, `consecutive_poll_failures`, and the offline rule. SPEC §4.2: the `network_gap` event kind.
+
+## From T34 (dev bot wiring)
+- [x] T33 in the dev bot: `IncomingUpdate(forward=inbox.domain.forward_of(message.model_dump(mode="json")))`; commands, interrupts and the revert answer read `TurnInput.own_text` (`RevertReply.of`); `settings.handle_request(…, item.own_text, …)`. `dev/questions` still builds `DecisionReply(…)` from `answer_text` (forwarded parts left out) rather than `DecisionReply.of`: a T29 follow-up, same effect.
+- [ ] T24: `turns.service.new_session(deps, state, project_id)` for "X yangi sessiya" (SPEC §6, P1): retire the current `agent_sessions` row (`store.retire_agent_session`) and close its live process; until then the intent answers `S.NOT_YET(phase="P1")`.
+- [ ] `RouteFacts.reported`: a reader of each project's latest bot message (result, question) from the outbox's `message_links`, for routing's context signal.
+- [ ] T12: `Assistant.warm` takes the spare count from `assistant.warm_clients` ("1" = live client only); the adapter keeps a spare today.
+- [ ] Files other than photos (documents, video, audio) sent with an instruction: saved nowhere the agent may read (the gate forbids DATA). Decide a project-local inbox folder or adapter-side attachments.
+- [ ] T24 `domain.title_of`: a burst that starts with a photo gets the title "[image]" (reports show «[image]»); skip bare part labels.
+- [ ] P2: the control socket's `selftest` and `headers`, the probation peek poller (`app._probation` only waits for the flag now), and `status.drained`.
+- [ ] P3: the personal bot's `bots/personal/{app,telegram,intents}.py`, on the same `common` pieces.
+- [ ] SPEC §6.1 / QOLLANMA (T46): the early commands before binding, "sozlama: …" for a settings change by chat, "X serverini kuzat" / "X'ni kuzatma", `/hisobot [X]`, `/stop`.

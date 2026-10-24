@@ -701,3 +701,22 @@ async def test_retention_deletes_finished_rows_after_30_days_and_links_after_90(
     assert await service.find_message_link(dev_deps, chat_id=PRIVATE, message_id=101) is not None
     assert await service.find_message_link(dev_deps, chat_id=GROUP, message_id=102) is not None
     assert await service.apply_retention(dev_deps) == 0
+
+
+# --- enqueue_reply (T34: an answer with nothing else to commit) -------------------------------------------------
+async def test_a_reply_is_queued_in_its_own_unit_of_work_once_per_ref(dev_deps: DevDeps) -> None:
+    from yordamchi.core import strings as S
+    from yordamchi.shared.outbox.domain import About, Kind
+
+    text = S.STOP_ALL_NOTHING()
+    first = await service.enqueue_reply(
+        dev_deps, chat_id=DEV_GROUP_ID, text=text, kind=Kind.NOTICE, ref="burst-7", max_parts=3, about=About("X")
+    )
+    again = await service.enqueue_reply(
+        dev_deps, chat_id=DEV_GROUP_ID, text=text, kind=Kind.NOTICE, ref="burst-7", max_parts=3
+    )
+    assert len(first) == 1
+    assert again == ()
+    delivery = await service.get_delivery(dev_deps, "notice:burst-7:0")
+    assert delivery is not None
+    assert delivery.status.value == "pending"

@@ -61,7 +61,7 @@ from yordamchi.ports.agent import (
 from yordamchi.ports.agent import DeliveryMode as DeliveryModeLiteral
 from yordamchi.ports.git import Commit, FileChange, GitStatus
 from yordamchi.ports.mac_host import ClaudeAccount, ClaudeManagerState
-from yordamchi.shared.burst.domain import CloseReason, RouteHint, decide_dev_follow_up, turn_input
+from yordamchi.shared.burst.domain import CloseReason, RouteHint, TurnInput, decide_dev_follow_up, turn_input
 from yordamchi.shared.cost import store as cost_store
 from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.models import OutboxMessage
@@ -1347,3 +1347,39 @@ async def test_retention_deletes_old_finished_turns_and_keeps_open_ones(
         assert kept is not None
         assert await store.list_progress(s, queued.id, limit=10) == []
         assert [item.text for item in await store.list_deliveries(s, queued.id)] == ["Login sahifasini tuzat"]
+
+
+# --- save_images and route_turn(images=) (T34: the screenshot reaches the agent) ---------------------------------
+async def test_a_bursts_photo_is_saved_privately_and_rides_with_its_delivery(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    from tests.factories import make_part
+    from yordamchi.core.errors import ProviderUnavailable
+    from yordamchi.shared.inbox.domain import UpdateKind
+
+    lost = make_part(1, kind=UpdateKind.PHOTO)  # its download fails
+    photo = make_part(2, kind=UpdateKind.PHOTO)
+    voice = make_part(3, kind=UpdateKind.VOICE, duration_s=2)  # not an image: never downloaded here
+    words = make_part(4, text="BonviHR'da shu xatoni tuzat")
+    async with dev_deps.db.uow() as s:
+        item = await make_closed_burst(s, lost, photo, voice, words)
+    fakes.messenger.fail_next("download", ProviderUnavailable(provider="telegram"))
+    fakes.messenger.files["file-2"] = b"PNG"
+    images = await service.save_images(dev_deps, item)
+    assert len(images) == 1  # the lost one is left out; its "[image]" label still tells the agent
+    saved = Path(images[0])
+    assert await asyncio.to_thread(saved.read_bytes) == b"PNG"
+    assert (await asyncio.to_thread(saved.stat)).st_mode & 0o777 == 0o600
+    assert saved.parent.parent == dev_deps.paths.media
+    routed = await service.route_turn(dev_deps, state, item, images=images)
+    assert routed.submitted is not None
+    [delivery] = await deliveries(dev_deps, routed.submitted.turn_id)
+    assert domain.media_from_json(delivery.media_json).images == images
+    assert await service.save_images(dev_deps, await _text_only(dev_deps)) == ()
+
+
+async def _text_only(deps: DevDeps) -> TurnInput:
+    from tests.factories import make_part
+
+    async with deps.db.uow() as s:
+        return await make_closed_burst(s, make_part(9, text="faqat matn"))

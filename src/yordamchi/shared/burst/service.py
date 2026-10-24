@@ -351,6 +351,27 @@ async def list_closed_bursts(deps: SharedDeps, *, limit: int) -> tuple[TurnInput
     return domain.in_route_order(inputs)
 
 
+async def get_turn_input(deps: SharedDeps, burst_id: int) -> TurnInput | None:
+    """A closed burst's input, whatever happened to it since: routing re-delivers it once a clarification picked its
+    project, and `dev/questions` reads the answer it held (T20, T29). None if it is gone or not closed yet."""
+    async with deps.db.read() as s:
+        row = await store.get_burst(s, bot=deps.bot.value, burst_id=burst_id)
+    if row is None or row.closed_at is None or row.close_reason is None:
+        return None
+    parts = _parts_of(row)
+    return _turn_input(row, parts) if parts else None
+
+
+async def cancel_burst(deps: SharedDeps, burst_id: int) -> bool:
+    """`mark_burst_cancelled` in its own unit of work: the bot handled the burst itself (an interrupt, a chat command
+    such as "holat?"). False if another pass took it first."""
+    async with deps.db.uow() as s:
+        cancelled = await mark_burst_cancelled(s, bot=deps.bot, burst_id=burst_id)
+    if cancelled:
+        log.info("burst_cancelled", bot=deps.bot.value, burst_id=burst_id)
+    return cancelled
+
+
 async def _finish(s: Session, bot: BotName, burst_id: int, to_status: BurstStatus, route_id: int | None) -> bool:
     moved = await store.set_burst_status(
         s,
