@@ -9,6 +9,7 @@
 - `build_search_path()` / `clean_env()`: the child PATH, in SPEC order, and the environment for every child.
 - `run()`: argv only, never a shell; its own process group; a timeout or cancellation kills the group
   (TERM, grace, KILL) and raises `TimeoutError` / `CancelledError`. Adapters translate that into `CallTimedOut`.
+  `run_piped()` is the same with stdin fed from an async iterable as it arrives (TTS audio into ffmpeg).
   `run_sync()` is the same for the `bots/cli` entry points, which run without an event loop.
 """
 
@@ -20,7 +21,7 @@ import shutil
 import signal
 import subprocess
 import time
-from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from collections.abc import AsyncIterable, Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -317,3 +318,84 @@ async def login_shell_path(*, env: Mapping[str, str], timeout: float = LOGIN_SHE
     # Profile scripts may print lines first; printf writes the PATH last, without a newline.
     text = result.stdout.decode("utf-8", errors="replace").rsplit("\n", 1)[-1].strip()
     return text or None
+
+
+# --- a child fed while its input is still arriving (SPEC §11 S8) --------------------------------------------------
+async def _feed(stdin: asyncio.StreamWriter, chunks: AsyncIterable[bytes], idle_timeout: float) -> None:
+    """Write each chunk as it comes, then close stdin. A child that stopped reading ends the feed early; its exit
+    code says why."""
+    iterator = aiter(chunks)
+    try:
+        while True:
+            async with asyncio.timeout(idle_timeout):
+                try:
+                    chunk = await anext(iterator)
+                except StopAsyncIteration:
+                    break
+            if chunk:
+                stdin.write(chunk)
+                await stdin.drain()
+    except (BrokenPipeError, ConnectionResetError):
+        return
+    finally:
+        stdin.close()
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            await stdin.wait_closed()
+
+
+async def run_piped(
+    argv: Sequence[str],
+    *,
+    env: Mapping[str, str],
+    chunks: AsyncIterable[bytes],
+    idle_timeout: float,
+    kill_grace_s: float = KILL_GRACE_S,
+) -> ProcResult:
+    """`run`, but stdin is fed from `chunks` as they arrive, so an encoder works while its input is still coming.
+
+    Every wait (for the next chunk, and for the child to finish after the last one) is bounded by `idle_timeout`:
+    `TimeoutError`. An exception from `chunks` propagates. Either way, and on cancellation, the process group is
+    killed. Iterating `chunks` to the end is this function's job; closing an async generator is the caller's.
+    """
+    if not argv:
+        msg = "argv must not be empty"
+        raise ValueError(msg)
+    started = time.monotonic()
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=dict(env),
+        start_new_session=True,
+    )
+    if process.stdin is None or process.stdout is None or process.stderr is None:  # pragma: no cover - PIPE given
+        msg = "the child's pipes are missing"
+        raise RuntimeError(msg)
+    # gather wraps the readers in tasks of its own: both pipes drain while stdin is fed, so neither side blocks.
+    readers = asyncio.gather(process.stdout.read(), process.stderr.read())
+    finished = False
+    try:
+        await _feed(process.stdin, chunks, idle_timeout)
+        async with asyncio.timeout(idle_timeout):
+            stdout, stderr = await readers
+            returncode = await process.wait()
+        finished = True
+    finally:
+        if not finished:
+            readers.cancel()
+            await asyncio.wait([readers])
+            if not readers.cancelled():
+                readers.exception()  # retrieved, so a reader's own failure is not reported again at exit
+            # The feed closed stdin, so the child may already have exited unreaped; macOS answers killpg on a group
+            # of zombies with EPERM. Reaping it is all that is left then.
+            with contextlib.suppress(PermissionError):
+                await _kill_group(process, kill_grace_s)
+            await process.wait()
+    return ProcResult(
+        argv=tuple(argv),
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )

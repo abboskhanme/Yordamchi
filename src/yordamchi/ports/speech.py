@@ -1,6 +1,7 @@
 """Transcriber and Synthesizer: speech to text and back (CONVENTIONS §4; SPEC §3.2.11).
 
-Every behaviour value (languages, vocabulary, model, voice, style) comes from the caller's settings snapshot.
+Every behaviour value (languages, vocabulary, model, voice, style, segment size) comes from the caller's settings
+snapshot.
 """
 
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -25,11 +26,18 @@ class Transcript:
 
 @dataclass(frozen=True, slots=True)
 class SpeechAudio:
+    """One finished voice note. The adapters always return OGG/Opus (`audio/ogg`), what Telegram plays as a voice
+    note; `duration_ms` is read from the encoded stream (`sendVoice` takes it in whole seconds)."""
+
     data: bytes = field(repr=False)
-    mime: str  # "audio/ogg" (Opus) is what Telegram plays as a voice note
-    provider: str
+    mime: str  # "audio/ogg" (Opus)
+    provider: str  # "openrouter" | "google" | "edge"
     model: str
     duration_ms: int | None = None
+    # As on `Transcript`: what the provider said the call cost (None: it does not say), and its own counters
+    # (`characters`, `requests`). `shared/voice` records them via `shared/cost`.
+    cost_usd_micros: int | None = None
+    units: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,12 +87,41 @@ class Transcriber(Protocol):
 
 
 class Synthesizer(Protocol):
+    """Text to one OGG/Opus voice note (SPEC §3.2.13 step 6, S8).
+
+    The provider's audio is piped into the encoder as it arrives, so the note is ready right after the provider's
+    last chunk. `segment_words` is the S8 fallback: 0 sends the text in one request; above 0 the adapter cuts it at
+    sentence ends into pieces of at most that many words, asks for them concurrently, and encodes them in order into
+    one note. `voice`, `style`, `language_code` and `model` come from the caller's settings snapshot; a provider
+    without a feature (Edge has no style or model) ignores the value. No ffmpeg → `NotInstalled`, before any request.
+    """
+
     async def synthesize(
-        self, text: str, *, voice: str, style: str, language_code: str, model: str, timeout: float
-    ) -> SpeechAudio: ...
+        self,
+        text: str,
+        *,
+        voice: str,
+        style: str,
+        language_code: str,
+        model: str,
+        segment_words: int,
+        timeout: float,
+    ) -> SpeechAudio:
+        """The whole note within `timeout`, retries included."""
+        ...
 
     def synthesize_stream(
-        self, text: str, *, voice: str, style: str, language_code: str, model: str, idle_timeout: float
+        self,
+        text: str,
+        *,
+        voice: str,
+        style: str,
+        language_code: str,
+        model: str,
+        segment_words: int,
+        idle_timeout: float,
     ) -> AsyncIterator[bytes]:
-        """Encoded audio chunks as they arrive, so the voice note can follow the text within 12 s (SPEC §3.2.13)."""
+        """The note's OGG/Opus bytes, in order, once the encoder has them. No wait for the provider or the encoder
+        lasts longer than `idle_timeout`; there is no total bound. `sendVoice` needs the whole file, so callers that
+        send use `synthesize`."""
         ...

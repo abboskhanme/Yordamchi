@@ -14,6 +14,8 @@ go, and `speech_status` is the one line the owner gets about what is active now.
 """
 
 import itertools
+import re
+import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -21,10 +23,10 @@ from enum import StrEnum
 from typing import Final, Protocol
 
 from yordamchi.core import strings as S
-from yordamchi.core.errors import ErrorCode, SttTermInvalid
+from yordamchi.core.errors import ErrorCode, ExternalError, SttTermInvalid
 from yordamchi.core.paths import BotName
 from yordamchi.core.text import BotText, join
-from yordamchi.ports.speech import SpeechKeyCheck, Transcript
+from yordamchi.ports.speech import SpeechAudio, SpeechKeyCheck, Transcript
 from yordamchi.shared.cost.domain import Provider, Usage
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings.domain import Snapshot
@@ -407,3 +409,251 @@ def text_cutoff(now: datetime) -> datetime:
 def row_cutoff(now: datetime) -> datetime:
     """A finished transcript row is deleted once `created_at` is strictly older than this."""
     return now - ROW_KEEP
+
+
+# --- voice_tts --------------------------------------------------------------------------------------------------------
+# Text to a voice note (SPEC §3.2.11 step 3, §3.2.13 step 6; UC-30 voice). The order under `auto` is the owner's
+# decision of 2026-10-24: OpenRouter (Gemini TTS) → Google direct, only with its own key → Edge (free, no key) → text
+# only. `speech.tts_provider` can put one provider first; the others stay as its fallbacks; "off" is text only.
+EDGE: Final = "edge"
+TTS_ORDER: Final = (OPENROUTER, GOOGLE, EDGE)
+KEYLESS_TTS: Final = frozenset({EDGE})  # usable with an adapter alone
+EDGE_MODEL: Final = "edge-tts"  # Edge has no model; this names its `usage_records` rows
+TTS_USAGE_SOURCE: Final = "tts"
+TTS_OFF: Final = "off"
+FEMALE: Final = "female"
+ENCODER: Final = "ffmpeg"  # the `provider` param of an encode failure (`adapters/tts_common.py`)
+VOICE_FILE_MIME: Final = "audio/ogg"
+NOTICE_BUCKET: Final = "%Y%m%d%H"  # one notice per reason per clock hour (SPEC §3.2.11 step 6)
+
+# The 30 Gemini TTS voices by gender (cloud.google.com/text-to-speech/docs/gemini-tts, checked 2026-10-24). A voice
+# that is not listed (an extended-library or custom voice) is the owner's explicit choice and is kept as it is.
+GEMINI_FEMALE_VOICES: Final = frozenset(
+    {
+        "achernar", "aoede", "autonoe", "callirrhoe", "despina", "erinome", "gacrux",
+        "kore", "laomedeia", "leda", "pulcherrima", "sulafat", "vindemiatrix", "zephyr",
+    }
+)  # fmt: skip
+GEMINI_MALE_VOICES: Final = frozenset(
+    {
+        "achird", "algenib", "algieba", "alnilam", "charon", "enceladus", "fenrir", "iapetus",
+        "orus", "puck", "rasalgethi", "sadachbia", "sadaltager", "schedar", "umbriel", "zubenelgenubi",
+    }
+)  # fmt: skip
+
+
+def pick_tts(preference: str, available: Iterable[str]) -> tuple[str, ...]:
+    """The TTS providers to try for one note, in order. `preference` is `speech.tts_provider`: a named provider goes
+    first, the rest keep the `auto` order behind it; "off" → (). Only providers in `available` (an adapter, plus a key
+    for OpenRouter and Google) are listed."""
+    if preference == TTS_OFF:
+        return ()
+    usable = set(available)
+    first = (preference,) if preference in TTS_ORDER else ()
+    order = (*first, *(provider for provider in TTS_ORDER if provider not in first))
+    return tuple(provider for provider in order if provider in usable)
+
+
+def tts_model(provider: str, snap: Snapshot) -> str:
+    if provider == OPENROUTER:
+        return snap[defaults.TTS_OPENROUTER_MODEL]
+    if provider == GOOGLE:
+        return snap[defaults.TTS_GOOGLE_MODEL]
+    return EDGE_MODEL
+
+
+def tts_voice(provider: str, snap: Snapshot) -> str:
+    """The voice for `provider` from this job's settings, so "ovozingni ayolga o'zgartir" (`voice.gender`) applies to
+    the next note. Edge: its female or male voice. Gemini (direct or OpenRouter): `voice.name`, unless it is a known
+    voice of the other gender, then `tts.female_voice` / `tts.male_voice`."""
+    female = snap[defaults.VOICE_GENDER] == FEMALE
+    if provider == EDGE:
+        return snap[defaults.TTS_EDGE_VOICE] if female else snap[defaults.TTS_EDGE_MALE_VOICE]
+    name = snap[defaults.VOICE_NAME].strip()
+    other = GEMINI_MALE_VOICES if female else GEMINI_FEMALE_VOICES
+    if not name or name.casefold() in other:
+        return snap[defaults.TTS_FEMALE_VOICE] if female else snap[defaults.TTS_MALE_VOICE]
+    return name
+
+
+# --- the spoken text -------------------------------------------------------------------------------------------------
+_CODE_BLOCK: Final = re.compile(r"```.*?(?:```|$)", re.DOTALL)
+_INLINE_CODE: Final = re.compile(r"`[^`\n]*`")
+_MD_LINK: Final = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_URL: Final = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+_LINE_MARK: Final = re.compile(r"^\s*(?:#{1,6}\s+|>+\s*|[-*+•]\s+|\d+[.)]\s+)", re.MULTILINE)
+_EMPHASIS: Final = re.compile(r"(\*{1,3}|_{2,3}|~~)")
+_SENTENCE_END: Final = re.compile(r"[.!?…](?=\s|$)")
+_SPACE_BEFORE_MARK: Final = re.compile(r"\s+([.,!?;:…])")
+_INVISIBLE: Final = frozenset({"\u200d", "\ufe0f", "\ufe0e"})  # zero-width joiner, variation selectors
+_SYMBOLS: Final = frozenset({"So", "Sk"})  # emoji and pictographs; skin-tone and other modifier symbols
+
+
+def _drop_symbols(text: str) -> str:
+    """Emoji, pictographs and their modifiers, joiners and variation selectors: nothing a voice should read."""
+    return "".join(char for char in text if char not in _INVISIBLE and unicodedata.category(char) not in _SYMBOLS)
+
+
+def speakable(text: str, max_words: int) -> str:
+    """The voice script as it should be spoken (SPEC §3.2.13 step 6): without code, URLs, markdown or emoji, on one
+    line, and at most `max_words` words (`voice.max_words`, ~55–70 ≈ 20–30 s), cut at the last sentence end that
+    fits. A first sentence longer than that is cut at the word limit and closed with a full stop."""
+    cleaned = _CODE_BLOCK.sub(" ", text)
+    cleaned = _INLINE_CODE.sub(" ", cleaned)
+    cleaned = _MD_LINK.sub(r"\1", cleaned)
+    cleaned = _URL.sub(" ", cleaned)
+    cleaned = _LINE_MARK.sub("", cleaned)
+    cleaned = _EMPHASIS.sub("", cleaned)
+    cleaned = _SPACE_BEFORE_MARK.sub(r"\1", " ".join(_drop_symbols(cleaned).split()))
+    words = cleaned.split(" ")
+    if not cleaned or len(words) <= max_words:
+        return cleaned
+    head = " ".join(words[:max_words])
+    ends = [match.end() for match in _SENTENCE_END.finditer(head)]
+    if ends:
+        return head[: ends[-1]].strip()
+    return head.rstrip(",;:—–- ") + "."
+
+
+# --- one note's outcome ----------------------------------------------------------------------------------------------
+class SkipReason(StrEnum):
+    """Why an answer has no voice note."""
+
+    DISABLED = "disabled"  # voice.enabled is off (or speech.tts_provider is "off"): the owner's choice, no notice
+    EMPTY = "empty"  # nothing speakable was left
+    SUMMARY = "summary"  # the spoken summary could not be made
+    NO_PROVIDER = "no_provider"  # no TTS adapter is usable
+    NO_FFMPEG = "no_ffmpeg"  # the encoder is missing: every provider needs it
+    ENCODE = "encode"  # ffmpeg failed on the audio
+    PROVIDER = "provider"  # every provider tried failed
+
+
+SILENT_SKIPS: Final = frozenset({SkipReason.DISABLED, SkipReason.EMPTY})
+
+
+@dataclass(frozen=True, slots=True)
+class TtsAttempt:
+    """One provider's failed try at a note. `encoder` marks a failure of ffmpeg, not of the provider."""
+
+    provider: str
+    code: ErrorCode
+    encoder: bool = False
+
+
+def tts_attempt(provider: str, error: ExternalError) -> TtsAttempt:
+    encoder = error.code is ErrorCode.NOT_INSTALLED or error.params.get("provider") == ENCODER
+    return TtsAttempt(provider=provider, code=error.code, encoder=encoder)
+
+
+def tts_falls_back(attempt: TtsAttempt) -> bool:
+    """Every provider failure moves on to the next provider: the text is already out, and a late voice is still a
+    voice. An encoder failure does not: every provider's audio goes through the same ffmpeg."""
+    return not attempt.encoder
+
+
+@dataclass(frozen=True, slots=True)
+class TtsResult:
+    """What became of one voice note: the note, or why there is none; `failed` lists the providers that failed
+    first, in the order tried. `latency_ms` is the synthesis call that answered, fallbacks excluded."""
+
+    audio: SpeechAudio | None = field(default=None, repr=False)
+    reason: SkipReason | None = None
+    failed: tuple[TtsAttempt, ...] = ()
+    latency_ms: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.audio is not None
+
+    @property
+    def provider(self) -> str | None:
+        if self.audio is not None:
+            return self.audio.provider
+        return self.failed[-1].provider if self.failed else None
+
+
+def stopped(attempt: TtsAttempt, failed: Sequence[TtsAttempt]) -> TtsResult:
+    """The chain stopped at an encoder failure."""
+    reason = SkipReason.NO_FFMPEG if attempt.code is ErrorCode.NOT_INSTALLED else SkipReason.ENCODE
+    return TtsResult(reason=reason, failed=tuple(failed))
+
+
+_TTS_LABELS: Final[Mapping[str, S.Msg]] = {
+    GOOGLE: S.SPEECH_GOOGLE,
+    OPENROUTER: S.SPEECH_OPENROUTER,
+    EDGE: S.SPEECH_EDGE,
+}
+_SKIP_TEXTS: Final[Mapping[SkipReason, S.Msg]] = {
+    SkipReason.SUMMARY: S.TTS_REASON_SUMMARY,
+    SkipReason.NO_PROVIDER: S.TTS_REASON_NO_PROVIDER,
+    SkipReason.NO_FFMPEG: S.TTS_REASON_NO_FFMPEG,
+    SkipReason.ENCODE: S.TTS_REASON_ENCODE,
+}
+
+
+def tts_label(provider: str) -> BotText:
+    return _TTS_LABELS[provider]()
+
+
+@dataclass(frozen=True, slots=True)
+class TtsNotice:
+    """One line for the owner. `key` names its reason, so the same reason is told once per hour."""
+
+    key: str
+    text: BotText
+
+
+def tts_notices(result: TtsResult) -> tuple[TtsNotice, ...]:
+    """Never silent (SPEC §3.2.11 step 6): a note that came from a fallback says which provider failed and how; a note
+    that did not come says why (`S.VOICE_SKIPPED`). The owner's own "voice off" and an empty script say nothing."""
+    if result.audio is not None:
+        if not result.failed:
+            return ()
+        first = result.failed[0]
+        text = S.TTS_FELL_BACK(
+            provider=tts_label(first.provider),
+            problem=problem_text(first.code),
+            fallback=tts_label(result.audio.provider),
+        )
+        return (TtsNotice(key=f"fallback-{first.provider}-{first.code.value}", text=text),)
+    if result.reason is None or result.reason in SILENT_SKIPS:
+        return ()
+    if result.reason is SkipReason.PROVIDER:
+        reason = join(
+            (
+                S.STT_REASON_PROVIDER(provider=tts_label(attempt.provider), problem=problem_text(attempt.code))
+                for attempt in result.failed
+            ),
+            "; ",
+        )
+        codes = "-".join(sorted({attempt.code.value for attempt in result.failed}))
+        return (TtsNotice(key=f"skipped-{codes}", text=S.VOICE_SKIPPED(reason=reason)),)
+    reason_text = _SKIP_TEXTS[result.reason]()
+    return (TtsNotice(key=f"skipped-{result.reason.value}", text=S.VOICE_SKIPPED(reason=reason_text)),)
+
+
+def notice_ref(key: str, now: datetime) -> str:
+    """The outbox ref of a notice: the same reason within one clock hour is one row (the outbox dedupes it)."""
+    return f"tts-{key}-{now.strftime(NOTICE_BUCKET)}"
+
+
+def tts_usage_of(audio: SpeechAudio, *, duration_ms: int) -> Usage:
+    """The `usage_records` row of one answered TTS call. Edge is free; OpenRouter and Google report no cost on this
+    path (OpenRouter prices TTS per character, `units.characters`), so they record 0 until T51 prices them."""
+    cost = audio.cost_usd_micros or 0
+    return Usage(
+        source=TTS_USAGE_SOURCE,
+        provider=Provider(audio.provider),
+        model=audio.model,
+        is_paid_api=cost > 0 and audio.provider != EDGE,
+        cost_usd_micros=cost,
+        duration_ms=duration_ms,
+        units={"audio_ms": audio.duration_ms or 0, **audio.units},
+    )
+
+
+def voice_duration_s(audio: SpeechAudio) -> int | None:
+    """`sendVoice` takes whole seconds; a part second counts as one."""
+    if not audio.duration_ms:
+        return None
+    return max(1, -(-audio.duration_ms // 1000))

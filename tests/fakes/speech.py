@@ -101,12 +101,26 @@ class FakeTranscriber:
         return step.result
 
 
+@dataclass(frozen=True, slots=True)
+class SynthesizeCall:
+    text: str
+    voice: str
+    style: str
+    language_code: str
+    model: str
+    segment_words: int
+    timeout: float
+
+
 class FakeSynthesizer:
+    """Scripted voice notes or errors, in order; by default a small OGG/Opus-looking note. `calls` keeps every call's
+    arguments, so a test can check that the settings of this job reached the provider."""
+
     def __init__(self, *, provider: str = "google", clock: Clock | None = None) -> None:
         self.provider = provider
         self.clock = clock
         self.steps: deque[Step[SpeechAudio]] = deque()
-        self.calls: list[tuple[str, str, str]] = []
+        self.calls: list[SynthesizeCall] = []
 
     def script(self, result: SpeechAudio | Exception, *, latency_s: float = 0.0) -> None:
         self.steps.append(Step(result, latency_s))
@@ -117,9 +131,17 @@ class FakeSynthesizer:
         )
 
     async def synthesize(
-        self, text: str, *, voice: str, style: str, language_code: str, model: str, timeout: float
+        self,
+        text: str,
+        *,
+        voice: str,
+        style: str,
+        language_code: str,
+        model: str,
+        segment_words: int,
+        timeout: float,
     ) -> SpeechAudio:
-        self.calls.append((text, voice, model))
+        self.calls.append(SynthesizeCall(text, voice, style, language_code, model, segment_words, timeout))
         step = self.steps.popleft() if self.steps else Step(self._audio(model))
         await _wait(self.clock, step.latency_s, timeout, "tts")
         if isinstance(step.result, Exception):
@@ -127,10 +149,24 @@ class FakeSynthesizer:
         return step.result
 
     async def synthesize_stream(
-        self, text: str, *, voice: str, style: str, language_code: str, model: str, idle_timeout: float
+        self,
+        text: str,
+        *,
+        voice: str,
+        style: str,
+        language_code: str,
+        model: str,
+        segment_words: int,
+        idle_timeout: float,
     ) -> AsyncIterator[bytes]:
         audio = await self.synthesize(
-            text, voice=voice, style=style, language_code=language_code, model=model, timeout=idle_timeout
+            text,
+            voice=voice,
+            style=style,
+            language_code=language_code,
+            model=model,
+            segment_words=segment_words,
+            timeout=idle_timeout,
         )
         middle = len(audio.data) // 2
         yield audio.data[:middle]

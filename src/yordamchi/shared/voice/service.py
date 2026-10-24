@@ -17,11 +17,15 @@ bot's `named` sources return. `shared` cannot import `dev` (C1), so the dev bot 
 Speech keys (SPEC §3.2.11): `configure_speech_keys` checks each new key through the port, keeps one key per provider,
 and tells the owner in one line what is active. `read_speech_key` is the `api_key` callable each STT adapter reads
 the vault through.
+
+Text to speech (the `voice_tts` part at the end): `send_voice_summary` / `send_voice` turn an answer into a
+Telegram voice note after its text, through OpenRouter → Google → Edge → text only, each fallback told in one line.
 """
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from datetime import datetime
+from pathlib import Path
 
 from yordamchi.core import redact
 from yordamchi.core import strings as S
@@ -34,6 +38,8 @@ from yordamchi.shared.burst import service as burst
 from yordamchi.shared.burst.domain import BurstPart
 from yordamchi.shared.cost import service as cost
 from yordamchi.shared.deps import SharedDeps
+from yordamchi.shared.outbox import service as outbox
+from yordamchi.shared.outbox.domain import Kind, Op
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import Snapshot
@@ -49,6 +55,8 @@ from yordamchi.shared.voice.domain import (
     SpeechKey,
     SttResult,
     SttStatus,
+    TtsAttempt,
+    TtsResult,
 )
 
 log = get_log(__name__)
@@ -294,3 +302,197 @@ async def apply_retention(deps: SharedDeps) -> int:
     )
     log.info("voice_retention_applied", rows_deleted=deleted, texts_cleared=cleared)
     return deleted + cleared
+
+
+# --- voice_tts --------------------------------------------------------------------------------------------------------
+# Text to a Telegram voice note (SPEC §3.2.13 step 6; UC-30 voice). The caller sends the text first; the voice only
+# follows it, so a slow or failed voice never delays the text:
+#     await outbox.enqueue_text(s, …)                          # the answer, in the caller's own unit of work
+#     await voice.send_voice_summary(deps, chat_id=…, answer=text, summarize=…, ref=f"qa-{turn}")
+# 1. `voice.enabled` (or "off" as `speech.tts_provider`) is the owner's switch; `requested=True` is "ovozda ayt" on a
+#    bot where voice is off by default (the dev bot);
+# 2. the spoken script (`summarize(answer)`, T72's assistant call; or a script the caller already has) is cleaned and
+#    capped by `domain.speakable` at `voice.max_words`;
+# 3. `domain.pick_tts` orders the providers; each is asked in turn with this job's settings (voice, gender, style,
+#    language, model, `tts.segment_words`, `timeouts.tts_s`). A failure moves to the next one; a missing or failing
+#    ffmpeg ends the chain, since every provider's audio goes through it;
+# 4. the OGG file goes to `media/<day>/`, and one unit of work queues `sendVoice`, the notices (once per reason per
+#    hour) and the usage row.
+
+# The spoken summary of a full answer (T72 fills it with the assistant). Its own failures are `ExternalError`s.
+type VoiceSummary = Callable[[str], Awaitable[str]]
+
+
+async def synthesize_voice(deps: SharedDeps, script: str, *, requested: bool = False) -> TtsResult:
+    """`script` → one OGG/Opus voice note through the provider chain, its usage recorded. Nothing is sent: see
+    `send_voice` for that. Provider failures never raise; they end as `TtsResult.reason`."""
+    snap = await settings.snapshot(deps)
+    result = await _synthesize(deps, snap, script, requested=requested)
+    if result.audio is not None:
+        async with deps.db.uow() as s:
+            await cost.record_usage(
+                s,
+                bot=deps.bot,
+                at=deps.clock.now(),
+                usage=domain.tts_usage_of(result.audio, duration_ms=result.latency_ms),
+            )
+    return result
+
+
+async def send_voice(
+    deps: SharedDeps,
+    *,
+    chat_id: int,
+    script: str,
+    ref: str,
+    reply_to: int | None = None,
+    requested: bool = False,
+) -> TtsResult:
+    """`script` → a voice note queued for `chat_id` after whatever the caller queued before (the text answer), plus
+    one line for each fallback or for a voice that did not come (SPEC §3.2.11 step 6). `ref` keys the outbox row, so
+    the same answer is voiced once."""
+    snap = await settings.snapshot(deps)
+    result = await _synthesize(deps, snap, script, requested=requested)
+    await _deliver(deps, snap, result, chat_id=chat_id, ref=ref, reply_to=reply_to)
+    return result
+
+
+async def send_voice_summary(
+    deps: SharedDeps,
+    *,
+    chat_id: int,
+    answer: str,
+    summarize: VoiceSummary,
+    ref: str,
+    reply_to: int | None = None,
+    requested: bool = False,
+) -> TtsResult:
+    """The personal bot's default reply, after its text: `summarize(answer)` makes the ~20–30 s spoken summary, which
+    then goes as `send_voice` does. With voice off nothing is summarized; a failed summary is a notice, not a raise."""
+    snap = await settings.snapshot(deps)
+    if not _voice_on(snap, requested=requested):
+        return TtsResult(reason=domain.SkipReason.DISABLED)
+    try:
+        script = await summarize(answer)
+    except ExternalError as error:
+        log.warning("voice_summary_failed", bot=deps.bot.value, error_code=error.code.value)
+        result = TtsResult(reason=domain.SkipReason.SUMMARY)
+    else:
+        result = await _synthesize(deps, snap, script, requested=requested)
+    await _deliver(deps, snap, result, chat_id=chat_id, ref=ref, reply_to=reply_to)
+    return result
+
+
+def _voice_on(snap: Snapshot, *, requested: bool) -> bool:
+    enabled = requested or snap[defaults.VOICE_ENABLED]
+    return enabled and snap[defaults.SPEECH_TTS_PROVIDER] != domain.TTS_OFF
+
+
+async def _synthesize(deps: SharedDeps, snap: Snapshot, script: str, *, requested: bool) -> TtsResult:
+    if not _voice_on(snap, requested=requested):
+        return TtsResult(reason=domain.SkipReason.DISABLED)
+    text = domain.speakable(script, snap[defaults.VOICE_MAX_WORDS])
+    if not text:
+        return TtsResult(reason=domain.SkipReason.EMPTY)
+    order = domain.pick_tts(snap[defaults.SPEECH_TTS_PROVIDER], await _usable_tts(deps))
+    if not order:
+        return TtsResult(reason=domain.SkipReason.NO_PROVIDER)
+    failed: list[TtsAttempt] = []
+    for provider in order:
+        started = deps.clock.now()
+        try:
+            audio = await deps.synthesizers[provider].synthesize(
+                text,
+                voice=domain.tts_voice(provider, snap),
+                style=snap[defaults.VOICE_STYLE],
+                language_code=snap[defaults.VOICE_LANGUAGE_CODE],
+                model=domain.tts_model(provider, snap),
+                segment_words=snap[defaults.TTS_SEGMENT_WORDS],
+                timeout=snap[defaults.TIMEOUTS_TTS_S],
+            )
+        except ExternalError as error:
+            attempt = domain.tts_attempt(provider, error)
+            failed.append(attempt)
+            log.warning(
+                "tts_provider_failed",
+                bot=deps.bot.value,
+                provider=provider,
+                error_code=error.code.value,
+                encoder=attempt.encoder,
+            )
+            if domain.tts_falls_back(attempt):
+                continue
+            return domain.stopped(attempt, failed)
+        return TtsResult(audio=audio, failed=tuple(failed), latency_ms=_ms_since(deps, started))
+    return TtsResult(reason=domain.SkipReason.PROVIDER, failed=tuple(failed))
+
+
+async def _usable_tts(deps: SharedDeps) -> tuple[str, ...]:
+    """Providers with an adapter in this bot and, except Edge, a key in the vault."""
+    keyed = set(domain.current_keys(await vault.list_secrets(deps)))
+    return tuple(provider for provider in deps.synthesizers if provider in domain.KEYLESS_TTS or provider in keyed)
+
+
+def _write_private_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.touch(mode=0o600, exist_ok=True)
+    path.write_bytes(data)
+
+
+def voice_file(deps: SharedDeps, ref: str) -> Path:
+    """Where the note of `ref` is written: the media cache, purged after `media.retention_days`."""
+    return deps.paths.media / deps.clock.now().strftime("%Y%m%d") / f"tts-{ref}.ogg"
+
+
+async def _deliver(
+    deps: SharedDeps, snap: Snapshot, result: TtsResult, *, chat_id: int, ref: str, reply_to: int | None
+) -> None:
+    """The note's file, then one unit of work: `sendVoice`, the notices and the usage row."""
+    now = deps.clock.now()
+    path: Path | None = None
+    if result.audio is not None:
+        path = voice_file(deps, ref)
+        await asyncio.to_thread(_write_private_bytes, path, result.audio.data)
+    notices = domain.tts_notices(result)
+    max_parts = snap[defaults.OUTBOX_MAX_PARTS]
+    async with deps.db.uow() as s:
+        if result.audio is not None and path is not None:
+            await outbox.enqueue_file(
+                s,
+                bot=deps.bot,
+                chat_id=chat_id,
+                op=Op.SEND_VOICE,
+                path=path,
+                kind=Kind.VOICE,
+                ref=ref,
+                at=now,
+                max_parts=max_parts,
+                mime=domain.VOICE_FILE_MIME,
+                duration_s=domain.voice_duration_s(result.audio),
+                reply_to=reply_to,
+            )
+            await cost.record_usage(
+                s, bot=deps.bot, at=now, usage=domain.tts_usage_of(result.audio, duration_ms=result.latency_ms)
+            )
+        for notice in notices:
+            await outbox.enqueue_text(
+                s,
+                bot=deps.bot,
+                chat_id=chat_id,
+                text=notice.text,
+                kind=Kind.NOTICE,
+                ref=domain.notice_ref(notice.key, now),
+                at=now,
+                max_parts=max_parts,
+            )
+    log.info(
+        "voice_reply_finished",
+        bot=deps.bot.value,
+        ok=result.ok,
+        provider=result.provider,
+        reason=None if result.reason is None else result.reason.value,
+        fallbacks=len(result.failed),
+        notices=len(notices),
+        audio_ms=None if result.audio is None else result.audio.duration_ms,
+        latency_ms=result.latency_ms,
+    )

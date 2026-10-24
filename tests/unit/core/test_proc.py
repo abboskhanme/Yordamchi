@@ -1,8 +1,10 @@
 """core/proc: PATH order, child environment, credential refusal (SPEC §2.5 steps 2–4; STACK §4.4) and `run`."""
 
+import asyncio
 import json
 import os
 import stat
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -174,3 +176,82 @@ async def test_login_shell_path_takes_the_last_line(tmp_path: Path, monkeypatch:
     assert await proc.login_shell_path(env={"PATH": "/bin"}) == "/opt/x/bin:/usr/bin"
     monkeypatch.setattr(proc, "LOGIN_SHELL", str(tmp_path / "missing"))
     assert await proc.login_shell_path(env={"PATH": "/bin"}) is None
+
+
+# --- run_piped (TTS audio into ffmpeg as it arrives) ----------------------------------------------------------------
+async def _chunks(*parts: bytes, gap_s: float = 0.0) -> AsyncIterator[bytes]:
+    for part in parts:
+        if gap_s:
+            await asyncio.sleep(gap_s)
+        yield part
+
+
+def _gone(pid_file: Path) -> bool:
+    try:
+        os.kill(int(pid_file.read_text(encoding="utf-8")), 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+async def test_run_piped_feeds_chunks_as_they_come_and_returns_the_output() -> None:
+    result = await proc.run_piped(
+        ["/bin/cat"], env={"PATH": "/bin"}, chunks=_chunks(b"sa", b"", b"lom"), idle_timeout=5
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (0, b"salom", b"")
+
+
+async def test_run_piped_reads_output_while_input_still_arrives() -> None:
+    """More output than a pipe buffer holds: without draining stdout during the feed this would deadlock."""
+    block = b"x" * 256 * 1024
+    result = await proc.run_piped(
+        ["/bin/cat"], env={"PATH": "/bin"}, chunks=_chunks(block, block, block), idle_timeout=5
+    )
+    assert len(result.stdout) == 3 * len(block)
+
+
+async def test_run_piped_stalled_input_times_out_and_kills_the_group(tmp_path: Path) -> None:
+    pid_file = tmp_path / "pid"
+    script = f'echo $$ > "{pid_file}"; exec /bin/cat > /dev/null'
+    with pytest.raises(TimeoutError):
+        await proc.run_piped(
+            ["/bin/sh", "-c", script],
+            env={"PATH": "/bin"},
+            chunks=_chunks(b"a", b"b", gap_s=2.0),
+            idle_timeout=0.3,
+            kill_grace_s=0.2,
+        )
+    assert _gone(pid_file)
+
+
+async def test_run_piped_an_error_from_the_input_propagates_and_kills_the_child(tmp_path: Path) -> None:
+    pid_file = tmp_path / "pid"
+    started = asyncio.Event()
+
+    async def failing() -> AsyncIterator[bytes]:
+        yield b"a"
+        async with asyncio.timeout(5):  # the child is running before the input fails
+            while not pid_file.exists():  # noqa: ASYNC110  # a file the child writes; no event can say so
+                await asyncio.sleep(0.01)
+        started.set()
+        raise ConnectionAbortedError
+
+    script = f'echo $$ > "{pid_file}"; exec /bin/cat > /dev/null'
+    with pytest.raises(ConnectionAbortedError):
+        await proc.run_piped(
+            ["/bin/sh", "-c", script], env={"PATH": "/bin"}, chunks=failing(), idle_timeout=5, kill_grace_s=0.2
+        )
+    assert started.is_set()
+    assert _gone(pid_file)
+
+
+async def test_run_piped_a_child_that_stops_reading_ends_the_feed_with_its_exit_code() -> None:
+    result = await proc.run_piped(
+        ["/bin/sh", "-c", "exit 4"], env={"PATH": "/bin"}, chunks=_chunks(*[b"y" * 65536] * 8), idle_timeout=5
+    )
+    assert result.returncode == 4
+
+
+async def test_run_piped_refuses_an_empty_argv() -> None:
+    with pytest.raises(ValueError, match="argv"):
+        await proc.run_piped([], env={}, chunks=_chunks(b""), idle_timeout=1)

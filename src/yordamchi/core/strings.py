@@ -687,6 +687,17 @@ ARTEFACT_VIDEO_OFFER_NO_ACCESS = Msg(
 )
 ARTEFACT_DIRECT_LINK = Msg("Videoning o'z sahifasi: {url}")
 
+# --- voice_tts ---
+# SPEC §3.2.11 step 6: the text always goes; a voice that moved to the next provider or did not come says so in one
+# line, at most once per reason per hour.
+SPEECH_EDGE = Msg("Edge TTS")
+TTS_FELL_BACK = Msg("Ovoz: {provider} ishlamadi ({problem}) — {fallback} orqali yubordim.")
+VOICE_SKIPPED = Msg("Ovozli javob yo'q: {reason}. Javob faqat matnda.")
+TTS_REASON_NO_PROVIDER = Msg("ovoz uchun ishlaydigan provayder yo'q")
+TTS_REASON_NO_FFMPEG = Msg("ffmpeg o'rnatilmagan")
+TTS_REASON_ENCODE = Msg("ovozni Telegram formatiga o'girib bo'lmadi")
+TTS_REASON_SUMMARY = Msg("ovoz uchun qisqa matnni tayyorlab bo'lmadi")
+
 
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(

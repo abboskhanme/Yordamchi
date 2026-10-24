@@ -102,6 +102,9 @@ SPEC_KEYS.extend(
     ]
 )
 
+# T71 (voice_tts): the S8 sentence-segment fallback and the voices that follow `voice.gender` (SPEC §3.2.13, §11 S8).
+SPEC_KEYS.extend(["tts.segment_words", "tts.female_voice", "tts.male_voice", "tts.edge_male_voice"])
+
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")
 SAFEGUARD_KEYS = (

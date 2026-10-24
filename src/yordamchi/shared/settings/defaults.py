@@ -582,7 +582,7 @@ SPEECH_TTS_PROVIDER = Setting(
     check=OneOf("auto", "google", "openrouter", "edge", "off"),
     group=Group.SPEECH,
     bots=BOTH,
-    doc="auto = Google, then OpenRouter, then Edge, then text only.",
+    doc="auto = OpenRouter, then Google (only with a key), then Edge, then text only (owner decision 2026-10-24).",
 )
 STT_GOOGLE_MODEL = Setting(
     "stt.google_model",
@@ -1339,6 +1339,45 @@ TIMEOUTS_VIDEO_ENCODE_S = Setting(
     group=Group.TIMEOUTS,
     bots=PERSONAL,
     doc="One re-encode pass to fit the send cap.",
+)
+
+# --- voice_tts ---
+TTS_SEGMENT_WORDS = Setting(
+    "tts.segment_words",
+    int,
+    0,
+    check=Range(0, 300),
+    group=Group.SPEECH,
+    bots=BOTH,
+    doc="0 = one TTS request per voice note; above 0, cut at sentence ends into pieces of at most this many words, "
+    "synthesized in parallel (SPEC §11 S8 fallback).",
+)
+TTS_FEMALE_VOICE = Setting(
+    "tts.female_voice",
+    str,
+    "Kore",
+    check=MaxLen(40),
+    group=Group.VOICE,
+    bots=BOTH,
+    doc="Gemini voice used when voice.gender is female and voice.name is a male voice.",
+)
+TTS_MALE_VOICE = Setting(
+    "tts.male_voice",
+    str,
+    "Charon",
+    check=MaxLen(40),
+    group=Group.VOICE,
+    bots=BOTH,
+    doc="Gemini voice used when voice.gender is male and voice.name is a female voice.",
+)
+TTS_EDGE_MALE_VOICE = Setting(
+    "tts.edge_male_voice",
+    str,
+    "uz-UZ-SardorNeural",
+    check=MaxLen(80),
+    group=Group.SPEECH,
+    bots=BOTH,
+    doc="Edge TTS voice when voice.gender is male (tts.edge_voice is the female one).",
 )
 
 

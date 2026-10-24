@@ -59,6 +59,7 @@ from yordamchi.personal.deps import PersonalDeps
 from yordamchi.ports.agent import ToolCall
 from yordamchi.ports.git import Commit, GitStatus
 from yordamchi.ports.remote_shell import RemoteResult
+from yordamchi.ports.speech import SpeechAudio, Transcript
 from yordamchi.ports.speech import Transcript
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.burst import domain as burst_domain
@@ -1282,3 +1283,33 @@ def make_media_dir(paths: Paths, name: str, *, files: int = 1) -> Path:
 def make_video_limits(**overrides: int) -> VideoLimits:
     """The `web.video_*` defaults as one pass reads them, with fields replaced by name."""
     return replace(artefacts_domain.video_limits(make_default_snapshot(BotName.PERSONAL)), **overrides)
+
+
+# --- voice_tts ---
+TTS_PROVIDERS: Final = ("openrouter", "google", "edge")
+
+
+def make_speech_audio(
+    *,
+    provider: str = "openrouter",
+    model: str = "google/gemini-3.8-flash-tts",
+    duration_ms: int | None = 24_000,
+    data: bytes = b"OggS synthetic opus note",
+    cost_usd_micros: int | None = None,
+    units: Mapping[str, int] | None = None,
+) -> SpeechAudio:
+    """One finished voice note as an adapter returns it (a 24 s note by default)."""
+    return SpeechAudio(
+        data=data,
+        mime="audio/ogg",
+        provider=provider,
+        model=model,
+        duration_ms=duration_ms,
+        cost_usd_micros=cost_usd_micros,
+        units=dict(units if units is not None else {"characters": 380, "requests": 1}),
+    )
+
+
+def make_synthesizers(clock: FakeClock | None = None) -> dict[str, FakeSynthesizer]:
+    """One scripted fake per TTS provider, keyed as `SharedDeps.synthesizers` expects."""
+    return {provider: FakeSynthesizer(provider=provider, clock=clock) for provider in TTS_PROVIDERS}
