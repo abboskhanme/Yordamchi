@@ -32,7 +32,7 @@ from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.uow import Database, Session
 from yordamchi.personal.deps import PersonalDeps
-from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.burst import domain as burst_domain
 from yordamchi.shared.burst import store as burst_store
 from yordamchi.shared.burst.domain import BurstPart, BurstStatus, CloseReason, WindowSettings
@@ -225,6 +225,128 @@ def make_owner_origin(bot: BotName = BotName.DEV, *, update_id: int = 1, chat_id
     """Stands in for `shared/access` minting an origin from a verified owner update."""
     default_chat = DEV_GROUP_ID if bot is BotName.DEV else OWNER_ID
     return OwnerOrigin(bot=bot, update_id=update_id, user_id=OWNER_ID, chat_id=chat_id or default_chat)
+
+
+STRANGER_ID: Final = 200000002
+FOREIGN_GROUP_ID: Final = -1005550001111  # a supergroup that is neither bot's chat
+TELEGRAM_DATE: Final = 1761292800  # Telegram dates are Unix seconds
+
+type TelegramJson = dict[str, object]
+
+
+def own_chat_id(bot: BotName) -> int:
+    """The chat the owner talks to `bot` in: the dev group, or the owner's DM."""
+    return DEV_GROUP_ID if bot is BotName.DEV else OWNER_ID
+
+
+def make_arrival(
+    update_id: int = 1,
+    *,
+    bot: BotName = BotName.DEV,
+    event: EventType = EventType.MESSAGE,
+    user_id: int | None = OWNER_ID,
+    chat_id: int | None = None,
+    chat_kind: ChatKind | None = None,
+    bot_present: bool = True,
+) -> Arrival:
+    """An update as `OwnerOnly` reads it; by default the owner's message in the bot's own chat. Without `chat_kind`, a
+    positive chat id is a private chat and a negative one a supergroup."""
+    chat = own_chat_id(bot) if chat_id is None else chat_id
+    kind = chat_kind or (ChatKind.PRIVATE if chat > 0 else ChatKind.SUPERGROUP)
+    return Arrival(
+        bot=bot,
+        update_id=update_id,
+        event=event,
+        user_id=user_id,
+        chat_id=chat,
+        chat_kind=kind,
+        bot_present=bot_present,
+    )
+
+
+# Raw `getUpdates` items (Bot API JSON) for the `Dispatcher.feed_update` tests; `Update.model_validate` reads them.
+def tg_user(user_id: int) -> TelegramJson:
+    return {"id": user_id, "is_bot": False, "first_name": "Owner" if user_id == OWNER_ID else "Stranger"}
+
+
+def tg_chat(chat_id: int, chat_type: str | None = None) -> TelegramJson:
+    """A Bot API `Chat`: private for a positive id, a supergroup for a negative one, unless `chat_type` says."""
+    kind = chat_type or ("private" if chat_id > 0 else "supergroup")
+    if kind == "private":
+        return {"id": chat_id, "type": kind, "first_name": "Owner" if chat_id == OWNER_ID else "Stranger"}
+    return {"id": chat_id, "type": kind, "title": "Guruh"}
+
+
+def tg_message(
+    update_id: int,
+    *,
+    user_id: int | None = OWNER_ID,
+    chat_id: int = DEV_GROUP_ID,
+    chat_type: str | None = None,
+    text: str = "BonviHR'da login sahifasini tuzat",
+    field: str = "message",
+) -> TelegramJson:
+    """A text message in `field` (`message`, `edited_message`, `channel_post`, `edited_channel_post`).
+    `user_id=None` leaves `from` out, as a channel post does."""
+    message: TelegramJson = {
+        "message_id": 5000 + update_id,
+        "date": TELEGRAM_DATE,
+        "chat": tg_chat(chat_id, chat_type),
+        "text": text,
+    }
+    if user_id is not None:
+        message["from"] = tg_user(user_id)
+    if field.startswith("edited_"):
+        message["edit_date"] = TELEGRAM_DATE + 60
+    return {"update_id": update_id, field: message}
+
+
+_ADMIN_FLAGS: Final = (
+    "can_manage_chat",
+    "can_manage_video_chats",
+    "can_restrict_members",
+    "can_promote_members",
+    "can_change_info",
+    "can_invite_users",
+    "can_post_stories",
+    "can_edit_stories",
+    "can_delete_stories",
+    "can_send_welcome_messages",
+)
+
+
+def tg_member_change(
+    update_id: int, *, user_id: int, chat_id: int, old: str = "left", new: str = "member"
+) -> TelegramJson:
+    """A `my_chat_member`: `user_id` changed the bot's status in `chat_id` from `old` to `new`."""
+    bot_user = {"id": 123456789, "is_bot": True, "first_name": "Yordamchi"}
+    new_member: TelegramJson = {"user": bot_user, "status": new}
+    if new == "kicked":
+        new_member["until_date"] = 0
+    if new == "administrator":  # the rights the Bot API requires on ChatMemberAdministrator
+        new_member |= {"can_be_edited": False, "is_anonymous": False, "can_delete_messages": True}
+        new_member |= dict.fromkeys(_ADMIN_FLAGS, False)
+    change = {
+        "chat": tg_chat(chat_id),
+        "from": tg_user(user_id),
+        "date": TELEGRAM_DATE,
+        "old_chat_member": {"user": bot_user, "status": old},
+        "new_chat_member": new_member,
+    }
+    return {"update_id": update_id, "my_chat_member": change}
+
+
+def tg_callback(update_id: int, *, user_id: int, chat_id: int | None = None) -> TelegramJson:
+    """A `callback_query` (the bots never send buttons, so one is never theirs), on a message in `chat_id` if given."""
+    query: TelegramJson = {"id": f"cb-{update_id}", "from": tg_user(user_id), "chat_instance": "ci-1", "data": "1"}
+    if chat_id is not None:
+        query["message"] = {"message_id": 7000 + update_id, "date": TELEGRAM_DATE, "chat": tg_chat(chat_id)}
+    return {"update_id": update_id, "callback_query": query}
+
+
+def tg_inline_query(update_id: int, *, user_id: int) -> TelegramJson:
+    query = {"id": f"iq-{update_id}", "from": tg_user(user_id), "query": "salom", "offset": ""}
+    return {"update_id": update_id, "inline_query": query}
 
 
 # --- outbox ---
