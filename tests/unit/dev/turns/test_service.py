@@ -21,6 +21,7 @@ from tests.factories import (
     make_burst_row,
     make_closed_burst,
     make_decision,
+    make_default_snapshot,
     make_owner_origin,
     make_part,
     make_project,
@@ -69,6 +70,7 @@ from yordamchi.shared.cost import store as cost_store
 from yordamchi.shared.outbox import service as outbox_service
 from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.models import OutboxMessage
+from yordamchi.shared.settings import defaults
 
 PROJECT = "BonviHR"
 OTHER = "HRMentor"
@@ -94,6 +96,9 @@ def result(text: str = FINAL, **changes: object) -> TurnResult:
     }
     values.update(changes)
     return TurnResult(**values)  # type: ignore[arg-type]
+
+
+DEFAULT_TONE = make_default_snapshot()[defaults.PERSONA_DEV_TONE]
 
 
 # --- fixtures and helpers -------------------------------------------------------------------------------------------
@@ -319,7 +324,7 @@ async def test_the_session_follows_the_coding_options_of_spec_5_3(
     assert spec.context_provider is not None
     context = spec.context_provider()
     assert context.startswith("Current instructions from the owner:")
-    assert "qisqa, aniq, texnik" in context
+    assert DEFAULT_TONE in context  # `persona.dev_tone`, sent with every turn (SPEC §5.4)
     assert "Uzbek (Latin script)" in context
 
 
