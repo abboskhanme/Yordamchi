@@ -60,7 +60,6 @@ from yordamchi.ports.agent import ToolCall
 from yordamchi.ports.git import Commit, GitStatus
 from yordamchi.ports.remote_shell import RemoteResult
 from yordamchi.ports.speech import SpeechAudio, Transcript
-from yordamchi.ports.speech import Transcript
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.burst import domain as burst_domain
 from yordamchi.shared.burst import store as burst_store
