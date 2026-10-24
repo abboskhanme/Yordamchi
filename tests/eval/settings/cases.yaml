@@ -172,6 +172,7 @@ cases:
     group: models
     lang: uz
     text: "hisobotlar uchun tezroq model qo'y"
+    before: {models.report: sonnet}  # the default is haiku since 2026-10-24
     model: {outcome: change, changes: {models.report: haiku}}
     expect: {applied: {models.report: haiku}}
 
@@ -474,6 +475,7 @@ cases:
     group: models
     lang: uz
     text: "tezroq javob ber"
+    before: {models.report: sonnet}  # the default is haiku since 2026-10-24
     model: {outcome: clarify, changes: {models.report: haiku, timeouts.report_s: 2}}
     expect:
       clarify: ["models.report: sonnet → haiku", "timeouts.report_s: 3.5 s → 2 s"]

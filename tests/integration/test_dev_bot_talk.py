@@ -269,22 +269,22 @@ async def test_how_are_you_gets_an_answer_not_a_report_and_asks_no_model() -> No
         await bot.say("Qandeysan?")
         took = await bot.within(5, lambda: bool(bot.posted(S.CHAT_HOW())), what="the answer")
         assert took <= DEFAULTS[defaults.BURST_AFTER_TEXT_S] + 1.0
-        assert bot.posted(S.CHAT_IDLE())
         assert bot.fakes.assistant.requests == []  # neither routing nor a report was asked
         assert not bot.posted("Bugun o'zgargan")
 
 
-async def test_a_greeting_says_what_is_working() -> None:
+async def test_a_greeting_adds_no_project_status_even_while_work_runs() -> None:
     async with dev_bot() as bot:
         await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT)
         await started(bot)
         bot.fakes.agents.script_turn(Pause())
         await bot.say("BonviHR'da login sahifasini tuzat")
         await bot.within(20, lambda: bool(bot.fakes.agents.sends), what="the turn")
-        await bot.say("Salom")
-        working = S.CHAT_WORKING(projects=PROJECT)
-        await bot.within(5, lambda: bool(bot.posted(working)), what="the greeting")
-        assert bot.posted(S.CHAT_HELLO())
+        await bot.say("Hi")
+        await bot.within(5, lambda: bool(bot.posted(S.CHAT_HELLO())), what="the greeting")
+        [reply] = bot.posted(S.CHAT_HELLO())
+        assert PROJECT not in reply  # owner: no project status in small talk
+        assert "Ma'lumot" not in reply
         assert await running(bot, PROJECT)  # a greeting is never an instruction for the running turn
 
 

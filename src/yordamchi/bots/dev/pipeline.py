@@ -352,9 +352,11 @@ class Pipeline:
             await self._reply(item, await act(deps, self.turns, target), kind=Kind.NOTICE, project=target)
 
     async def _talk(self, item: TurnInput, command: Command) -> bool:
-        """Small talk — "salom", "qandaysan?", "rahmat", "nima qila olasan?" — answered from the catalog, no model."""
+        """Small talk — "salom", "qandaysan?", "rahmat", "nima qila olasan?" — answered from the catalog, no model, and
+        never with project status (owner, 2026-10-24)."""
         if command.intent is Intent.GREETING:
-            text = await self._greeting(command.argument)
+            replies = {intents.GREETING_HOW: S.CHAT_HOW, intents.GREETING_SALAM: S.CHAT_SALAM}
+            text = replies.get(command.argument, S.CHAT_HELLO)()
         elif command.intent is Intent.THANKS:
             text = S.CHAT_THANKS()
         elif command.intent is Intent.HELP:
@@ -363,13 +365,6 @@ class Pipeline:
             return False
         await self._reply(item, text, kind=Kind.NOTICE)
         return True
-
-    async def _greeting(self, opening: str) -> BotText:
-        """A greeting answered as one, with the one fact worth knowing: what is working right now."""
-        working = await self._working()
-        state = S.CHAT_WORKING(projects=", ".join(working)) if working else S.CHAT_IDLE()
-        first = {intents.GREETING_HOW: S.CHAT_HOW, intents.GREETING_SALAM: S.CHAT_SALAM}.get(opening, S.CHAT_HELLO)
-        return S.CHAT_GREETING(opening=first(), state=state, hint=S.CHAT_HINT())
 
     async def _owner_command(self, item: TurnInput, command: Command, origin: OwnerOrigin, project: str | None) -> None:
         deps, intent = self.deps, command.intent

@@ -723,15 +723,11 @@ NOT_YET = Msg("Bu imkoniyat hali yo'q — {phase} bosqichida qo'shiladi.")
 WHICH_RUNNING = Msg("Bir nechta ish ketyapti: {projects}. Qaysi birini to'xtatay? Loyiha nomini yozing.")
 # "davom ettir", "qayta yubor" with no project named, replied to, or left over from the restart.
 WHICH_PROJECT_NAME = Msg("Qaysi loyiha? Loyiha nomini yozing yoki uning xabariga javob qiling.")
-# Small talk (owner, 2026-10-24: "qandaysan?" must get a reply, not a report). `opening` is one of the three below,
-# `state` CHAT_WORKING or CHAT_IDLE.
-CHAT_GREETING = Msg("{opening} {state}\n\n{hint}")
-CHAT_HELLO = Msg("Salom! 👋")
-CHAT_SALAM = Msg("Va alaykum assalom! 👋")
-CHAT_HOW = Msg("Yaxshi, rahmat! 🙂")
-CHAT_WORKING = Msg("Hozir ish ketyapti: {projects}.")
-CHAT_IDLE = Msg("Hozir hech qaysi loyihada ish ketmayapti — vazifaga tayyorman.")
-CHAT_HINT = Msg("Vazifa bering yoki «nima qila olasan?» deb so'rang.")
+# Small talk (owner, 2026-10-24: "qandaysan?" must get a reply, not a report, and no project status is ever added to
+# plain talk).
+CHAT_HELLO = Msg("Salom! 👋 Nima qilamiz?")
+CHAT_SALAM = Msg("Va alaykum assalom! 👋 Nima qilamiz?")
+CHAT_HOW = Msg("Yaxshi, rahmat! 🙂 O'zingiz qalaysiz?")
 CHAT_THANKS = Msg("Arzimaydi! 🙂")
 # "nima qila olasan?", `/yordam`: what the dev bot does today (docs/QOLLANMA.md; P2 features are not listed).
 HELP = Msg(

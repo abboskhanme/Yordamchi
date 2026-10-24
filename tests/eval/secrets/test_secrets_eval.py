@@ -40,6 +40,7 @@ from tests.factories import (
     db_file_bytes,
     drain_outbox,
     make_dev_deps,
+    make_owner_origin,
     make_paths,
     make_update,
     open_test_db,
@@ -284,6 +285,10 @@ async def observe(
 ) -> Observation:
     update = _update(case, deps.bot)
     formatter = JsonFormatter(process=deps.bot.value, version="eval")
+    # The "seen" reaction is one of the outbound calls a key could ride on: the eval keeps it on (the default has been
+    # none since 2026-10-24), so every case still sends something to search.
+    owner = make_owner_origin(deps.bot, update_id=update.update_id + 10_000)
+    await settings.record_version(deps, owner, defaults.UI_SEEN_REACTION, "\U0001f440", reason="change")
     with _capturing(caplog):
         accepted = await inbox.accept_update(deps, origin_of(update), update)
         await send_outbox(deps)  # the sender's first pass: the delete, then the masked reply, typing, the reaction
