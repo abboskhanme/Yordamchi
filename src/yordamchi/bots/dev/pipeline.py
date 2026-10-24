@@ -362,10 +362,9 @@ class Pipeline:
             text = S.CHAT_THANKS()
         elif command.intent is Intent.HELP:
             text = S.HELP()
-        elif command.intent is Intent.ACKNOWLEDGE:
-            return True  # nothing was open to answer: "xo'p" needs no reply (the read mark already shows ✓✓)
         else:
-            return False
+            # a bare "xo'p" reaches here only when nothing was open to answer: no reply (the read mark shows ✓✓)
+            return command.intent is Intent.ACKNOWLEDGE
         await self._reply(item, text, kind=Kind.NOTICE)
         return True
 
