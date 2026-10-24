@@ -16,10 +16,10 @@ branch_labels: str | Sequence[str] | None = ${repr(branch_labels)}
 depends_on: str | Sequence[str] | None = ${repr(depends_on)}
 
 
-def upgrade() -> None:  # noqa: PLR0915  # generated: one statement per table and index
+def upgrade() -> None:
     ${upgrades if upgrades else "pass"}
 
 
-def downgrade() -> None:  # noqa: PLR0915  # generated: one statement per table and index
+def downgrade() -> None:
     # Rollback restores the pre-update DB copy, not downgrade() (CONVENTIONS §8).
     ${downgrades if downgrades else "pass"}
