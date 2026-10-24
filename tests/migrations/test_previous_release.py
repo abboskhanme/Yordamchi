@@ -136,12 +136,6 @@ async def test_upgrading_the_release_to_head_loses_no_data(tmp_path: Path) -> No
         ),
         pytest.param("op.execute(\"UPDATE projects SET description = ''\")", "projects: row changed", id="overwrite"),
         pytest.param(
-            'with op.batch_alter_table("bursts", schema=None) as batch_op:\n'
-            '    batch_op.create_unique_constraint("uq_t40_bursts", ["id"])',
-            "turns: row changed",  # the rebuild's DROP TABLE nulls turns.burst_id (ON DELETE SET NULL)
-            id="rebuild_parent",
-        ),
-        pytest.param(
             'with op.batch_alter_table("usage_records", schema=None) as batch_op:\n'
             '    batch_op.alter_column("duration_ms", existing_type=sa.Integer(), type_=sa.Float())',
             "usage_records: row changed",  # 900 → 900.0: equal in Python, a different type on disk
@@ -150,7 +144,9 @@ async def test_upgrading_the_release_to_head_loses_no_data(tmp_path: Path) -> No
     ],
 )
 def test_the_no_loss_check_catches_a_lossy_revision(tmp_path: Path, body: str, lost: str) -> None:
-    """The check above would pass vacuously if it could not see a loss; here are five it must see."""
+    """The check above would pass vacuously if it could not see a loss; here are four it must see. (A parent-table
+    rebuild used to be a fifth: since migrations run with foreign_keys=OFF it no longer loses child rows, which
+    `test_expand_only.py::test_a_table_rebuild_keeps_every_child_row` now proves.)"""
     location = scratch_chain(tmp_path, {f"{SYNTHETIC}.py": synthetic_revision(body)})
     copy = release_at_head(tmp_path)
     before = read_tables(copy)

@@ -5,8 +5,8 @@ may still run against the new schema. So a revision only adds: a new table, a nu
 literal server default), an index. A rename or drop ships one release after the code stopped using it.
 
 The guard reads `upgrade()` of each later revision (`revision_rules.expand_only_violations`); the tests below prove it
-on synthetic revisions, since the chain has none yet. The last tests show, on the release DB, why a table rebuild is
-refused while `migrations/env.py` migrates with `foreign_keys=ON`.
+on synthetic revisions, since the chain has none yet. The last tests prove, on the release DB, that a table rebuild
+keeps every child row now that `migrations/env.py` migrates with `foreign_keys=OFF`.
 """
 
 from pathlib import Path
@@ -28,7 +28,7 @@ from tests.migrations.harness import (
 from tests.migrations.revision_rules import expand_only_violations
 
 # A contraction (drop or rename) ships one release after the code stopped using what it removes. List its revision
-# here with that release, e.g. {"0007": "turns.old_x unused since release 2026.12.01-abc1234"}. Allowed only once
+# here with that release, e.g. {"0007": "turns.old_x unused since release 2026.12.01-abc1234"}. Safe only while
 # env.py migrates with foreign_keys=OFF: SQLite drops or renames a column by rebuilding the table, and with foreign
 # keys on, the rebuild empties or nulls every child table (test_a_table_rebuild_keeps_every_child_row below).
 CONTRACTIONS: Final[dict[str, str]] = {}
@@ -187,14 +187,14 @@ def test_the_guard_accepts(body: str) -> None:
 @pytest.mark.parametrize(
     "table",
     [
-        pytest.param("turns", id="cascade_children_deleted"),  # deliveries, turn_progress, questions emptied
-        pytest.param("bursts", id="set_null_children_nulled"),  # every burst_id pointer nulled
+        pytest.param("turns", id="cascade_children_kept"),  # with foreign keys on: deliveries, questions emptied
+        pytest.param("bursts", id="set_null_children_kept"),  # with foreign keys on: every burst_id pointer nulled
     ],
 )
 def test_a_table_rebuild_keeps_every_child_row(tmp_path: Path, table: str) -> None:
     children = {child for (child, _), (parent, _) in inventory.FOREIGN_KEYS.items() if parent == table}
     problems = _rebuild_loss(tmp_path, table)
     other = [problem for problem in problems if problem.split(":")[0] not in children]
-    if other:  # not the known cascade: a real failure, never hidden by the xfail marker
+    if other:  # not the cascade this guards against: report it as what it is
         pytest.fail(f"rebuilding {table} lost data outside its child tables: {other}")
     assert problems == [], f"rebuilding {table} emptied or nulled its child tables {sorted(children)}"
