@@ -10,3 +10,8 @@ tests/eval/thresholds.toml
 src/yordamchi/bots/common.py
 src/yordamchi/shared/vault/**
 src/yordamchi/dev/gate/**
+shims/**
+githooks/**
+src/yordamchi/bots/cli/shim.py
+src/yordamchi/bots/cli/githook.py
+src/yordamchi/core/control.py
