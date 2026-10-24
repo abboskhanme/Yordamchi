@@ -930,7 +930,7 @@ def test_rows_round_trip_and_unknown_values_fall_back() -> None:
 
 def test_route_settings_come_from_the_snapshot_defaults() -> None:
     assert (CFG.min_confidence, CFG.min_margin, CFG.context_window) == (0.75, 0.2, timedelta(minutes=15))
-    assert (CFG.merge_min_confidence, CFG.model, CFG.timeout_s) == (0.85, "haiku", 3.8)
+    assert (CFG.merge_min_confidence, CFG.model, CFG.timeout_s) == (0.85, "haiku", 6.0)  # 3.8 until 2026-10-24
 
 
 def test_an_unknown_part_kind_reads_as_a_message() -> None:
