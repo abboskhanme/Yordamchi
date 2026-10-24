@@ -386,3 +386,13 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] SPEC §4.3: `ui.hold_reaction` (👌) and `ack.typing_for_work` (false).
 - [ ] Routing's LLM `change_setting` intent (messages about the bot with no cue word, "rasmdan keyin 15 soniya kut"): built and recorded once in T34b, but that live re-record missed UC-10 (clear 96.3 %, context 85.2 %) on cases it does not touch, so it is held back for the orchestrator's call; its 12 settings and 9 near-miss cases scored 21/21. Until then such a request needs "sozlama: …".
 - [ ] SELF_UPDATE stays `S.NOT_YET` in the dev bot until its P2 drain and probation wiring.
+
+## From the first live start (T43, 2026-10-24, release 2026.10.24-8feba39)
+- [ ] The first start of a fresh install says "Qayta ishga tushdim (oldingi ish kutilmaganda uzildi)". With no
+      previous heartbeat it should be a first-start line, not "cut off unexpectedly".
+- [ ] The first routing ask on a cold `haiku` client timed out at `timeouts.routing_s` (3.8 s), so four queued
+      "Salom" greetings got "qaysi loyiha uchun?". Warm the routing client before the first poll is processed, and a
+      bare greeting should never ask for a project (T44 latency; T47 re-record).
+- [ ] `setMessageReaction` failed (`provider_unavailable`, reason `other`) on 5 of the 6 queued parts. Two were
+      service messages; find out why the texts failed (old message? reaction list of the group?) and log the
+      Telegram description.
