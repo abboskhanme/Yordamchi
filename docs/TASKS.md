@@ -6,7 +6,7 @@ Source: `docs/SPEC.md` (approved 2026-10-23). `plan-manager` · 2026-10-23. Path
 scratch repo). (2) Orchestrator: start spikes T03–T06 now (no deps), and T07 once T01 lands. Tell the T01 agent that its
 done criterion includes the pre-carved shared-file blocks and every §4.3 P1 default (rule R2).
 
-**Status:** done 32 (T01–T30, T32 + T17b, T18b, ffmpeg pin) · in progress 3 (T31, T32b, T33 + security fixes) · blocked on owner 1 (T38) · todo: T34–T47.
+**Status:** done 32 (T01–T30, T32 + T17b, T18b, ffmpeg pin) · in progress 4 (T31, T32b, T33 + security fixes, T34) · blocked on owner 1 (T38) · todo: T34–T47.
 
 **Critical path (P1):** T01 → T02 → T08 → T17 → T20 → T24 → {T29 T30 T31 T32} → T34 → T36 → T42 → T43 → T44 → T47.
 Joins it: T03 → T10 → T24 (spikes gate the executor) and T07 → T18 → T24 (gate). Day-one owner items on it:
@@ -182,7 +182,7 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T34 | U9b `bots/dev` composition root, routers, intents (§6.1 order), control socket (`gate_check`, `secret_blocked`, `status`), startup §2.5, shutdown §2.6, recovery §2.7, scheduler + retention; P2 intents → `S.NOT_YET(phase)` | build-backend | T09–T24, T29–T32 | no | `bots/dev/{app,telegram,intents}.py` | WIRE STR ERR DEF MIG (final) | UC-01 (end to end), UC-06 (restart notice ≤ 60 s), NFR-REL-02/05/07, NFR-SEC-04 (exit 78), NFR-SPD-01, A7 | scripted conversation passes on fakes | todo |
+| T34 | U9b `bots/dev` composition root, routers, intents (§6.1 order), control socket (`gate_check`, `secret_blocked`, `status`), startup §2.5, shutdown §2.6, recovery §2.7, scheduler + retention; P2 intents → `S.NOT_YET(phase)` | build-backend | T09–T24, T29–T32 | no | `bots/dev/{app,telegram,intents}.py` | WIRE STR ERR DEF MIG (final) | UC-01 (end to end), UC-06 (restart notice ≤ 60 s), NFR-REL-02/05/07, NFR-SEC-04 (exit 78), NFR-SPD-01, A7 | scripted conversation passes on fakes | in progress (2026-10-24) |
 | T35 | U9c golden tests + catalog completeness | test-backend | T34 | no | `tests/golden/{progress,result,holat,settings_list}.txt` + tests | STR (fixes) | UC-11 format, UC-06, UC-09 list, NFR-LANG-01, `test_error_catalog` | goldens reviewed | todo |
 
 ## Phase 10 — System tests [parallel, max 5]
