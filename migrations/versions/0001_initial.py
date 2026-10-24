@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 09:24:05.688014
+Create Date: 2026-10-24 09:30:13.952236
 """
 
 from collections.abc import Sequence

@@ -7,6 +7,6 @@ src/yordamchi/core/redact.py
 tests/eval/thresholds.toml
 .protected-core
 # pending: src/yordamchi/bots/common.py
-# pending: src/yordamchi/shared/vault/**
+src/yordamchi/shared/vault/**
 # pending: src/yordamchi/dev/gate/**
 # pending: src/yordamchi/adapters/*/guard.py
