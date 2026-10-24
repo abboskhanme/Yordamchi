@@ -48,3 +48,17 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - `MacOsHost(home=paths.home)` in both bots.
 - [ ] T31: pass the ≤ 3 min timeout from settings, and truncate `RemoteResult` output before storing it (`core.proc.run` has no output cap).
 - [ ] T54: match `interactive_sessions()` ids against our own sessions. Without a registry, an orphaned SDK process counts as the owner's (deliberately conservative).
+
+## From T10 + T11 (Claude executor + guard)
+- [ ] T24 sessions:
+  - set `setting_sources=("user","project","local")` for coding, investigation and smoke; the adapter passes the spec value through as given;
+  - fill the new `SessionSpec` fields `hook_timeout_s` (`gate.hook_timeout_s`), `question_hold_s` (`questions.hold_process_min`) and `question_parked_message` (`prompts/dev/question_parked.md`);
+  - pass `YORDAMCHI_SOCK`, `YORDAMCHI_SESSION_TOKEN` and `YORDAMCHI_PY` in `spec.env`.
+- [ ] T24 events:
+  - `TurnResult.interrupted` is a stopped turn;
+  - `background=True` is a late note that no running turn owns;
+  - handle `UsageWindow`;
+  - `RuntimeFailed(process_died, retryable)` after a backstop kill means `needs_resume`.
+- [ ] T34 `app.py`: `ClaudeAgentRuntime(cli_path=default_cli_path(home), search_path=proc.build_search_path(paths, login_path), githooks_dir=paths.githooks)`. The startup `os.environ` scrub is still required, because the SDK merges the inherited env.
+- [ ] Prompts: move `guard.SUBAGENT_QUESTION_MESSAGE` (an English constant in the adapter) into `prompts/dev/`.
+- [ ] STACK §8 re-check list: re-verify the private SDK API in `adapters/claude/control.py` (`_query.receive_messages`, `_send_control_request`, `_initialization_result["pid"]`) and the `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS` opt-in on every SDK or CLI upgrade.
