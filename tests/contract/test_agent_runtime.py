@@ -1,8 +1,11 @@
+import uuid
 from pathlib import Path
 
 import pytest
 
 from tests.fakes.agent import FakeAgentRuntime, ToolStep
+from tests.fakes.claude_client import LIVE_CLI, LIVE_SEARCH_PATH, scrub_live_env
+from yordamchi.adapters.claude.executor import ClaudeAgentRuntime
 from yordamchi.ports.agent import (
     AgentEvent,
     AgentInput,
@@ -21,6 +24,7 @@ from yordamchi.ports.agent import (
 )
 
 TIMEOUT = 5.0
+LIVE_TIMEOUT = 90.0
 
 
 async def _allow_all(call: ToolCall) -> GuardVerdict:
@@ -54,13 +58,15 @@ class AgentRuntimeContract:
     async def test_a_session_starts_ready_and_a_turn_ends_with_a_result(
         self, runtime: AgentRuntime, tmp_path: Path
     ) -> None:
+        # SessionReady comes first in the stream; the Claude CLI sends its `init` with the first turn, so the
+        # contract does not require it before the first send.
         h = await runtime.open(_spec(tmp_path), resume_id=None, timeout=TIMEOUT)
-        first = await _until(runtime, h, SessionReady)
-        assert isinstance(first[0], SessionReady)
-        assert first[0].session_id == h.session_id
         await runtime.send(h, AgentInput(text="Reply with: ok"), mode="new_turn", timeout=TIMEOUT)
         turn = await _until(runtime, h, TurnResult)
+        assert isinstance(turn[0], SessionReady)
+        assert turn[0].session_id == h.session_id
         assert isinstance(turn[-1], TurnResult)
+        assert turn[-1].interrupted is False
         await runtime.close(h, timeout=TIMEOUT)
         assert isinstance((await _until(runtime, h, SessionClosed))[-1], SessionClosed)
 
@@ -111,5 +117,26 @@ class TestFakeAgentRuntime(AgentRuntimeContract):
     async def test_a_missing_transcript_fails_the_resume(self, tmp_path: Path) -> None:
         runtime = FakeAgentRuntime(missing_sessions={"gone"})
         h = await runtime.open(_spec(tmp_path), resume_id="gone", timeout=TIMEOUT)
+        events = await _until(runtime, h, RuntimeFailed)
+        assert events == [RuntimeFailed(code="session_not_found", retryable=False)]
+
+
+@pytest.mark.live
+@pytest.mark.skipif(not LIVE_CLI.exists(), reason="claude CLI not installed at ~/.local/bin/claude")
+class TestClaudeAgentRuntime(AgentRuntimeContract):
+    """The same contract on the real `~/.local/bin/claude` (haiku); `pytest -m live tests/contract`."""
+
+    @pytest.fixture
+    def runtime(self, monkeypatch: pytest.MonkeyPatch) -> AgentRuntime:
+        scrub_live_env(monkeypatch)
+        return ClaudeAgentRuntime(cli_path=LIVE_CLI, search_path=LIVE_SEARCH_PATH)
+
+    @pytest.fixture(autouse=True)
+    def _live_timeouts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A real session takes seconds to spawn and answer; the contract's 5 s bound is for the fake."""
+        monkeypatch.setattr(f"{__name__}.TIMEOUT", LIVE_TIMEOUT)
+
+    async def test_a_missing_transcript_fails_the_resume(self, runtime: AgentRuntime, tmp_path: Path) -> None:
+        h = await runtime.open(_spec(tmp_path), resume_id=str(uuid.uuid4()), timeout=LIVE_TIMEOUT)
         events = await _until(runtime, h, RuntimeFailed)
         assert events == [RuntimeFailed(code="session_not_found", retryable=False)]

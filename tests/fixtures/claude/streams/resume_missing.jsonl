@@ -1,0 +1,2 @@
+{"t": 1.712, "kind": "error", "data": {"type": "ResultError", "str": "Claude Code returned an error result: No conversation found with session ID: 50222f90-bd0c-4fc5-9542-e1d9d2a0b852 (exit code: 1)", "mro": ["ResultError", "ProcessError", "ClaudeSDKError", "Exception", "BaseException", "object"]}}
+{"t": 1.712, "kind": "stderr", "data": ["No conversation found with session ID: 50222f90-bd0c-4fc5-9542-e1d9d2a0b852"]}

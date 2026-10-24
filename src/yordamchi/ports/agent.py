@@ -89,6 +89,9 @@ class SessionSpec:
     expected_tools: frozenset[str] | None = None  # init tool list must equal this (personal bot, NFR-SEC-08)
     max_turns: int | None = None
     extra_args: Mapping[str, str | None] = field(default_factory=dict)
+    hook_timeout_s: float = 15.0  # `gate.hook_timeout_s`: a guard call slower than this is a deny (SPEC §3.2.3)
+    question_hold_s: float = 1800.0  # `questions.hold_process_min`: how long a question callback is held (§3.2.2)
+    question_parked_message: str = ""  # `prompts/dev/question_parked.md`: the deny text once the hold elapses
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +153,17 @@ class UsageLimited:
 
 
 @dataclass(frozen=True, slots=True)
+class UsageWindow:
+    """The plan's usage window as the executor reports it on every turn (`status`: allowed|allowed_warning|rejected;
+    `utilization` 0.0–1.0). `UsageLimited` follows when the status is `rejected`."""
+
+    limit_type: str
+    status: str
+    utilization: float | None
+    resets_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class ModelUsage:
     input_tokens: int
     output_tokens: int
@@ -160,7 +174,11 @@ class ModelUsage:
 
 @dataclass(frozen=True, slots=True)
 class TurnResult:
-    """The executor's final message of a turn; `turns.domain.parse_result` reads `Natija`, tests and handoff."""
+    """The executor's final message of a turn; `turns.domain.parse_result` reads `Natija`, tests and handoff.
+
+    Emitted once per turn, when the executor reports it finished: a result followed by more work (a background
+    subagent, a queued `next` input) is held and folded into the final one, so cost and counts cover the whole turn.
+    """
 
     text: str
     subtype: str
@@ -171,6 +189,8 @@ class TurnResult:
     num_turns: int
     duration_ms: int
     permission_denials: tuple[str, ...] = ()
+    interrupted: bool = False  # the turn was stopped (`interrupt()`); a stopped turn, not a failure
+    background: bool = False  # a turn the executor started on its own after background work; no send owns it
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,7 +205,15 @@ class SessionClosed:
 
 
 type AgentEvent = (
-    SessionReady | Progress | QuestionAsked | ToolDenied | UsageLimited | TurnResult | RuntimeFailed | SessionClosed
+    SessionReady
+    | Progress
+    | QuestionAsked
+    | ToolDenied
+    | UsageLimited
+    | UsageWindow
+    | TurnResult
+    | RuntimeFailed
+    | SessionClosed
 )
 
 
