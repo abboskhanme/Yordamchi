@@ -1,0 +1,19 @@
+{
+  "session_id": "1777fdf0-176f-4d0d-9346-b22d6649bacb",
+  "transcript_path": "/Users/owner/.claude/projects/-tmp-yordamchi-fixture-project/1777fdf0-176f-4d0d-9346-b22d6649bacb.jsonl",
+  "cwd": "/tmp/yordamchi-fixture/project",
+  "prompt_id": "f4898a67-881c-4ce7-b657-2f637aa4b801",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Run echo sub-done",
+    "prompt": "Run the bash command `echo sub-done` and report its output exactly.",
+    "subagent_type": "general-purpose",
+    "run_in_background": true
+  },
+  "tool_use_id": "toolu_014ivhpnzbuP4cYvMN8VRQg1"
+}

@@ -1,0 +1,19 @@
+{
+  "session_id": "c11c1126-34cc-400c-a909-3127688f7463",
+  "transcript_path": "/Users/owner/.claude/projects/-tmp-yordamchi-fixture-project/c11c1126-34cc-400c-a909-3127688f7463.jsonl",
+  "cwd": "/tmp/yordamchi-fixture/project",
+  "prompt_id": "5a15433e-05f4-408a-934c-76f52005d202",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Grep",
+  "tool_input": {
+    "pattern": "def login",
+    "path": "/tmp/yordamchi-fixture/project/src",
+    "output_mode": "content",
+    "-n": true
+  },
+  "tool_use_id": "toolu_01GrepN8bQs3Hy6Lt1Xc4Rv7"
+}

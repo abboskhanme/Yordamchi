@@ -1,0 +1,21 @@
+# Deploys only when started by hand (Actions tab or `gh workflow run`); no push of any branch or tag starts it.
+# Expect: no push deploys. Starting the workflow (`gh workflow run deploy.yml`) is a deploy and asks.
+name: Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy
+        type: choice
+        options: [staging, production]
+        default: staging
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ship over SSH
+        run: ./scripts/deploy.sh "${{ inputs.environment }}"
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}

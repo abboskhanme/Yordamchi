@@ -1,0 +1,16 @@
+# The same service through `just`: recipes run in this folder.
+set dotenv-load
+
+default: test
+
+test:
+    uv run pytest -q
+
+fmt:
+    uv run ruff format .
+
+# An innocent name for a production deploy.
+up:
+    flyctl deploy --app bonvihr --strategy rolling
+
+alias u := up

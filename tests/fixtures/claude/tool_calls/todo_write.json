@@ -1,0 +1,22 @@
+{
+  "session_id": "c11c1126-34cc-400c-a909-3127688f7463",
+  "transcript_path": "/Users/owner/.claude/projects/-tmp-yordamchi-fixture-project/c11c1126-34cc-400c-a909-3127688f7463.jsonl",
+  "cwd": "/tmp/yordamchi-fixture/project",
+  "prompt_id": "5a15433e-05f4-408a-934c-76f52005d202",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "TodoWrite",
+  "tool_input": {
+    "todos": [
+      {
+        "content": "Fix login",
+        "status": "in_progress",
+        "activeForm": "Fixing login"
+      }
+    ]
+  },
+  "tool_use_id": "toolu_01TodoB5hMv8Qr3Wy6Ns1Lc7"
+}

@@ -1,0 +1,16 @@
+# A deploy workflow left with merge-conflict markers: not valid YAML, so nobody can tell which branch deploys.
+# Expect: every branch and every tag counts as deploying (fail closed).
+name: Deploy
+on:
+  push:
+<<<<<<< HEAD
+    branches: [main]
+=======
+    branches: [production]
+>>>>>>> feature/ci
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/deploy.sh

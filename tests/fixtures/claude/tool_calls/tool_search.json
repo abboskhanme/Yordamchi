@@ -1,0 +1,17 @@
+{
+  "session_id": "4a4fa2a5-7cc8-4b1b-a97a-e4ea5e31dde4",
+  "transcript_path": "/Users/owner/.claude/projects/-tmp-yordamchi-fixture-project/4a4fa2a5-7cc8-4b1b-a97a-e4ea5e31dde4.jsonl",
+  "cwd": "/tmp/yordamchi-fixture/project",
+  "prompt_id": "e5f4e2bc-88c0-4cac-b5ff-3edf76cfd4cc",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "ToolSearch",
+  "tool_input": {
+    "query": "select:TodoWrite",
+    "max_results": 1
+  },
+  "tool_use_id": "toolu_01E28dnftiUPXGyJhJBfTSJ1"
+}

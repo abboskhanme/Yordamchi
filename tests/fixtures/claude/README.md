@@ -54,6 +54,22 @@ Line format: `{"t": <seconds since connect>, "kind": ..., "data": ...}`; `tests/
 | `synthetic_auth_failed.jsonl` | an expired login (401 result) |
 | `synthetic_todo.jsonl` | `TodoWrite` is not in the 2.1.310 default tool set; also a `conversation_reset` |
 
+## `tool_calls/` (T25, the gate eval)
+
+One `PreToolUse` hook input per tool, the payload `GuardBridge.pre_tool_use` receives. `tests/eval/gate/` replays
+them with the case's own `tool_input`, `cwd` and `tool_use_id`; recorded paths under `/tmp/yordamchi-fixture/project`
+and `/Users/owner` are mapped onto the eval's project and home.
+
+| File | Source |
+|---|---|
+| `bash.json` | recorded: `hook_deny.jsonl`, main thread |
+| `bash_subagent.json` | recorded: `background_agent.jsonl`, the subagent's call (`agent_id`, `agent_type`); its envelope is also grafted onto any case with `agent: true` |
+| `bash_background.json` | recorded: `background_bash.jsonl` (`run_in_background`) |
+| `agent.json` | recorded: `background_agent.jsonl`, the `Agent` tool starting a background subagent |
+| `ask_user_question.json` | recorded: `question.jsonl` |
+| `tool_search.json` | recorded: `tools.jsonl` |
+| `edit.json` `write.json` `multi_edit.json` `read.json` `grep.json` `glob.json` `notebook_edit.json` `web_fetch.json` `todo_write.json` `task.json` `mcp.json` | synthetic: `bash.json`'s recorded envelope with the tool name and input shape of the CLI 2.1.310 tool schema (`Task` is the pre-2.1 name of `Agent`; `mcp.json` is `mcp__github__create_issue`). None of these tools ran in the T10/T11 recordings |
+
 ## `probe/`
 
 `version.txt` is `claude --version`; `auth_status_claude_ai.json` is `claude auth status` (sanitised). The logged-out

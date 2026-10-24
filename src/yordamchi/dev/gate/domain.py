@@ -943,6 +943,7 @@ _WRAPPERS: Final[Mapping[str, tuple[frozenset[str], int]]] = {
     "bunx": (frozenset({"-p", "--package"}), 0),
     "uvx": (frozenset({"--from", "--with", "--python", "-p", "--with-requirements", "--index", "--index-url"}), 0),
     "dotenv": (frozenset({"-e", "-c", "-v"}), 0),
+    "script": (frozenset({"-t", "-T"}), 1),  # macOS `script [-q] FILE COMMAND…` records COMMAND into FILE
 }
 _SUDO_VALUE_OPTIONS: Final = frozenset(
     {"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "--user", "--group", "--host", "--prompt", "--chdir"}
@@ -1288,8 +1289,10 @@ class _Walk:
                 self.command(item, level)
 
     def recipe(self, ref: ScriptRef, level: int) -> bool:
-        """Classify a script's text (≤ 2 levels). True when its commands were judged one by one."""
+        """Classify a script's text (≤ 2 levels). True when its commands were judged one by one. A script past the
+        last level is not read, so it asks like one whose text is unknown (a deploy three scripts deep is no miss)."""
         if level >= _RECIPE_LEVELS:
+            self.ask(None, Reason.RECIPE_UNKNOWN, ref.name or ref.kind)
             return False
         if ref not in self.ctx.recipes:
             if ref not in self.scripts:
@@ -1300,7 +1303,9 @@ class _Walk:
         if text is None:
             return True  # the service found nothing to run (missing or binary file, no such target)
         saved = (self.cwd, self.vars, self.cmd_env)
-        self.cwd, self.vars, self.cmd_env = _canonical(ref.directory), {}, {}
+        # make, npm and just run a recipe in its own folder; a shell script runs in the caller's working directory
+        directory = self.cwd if ref.kind == "file" else _canonical(ref.directory)
+        self.cwd, self.vars, self.cmd_env = directory, {}, {}
         self.run_text(text, level + 1, kind=ref.kind)
         self.cwd, self.vars, self.cmd_env = saved
         return True
@@ -1364,11 +1369,14 @@ class _Walk:
     def run(self, argv: Sequence[_Word], cmd: _Command, level: int) -> _Effect:
         while argv and argv[0].literal in _RESERVED_LEADING:
             argv = argv[1:]
+        if argv and argv[0].literal == "function":  # `function NAME { body; }`: the body is judged where it is defined
+            return self.run(argv[2:], cmd, level)
         if not argv or argv[0].literal in _RESERVED_ALONE | _RESERVED_LISTS:
             return _Effect.TRANSPARENT
         name = self.program_name(argv, cmd, level)
         if isinstance(name, _Effect):
             return name
+        name = _package_binary(name)
         base = posixpath.basename(name)
         key = _program_key(base)
         if _reads_recursively(key, argv[1:]):  # started above a protected path, it reaches it
@@ -1529,6 +1537,17 @@ class _Walk:
     def h_eval(self, name: str, args: list[_Word], cmd: _Command, level: int) -> _Effect:
         del name, cmd
         return self.inline_shell(args, level) if args else _Effect.TRANSPARENT
+
+    def h_alias(self, name: str, args: list[_Word], cmd: _Command, level: int) -> _Effect:
+        """`alias NAME='cmd …'`: the body runs wherever NAME is typed later, so it is judged here, like a function."""
+        del name, cmd
+        for word in args:
+            value = self.value(word)
+            if value is None:
+                self.ask(None, Reason.OPAQUE_COMMAND, "alias")
+            elif "=" in value:
+                self.run_text(value.split("=", 1)[1], level)
+        return _Effect.READ
 
     def h_watch(self, name: str, args: list[_Word], cmd: _Command, level: int) -> _Effect:
         del name, cmd
@@ -1696,10 +1715,49 @@ _GIT_READ: Final = frozenset(
     }
 )  # fmt: skip
 _GIT_PUSH_VALUE_OPTIONS: Final = frozenset({"-o", "--push-option", "--repo", "--receive-pack", "--exec"})
+# Settings and variables whose value git runs as a command (an `alias.*` too: `!cmd` is shell, else git arguments).
+_GIT_COMMAND_SETTINGS: Final = _words(
+    "core.sshcommand core.pager core.editor core.askpass sequence.editor diff.external"
+)
+_GIT_COMMAND_VARIABLES: Final = (
+    "GIT_SSH_COMMAND", "GIT_SSH", "GIT_PAGER", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_ASKPASS",
+)  # fmt: skip
+
+
+def _git_setting(walk: _Walk, key: str, value: str | None, level: int) -> None:
+    """Judge a git setting whose value is a command where it is set (an alias, `core.sshCommand`, …)."""
+    folded = key.casefold()
+    if not (folded.startswith("alias.") or folded in _GIT_COMMAND_SETTINGS):
+        return
+    if value is None:
+        walk.ask(None, Reason.OPAQUE_COMMAND, key)
+    elif folded.startswith("alias."):
+        walk.run_text(value[1:] if value.startswith("!") else f"git {value}", level)
+    else:
+        walk.run_text(value, level)
+
+
+def _git_config_option(walk: _Walk, word: _Word, *, attached: bool, level: int) -> None:
+    """`git -c key=value` (or `-ckey=value`): a command-valued setting is judged here."""
+    known, complete = walk.expand(word)
+    key, sep, value = (known[2:] if attached else known).partition("=")
+    if sep:
+        _git_setting(walk, key, value if complete else None, level)
+
+
+def _git_command_variables(walk: _Walk, level: int) -> None:
+    """`GIT_SSH_COMMAND='…' git push`: git runs these on the Mac."""
+    for variable in _GIT_COMMAND_VARIABLES:
+        if variable in walk.cmd_env or variable in walk.vars:
+            command = walk.var(variable)
+            if command is None:
+                walk.ask(None, Reason.OPAQUE_COMMAND, variable)
+            else:
+                walk.run_text(command, level)
 
 
 def _h_git(walk: _Walk, name: str, args: list[_Word], cmd: _Command, level: int) -> _Effect:
-    del name, cmd, level
+    del name, cmd
     i = 0
     git_cwd = walk.cwd
     while i < len(args):
@@ -1709,24 +1767,30 @@ def _h_git(walk: _Walk, name: str, args: list[_Word], cmd: _Command, level: int)
             setting = nxt if text in ("-c", "--config-env") else text.split("=", 1)[-1] if "=" in text else text[2:]
             if setting.casefold().replace(" ", "").startswith("core.hookspath"):
                 walk.forbid(Reason.HOOKS_BYPASS, "-c core.hooksPath")
+        if text.startswith("-c") and (text != "-c" or i + 1 < len(args)):
+            _git_config_option(walk, args[i + 1] if text == "-c" else args[i], attached=text != "-c", level=level)
         if text == "-C" and i + 1 < len(args):
             value = walk.value(args[i + 1])
             git_cwd = walk.path(value) if value is not None else None
         if not text.startswith("-"):
             break
         i += 2 if text in _GIT_VALUE_OPTIONS else 1
+    _git_command_variables(walk, level)
     if i >= len(args):
         return _Effect.READ
     sub, rest = args[i].text, args[i + 1 :]
     saved, walk.cwd = walk.cwd, git_cwd
     try:
-        return _git_subcommand(walk, sub, rest)
+        return _git_subcommand(walk, sub, rest, level)
     finally:
         walk.cwd = saved
 
 
-def _git_subcommand(walk: _Walk, sub: str, rest: list[_Word]) -> _Effect:
+def _git_subcommand(walk: _Walk, sub: str, rest: list[_Word], level: int) -> _Effect:
     words = _texts(_positionals(rest))
+    if sub == "config" and len(words) >= 2:  # `git config alias.ship '!vercel --prod'`: judged where it is defined
+        key, value = words[0], walk.value(_positionals(rest)[1])
+        _git_setting(walk, key, value, level)
     if sub == "push":
         _git_push(walk, rest)
         return _Effect.GIT_WRITE
@@ -2108,6 +2172,8 @@ def _gh_api(walk: _Walk, args: list[_Word], words: list[str]) -> _Effect:
     target = endpoint.lstrip("/")
     if method == "DELETE" and target.startswith("repos/"):
         walk.ask(GateClass.REPO_DELETE, Reason.REPO_DELETE, target)
+    if method == "POST" and target.startswith("repos/") and target.endswith("/dispatches"):  # workflow/repo dispatch
+        walk.ask(GateClass.DEPLOY, Reason.DEPLOY_CLI, target)  # starts a workflow, as `gh workflow run` does
     if "visibility=public" in folded or "private=false" in folded or "visibility:public" in folded:
         walk.ask(GateClass.REPO_PUBLIC, Reason.REPO_PUBLIC, target)
     if "deleterepository" in folded:
@@ -2141,10 +2207,12 @@ class _SshOptions:
     destination: int | None  # index of the destination word; None = nothing leaves the Mac (-V, -G, -Q)
     tunnel: bool  # -L/-R/-D/-W/-w/-N or a *Forward option: a way into the server outside the gate
     local_command: bool  # ProxyCommand/LocalCommand run a command on the Mac
+    local_words: tuple[tuple[_Word, bool], ...] = ()  # those `-o` values (and whether attached: `-oProxyCommand=…`)
 
 
 def _ssh_options(args: Sequence[_Word]) -> _SshOptions:
     i, tunnel, local_command = 0, False, False
+    local_words: list[tuple[_Word, bool]] = []
     while i < len(args):
         text = args[i].text
         if text == "--":
@@ -2158,6 +2226,8 @@ def _ssh_options(args: Sequence[_Word]) -> _SshOptions:
             tunnel = tunnel or option in _SSH_TUNNEL_OPTIONS
             if option == "-o":
                 key = re.split(r"[=\s]", value.strip(), maxsplit=1)[0].casefold()
+                if key in ("proxycommand", "localcommand"):
+                    local_words.append((args[i] if text[2:] else args[i + 1], bool(text[2:])))
                 local_command = local_command or key in _SSH_LOCAL_COMMAND_KEYS
                 tunnel = tunnel or key in ("localforward", "remoteforward", "dynamicforward", "tunnel")
             i += 1 if text[2:] else 2
@@ -2166,14 +2236,25 @@ def _ssh_options(args: Sequence[_Word]) -> _SshOptions:
             return _SshOptions(None, tunnel, local_command)
         tunnel = tunnel or "N" in text
         i += 1
-    return _SshOptions(i if i < len(args) else None, tunnel, local_command)
+    return _SshOptions(i if i < len(args) else None, tunnel, local_command, tuple(local_words))
+
+
+def _ssh_local_commands(walk: _Walk, options: _SshOptions, level: int) -> None:
+    """ProxyCommand/LocalCommand run on the Mac: judged as local commands, so a forbidden one stays forbidden."""
+    for word, attached in options.local_words:
+        known, complete = walk.expand(word)
+        parts = re.split(r"\s*=\s*|\s+", (known[2:] if attached else known).strip(), maxsplit=1)
+        if complete and len(parts) == 2:
+            walk.run_text(parts[1], level)
+        else:
+            walk.ask(None, Reason.OPAQUE_COMMAND, "ssh ProxyCommand")
 
 
 def _h_ssh(walk: _Walk, name: str, args: list[_Word], cmd: _Command, level: int) -> _Effect:
-    del level
     options = _ssh_options(args)
     if options.destination is None:
         return _Effect.READ
+    _ssh_local_commands(walk, options, level)
     destination = walk.value(args[options.destination])
     walk.remote_calls.append(tuple(walk.value(word) for word in (_literal_word(name), *args)))
     host = _host_of(destination) if destination is not None else "?"
@@ -3322,6 +3403,20 @@ def _local_effect(key: str, values: Sequence[str | None]) -> _Effect:  # noqa: P
 
 _PROGRAM_ALIASES: Final = {"flyctl": "fly", "nodejs": "node", "pypy": "python", "pypy3": "python", "gmake": "make",
                            "sequelize-cli": "sequelize", "mkfs.ext4": "mkfs"}  # fmt: skip
+# A package runner (`npx`, `pnpm dlx`, `bunx`, `yarn dlx`) names an npm package: it may carry a version, and its name
+# may differ from the binary it starts.
+_PACKAGE_BINARIES: Final = {"netlify-cli": "netlify", "firebase-tools": "firebase", "@railway/cli": "railway",
+                            "aws-cdk": "cdk", "eas-cli": "eas", "@aws-amplify/cli": "amplify",
+                            "@cloudflare/wrangler": "wrangler"}  # fmt: skip
+_PACKAGE_VERSION: Final = re.compile(r"(?<=[^@/])@[^@/]*$")
+
+
+def _package_binary(name: str) -> str:
+    """`vercel@latest` → `vercel`, `netlify-cli@17` → `netlify`, `@railway/cli` → `railway`; a path is unchanged."""
+    if "/" in name and not name.startswith("@"):
+        return name
+    bare = _PACKAGE_VERSION.sub("", name)
+    return _PACKAGE_BINARIES.get(bare.casefold(), bare)
 
 
 def _program_key(base: str) -> str:
@@ -3340,6 +3435,7 @@ _HANDLERS: Final[Mapping[str, _Handler]] = {
     "env": _Walk.h_env,
     "sudo": _Walk.h_sudo,
     "eval": _Walk.h_eval,
+    "alias": _Walk.h_alias,
     "watch": _Walk.h_watch,
     "xargs": _Walk.h_xargs,
     "trap": _Walk.h_trap,

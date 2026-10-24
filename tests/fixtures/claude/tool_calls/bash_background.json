@@ -1,0 +1,18 @@
+{
+  "session_id": "79af01ed-a5ea-4d8c-93c8-64ac65430163",
+  "transcript_path": "/Users/owner/.claude/projects/-tmp-yordamchi-fixture-project/79af01ed-a5ea-4d8c-93c8-64ac65430163.jsonl",
+  "cwd": "/tmp/yordamchi-fixture/project",
+  "prompt_id": "8187fe9c-bc18-4b66-970f-29e4b823a569",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "python3 -c 'import time; time.sleep(8); print(\"bg-done\")'",
+    "description": "Run delayed background Python print",
+    "run_in_background": true
+  },
+  "tool_use_id": "toolu_01RVatrtpnwEHJoivVDUCzBo"
+}

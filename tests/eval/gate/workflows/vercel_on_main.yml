@@ -1,0 +1,38 @@
+# A Next.js site: every pull request builds, a push to main builds and then deploys to Vercel production.
+# Expect: a push to main deploys; a feature branch does not.
+name: Production
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+concurrency:
+  group: production
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint && npm test -- --run
+      - run: npm run build
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://bonvihr.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: --prod

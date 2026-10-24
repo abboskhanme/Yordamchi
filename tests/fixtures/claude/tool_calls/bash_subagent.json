@@ -1,0 +1,19 @@
+{
+  "session_id": "1777fdf0-176f-4d0d-9346-b22d6649bacb",
+  "transcript_path": "/Users/owner/.claude/projects/-tmp-yordamchi-fixture-project/1777fdf0-176f-4d0d-9346-b22d6649bacb.jsonl",
+  "cwd": "/tmp/yordamchi-fixture/project",
+  "prompt_id": "f4898a67-881c-4ce7-b657-2f637aa4b801",
+  "permission_mode": "bypassPermissions",
+  "agent_id": "aef95892c7f83ebc5",
+  "agent_type": "general-purpose",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo sub-done",
+    "description": "Echo sub-done text"
+  },
+  "tool_use_id": "toolu_011joxWUMKxkfgcyJse5cdii"
+}

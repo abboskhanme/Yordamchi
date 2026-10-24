@@ -502,6 +502,21 @@ async def test_recipes_are_read_from_the_project(dev_deps: DevDeps, scope: GateS
     assert (await check(dev_deps, scope, "./run.sh")).reason_code == Reason.REMOTE_COMMAND.value
 
 
+async def test_an_npm_script_run_from_a_subfolder_is_read_from_the_nearest_package_json(
+    dev_deps: DevDeps, scope: GateScope
+) -> None:
+    """T25 regression: from `src/`, `npm run upload` runs the project's package.json (npm looks upward); the gate
+    read only `src/package.json`, found nothing to run, and let a deploy through."""
+    root = scope.project_root
+    (root / "src").mkdir(parents=True)
+    (root / "package.json").write_text(json.dumps({"scripts": {"upload": "vercel --prod", "lint": "eslint ."}}))
+
+    deploy = await check(dev_deps, scope, "npm run upload", cwd=str(root / "src"))
+
+    assert deploy.reason_code == Reason.DEPLOY_CLI.value
+    assert (await check(dev_deps, scope, "npm run lint", cwd=str(root / "src"))).allow
+
+
 async def test_a_script_that_cannot_be_read_safely_stays_unknown_and_asks(dev_deps: DevDeps, scope: GateScope) -> None:
     root = scope.project_root
     root.mkdir(parents=True)

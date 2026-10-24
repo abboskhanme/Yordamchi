@@ -188,9 +188,12 @@ async def _recipe(ref: ScriptRef, private: tuple[Path, ...]) -> domain.RecipeLoo
     directory = Path(ref.directory)
     if ref.kind == "file":
         return domain.script_text(await _read(Path(ref.name), private))
-    if ref.kind == "npm":
-        text = await _first_text(directory, ("package.json",), private)
-        return (True, None) if text is None else domain.package_script(json.loads(text), ref.name)
+    if ref.kind == "npm":  # npm, pnpm, yarn and bun run the scripts of the nearest package.json upward
+        for folder in (directory, *directory.parents):
+            text = await _first_text(folder, ("package.json",), private)
+            if text is not None:
+                return domain.package_script(json.loads(text), ref.name)
+        return True, None
     if ref.kind == "make":
         makefile, _, target = ref.name.rpartition(":")
         text = await _first_text(directory, (makefile,) if makefile else domain.MAKEFILE_NAMES, private)

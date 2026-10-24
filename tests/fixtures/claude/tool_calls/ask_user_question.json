@@ -1,0 +1,32 @@
+{
+  "session_id": "5e8a7234-5365-4135-9b15-40cc65255fa7",
+  "transcript_path": "/Users/owner/.claude/projects/-tmp-yordamchi-fixture-project/5e8a7234-5365-4135-9b15-40cc65255fa7.jsonl",
+  "cwd": "/tmp/yordamchi-fixture/project",
+  "prompt_id": "d79ad2df-f8c5-4462-bc07-eb51598a3158",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Which color do you prefer?",
+        "header": "Color",
+        "options": [
+          {
+            "label": "Red",
+            "description": "Choose red"
+          },
+          {
+            "label": "Blue",
+            "description": "Choose blue"
+          }
+        ],
+        "multiSelect": false
+      }
+    ]
+  },
+  "tool_use_id": "toolu_014LZpSQNFaBDfVtgmu2vmbF"
+}

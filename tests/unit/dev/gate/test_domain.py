@@ -821,6 +821,80 @@ def test_recipes_nest_two_levels_and_no_deeper() -> None:
     assert domain.needs(bash("make ship"), RULES, deep).empty  # a third level is not read
 
 
+def test_a_deploy_three_scripts_deep_asks_instead_of_passing_unread() -> None:
+    """T25 regression: `npm run ship` → stage → upload → `vercel --prod` ran free (the third script was never read)."""
+    recipes: dict[ScriptRef, str | None] = {
+        ScriptRef("npm", name, ROOT): None for name in ("preship", "postship", "prestage", "poststage")
+    }
+    recipes |= {ScriptRef("npm", "ship", ROOT): "npm run stage", ScriptRef("npm", "stage", ROOT): "npm run upload"}
+    ctx = with_ctx(recipes=recipes)
+    verdict = classify("npm run ship", ctx)
+    assert (verdict.action, verdict.reason, verdict.gate_class) == (Action.ASK, Reason.RECIPE_UNKNOWN, None)
+    assert domain.needs(bash("npm run ship"), RULES, ctx).empty  # still not read: it asks instead
+
+
+def test_a_script_runs_its_sibling_scripts_from_the_callers_directory() -> None:
+    """T25 regression: inside `./scripts/ci.sh`, `./scripts/upload.sh` was looked up under scripts/scripts/ (the
+    script's own folder), found nothing to run, and a deploy in upload.sh passed free."""
+    ci = ScriptRef("file", f"{ROOT}/scripts/ci.sh", f"{ROOT}/scripts")
+    upload = ScriptRef("file", f"{ROOT}/scripts/upload.sh", f"{ROOT}/scripts")
+    first = with_ctx(recipes={ci: "set -e\n./scripts/upload.sh\n"})
+    assert domain.needs(bash("./scripts/ci.sh"), RULES, first).scripts == (upload,)
+    both = with_ctx(recipes={ci: "set -e\n./scripts/upload.sh\n", upload: "flyctl deploy --remote-only\n"})
+    assert classify("./scripts/ci.sh", both).gate_class is GateClass.DEPLOY
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "function ship { flyctl deploy; }; ship",  # T25 regression: the `function` keyword hid the body
+        "alias ship='vercel --prod'\nship",  # T25 regression: an alias body was never judged
+        "npx vercel@latest deploy --prod",  # T25 regression: a versioned package spec was an unknown program
+        "npx -y netlify-cli@17 deploy --prod",
+        "npx firebase-tools deploy --only hosting",
+        "npx @railway/cli up",
+        "gh api repos/o/r/actions/workflows/deploy.yml/dispatches -f ref=main",  # T25: `gh workflow run` by API
+        "gh api -X POST repos/o/r/dispatches -f event_type=deploy",
+        "git -c alias.ship='!flyctl deploy' ship",  # T25 regression: a git `!` alias runs a shell command
+        "git config alias.ship '!vercel --prod' && git ship",
+        "GIT_SSH_COMMAND='flyctl deploy; ssh' git push origin feature/login",  # T25: git runs it on the Mac
+        "git -c core.sshCommand='vercel --prod; ssh' push origin feature/login",
+        "script -q /dev/null vercel --prod",  # T25 regression: macOS `script FILE CMD` runs CMD
+    ],
+)
+def test_deploys_behind_functions_aliases_package_specs_and_dispatch_apis_ask(command: str) -> None:
+    assert classify(command).gate_class is GateClass.DEPLOY
+
+
+def test_a_git_alias_hiding_a_force_push_asks() -> None:
+    assert classify("git -c alias.p='push --force origin main' p").gate_class is GateClass.FORCE_PUSH
+
+
+def test_an_ssh_proxy_command_is_judged_as_a_local_command() -> None:
+    """T25 regression: `ProxyCommand` runs on the Mac, so a forbidden one was only asked about (approvable)."""
+    verdict = classify("ssh -o ProxyCommand='cat ~/.claude/.credentials.json' prod")
+    assert (verdict.action, verdict.reason) == (Action.FORBID, Reason.FORBIDDEN_PATH)
+    assert classify("ssh -oProxyCommand='rm -rf ~' prod").reason is Reason.FORBIDDEN_PATH
+    assert classify("ssh -o 'ProxyCommand ssh -W %h:%p bastion' prod uptime").gate_class is GateClass.SERVER_WRITE
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "alias ll='ls -la'",
+        "alias",
+        "npx prettier@3 --check .",
+        "gh api repos/o/r",
+        "GIT_SSH_COMMAND='ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes' git push origin feature/login",
+        "git -c core.editor=true rebase --continue",
+        "git config alias.co checkout && git co -b feature/x",
+        "script -q /dev/null pytest -q",
+    ],
+)
+def test_harmless_aliases_package_specs_and_api_reads_stay_free(command: str) -> None:
+    assert_free(classify(command))
+
+
 def test_a_missing_recipe_is_requested_and_fails_closed_until_supplied() -> None:
     ref = ScriptRef("file", f"{ROOT}/run.sh", ROOT)
     assert domain.needs(bash("./run.sh"), RULES, CTX).scripts == (ref,)
