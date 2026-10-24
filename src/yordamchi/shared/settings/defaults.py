@@ -820,7 +820,7 @@ MODELS_CODING_EFFORT = _effort("models.coding_effort", "xhigh", bots=DEV, doc="E
 PERSONA_DEV_TONE = Setting(
     "persona.dev_tone",
     str,
-    "qisqa, aniq, texnik",
+    "samimiy va sodda, qisqa; rasmiy emas",  # owner, 2026-10-24: "juda rasmiy gapiryapti"
     check=MaxLen(300),
     group=Group.PERSONA,
     bots=DEV,
@@ -954,6 +954,15 @@ QUESTIONS_HOLD_PROCESS_MIN = Setting(
 )
 
 # --- digest ---
+REPORT_FRESHNESS_LINE = Setting(
+    "report.freshness_line",
+    str,
+    "stale",  # owner, 2026-10-24: "Ma'lumot: …" at the end of every answer felt formal
+    check=OneOf("stale", "always"),
+    group=Group.PERSONA,
+    bots=DEV,
+    doc='When a report ends with "Ma\'lumot: …": only when its data is old or could not be refreshed, or always.',
+)
 DIGEST_STALE_AFTER_MIN = Setting(
     "digest.stale_after_min",
     int,

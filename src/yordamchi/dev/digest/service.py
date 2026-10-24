@@ -33,7 +33,7 @@ import time
 from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable, Coroutine, Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -645,7 +645,7 @@ async def _answer_project(
     provider = reply.provider if reply is not None and body is not None else None
     if body is None:
         body = domain.project_report(view, now=deps.clock.now(), timezone=timezone, scrub=scrub)
-    text = join([body, domain.freshness_line(fresh, now=deps.clock.now())])
+    text = _with_freshness(snap, body, fresh, now=deps.clock.now())
     await _send(deps, snap, text, ref=_ref(question, "report"), project_id=project.id, reply=reply)
     return ReportAnswer(plan, text=text, provider=provider, refreshed=fresh.refreshed)
 
@@ -714,10 +714,21 @@ async def _answer_all(
     if body is None:
         body = domain.all_report(views, servers, now=deps.clock.now(), timezone=timezone, scrub=scrub)
     fresh = _all_freshness((stored[p.id] for p in (active or present) if p.id in stored), freshness.values())
-    text = join([body, domain.freshness_line(fresh, now=deps.clock.now())])
+    text = _with_freshness(snap, body, fresh, now=deps.clock.now())
     await _send(deps, snap, text, ref=_ref(question, "report-all"), project_id=None, reply=reply)
     refreshed = any(item.refreshed for item in freshness.values())
     return ReportAnswer(plan, text=text, provider=provider, refreshed=refreshed)
+
+
+def _with_freshness(snap: Snapshot, body: BotText, fresh: Freshness, *, now: datetime) -> BotText:
+    """`body`, then the freshness line when `report.freshness_line` and the data's age call for it."""
+    note = domain.freshness_note(
+        fresh,
+        now=now,
+        stale_after=timedelta(minutes=snap[defaults.DIGEST_STALE_AFTER_MIN]),
+        always=snap[defaults.REPORT_FRESHNESS_LINE] == "always",
+    )
+    return body if note is None else join([body, note])
 
 
 def _all_freshness(digests: Iterable[Digest], refreshes: Iterable[Freshness]) -> Freshness:
@@ -745,7 +756,7 @@ async def _answer_servers(
     if not domain.servers_fresh(checks, now=now, stale_after_min=snap[defaults.DIGEST_STALE_AFTER_MIN]):
         return ReportAnswer(plan, needs_server_check=True)
     oldest = min(check.at for check in checks)
-    text = join([domain.servers_line(checks, now=now), domain.freshness_line(Freshness(oldest), now=now)])
+    text = _with_freshness(snap, domain.servers_line(checks, now=now), Freshness(oldest), now=now)
     await _send(deps, snap, text, ref=_ref(question, "servers"), project_id=None)
     return ReportAnswer(plan, text=text)
 

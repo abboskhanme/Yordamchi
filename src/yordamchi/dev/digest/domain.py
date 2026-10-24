@@ -555,6 +555,16 @@ def freshness_line(fresh: Freshness, *, now: datetime) -> BotText:
     return S.FRESHNESS(age=age_text(seconds))
 
 
+def freshness_note(fresh: Freshness, *, now: datetime, stale_after: timedelta, always: bool) -> BotText | None:
+    """The freshness line only when it tells the owner something (owner, 2026-10-24: not under every answer): the data
+    is older than `stale_after`, could not be refreshed, or was never collected. Every time when `always`."""
+    if always or fresh.failed or fresh.checked_at is None:
+        return freshness_line(fresh, now=now)
+    if fresh.refreshed or now - fresh.checked_at < stale_after:
+        return None
+    return freshness_line(fresh, now=now)
+
+
 def when_text(moment: datetime, *, now: datetime, timezone: str) -> str:
     """`14:05` today, `23.10 14:05` on another day (numbers only: the words live in the catalog)."""
     local = timefmt.local(moment, timezone)

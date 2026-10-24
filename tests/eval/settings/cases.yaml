@@ -446,7 +446,7 @@ cases:
     text: "тон верни как было, остальное не трогай"
     before: {persona.dev_tone: "rasmiy", burst.after_media_s: 15}
     model: {outcome: revert, keys: [persona.dev_tone]}
-    expect: {reverted: {persona.dev_tone: "qisqa, aniq, texnik"}}
+    expect: {reverted: {persona.dev_tone: "samimiy va sodda, qisqa; rasmiy emas"}}  # the default since 2026-10-24
 
   - id: revert_that_loosens_asks
     group: decisions

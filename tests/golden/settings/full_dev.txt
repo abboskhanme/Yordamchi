@@ -5,7 +5,7 @@
 • `access.owner_id` = 424242 — standart · mumkin: 1–9007199254740992
 
 ## Persona va ohang
-• `persona.dev_tone` = qisqa va iliq — o'zgartirilgan, standart: qisqa, aniq, texnik · mumkin: ≤ 300
+• `persona.dev_tone` = qisqa va iliq — o'zgartirilgan, standart: samimiy va sodda, qisqa; rasmiy emas · mumkin: ≤ 300
 
 ## Promptlar
 • `prompt.dev_executor_extra` = Testlarni ishga tushir. kalit: ••••g0Fe — o'zgartirilgan, standart: bo'sh · mumkin: ≤ 4000

@@ -141,9 +141,9 @@ Bir nechta savol bo'lsa — har biriga alohida qatorda javob yozing. Ko'p tanlov
 | `holat?` yoki `/holat` | Botning o'zi: Claude CLI, ClaudeManager, ishlar, navbat, Mac xotirasi va diski, oxirgi xatolar |
 | `xarajat?` yoki `/xarajat` | Bugun / 7 kun / shu oy: pullik API (limitga nisbatan), Claude obunasi (taxmin), eng faol loyihalar |
 
-- Har hisobot oxirida ma'lumot qanchalik yangiligi yoziladi, masalan:
-  - "Ma'lumot: 12 daqiqa oldin"
-  - "Ma'lumot: eskirgan edi (3 soat oldin) — hozir yangiladim"
+- "Ma'lumot: …" qatori faqat kerak bo'lganda chiqadi: ma'lumot eski bo'lsa ("Ma'lumot: 45 daqiqa oldin") yoki
+  yangilab bo'lmasa. Har javobda bo'lsin desangiz: `sozlama: report.freshness_line always`.
+- Bot sodda, samimiy gaplashadi. Ohangni o'zgartirish: `sozlama: ohanging qisqaroq/rasmiyroq bo'lsin`.
 - Hisobot loyiha sessiyasiga tegmaydi va ishlayotgan ishni to'xtatmaydi.
 - **Chuqur savol** ("BonviHR'da login nega ishlamayapti?", "X'dagi xatoni tekshir") — bot darhol
   (2 soniya ichida) yozadi: "{loyiha} · Tekshiryapman (~3 daqiqa)", keyin natijani alohida yuboradi.

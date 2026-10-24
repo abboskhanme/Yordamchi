@@ -132,6 +132,8 @@ SPEC_KEYS.append("ui.hold_reaction")
 SPEC_KEYS.append("ack.typing_for_work")
 # Owner, 2026-10-24: ✓✓ on his group messages with no reaction left (the Bot API has no read method for groups).
 SPEC_KEYS.append("ui.read_mark")
+# Owner, 2026-10-24: "Ma'lumot: …" under every answer felt formal; it stays where it tells him something.
+SPEC_KEYS.append("report.freshness_line")
 # Owner, 2026-10-24: OvozYoz is a code sample only; the dev bot must never register or open it.
 SPEC_KEYS.append("projects.excluded")
 

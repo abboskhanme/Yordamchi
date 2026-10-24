@@ -24,6 +24,7 @@ from tests.factories import (
     Fakes,
     make_burst_row,
     make_digest_state,
+    make_owner_origin,
     make_project,
     make_project_folder,
     make_report_question,
@@ -41,9 +42,9 @@ from yordamchi import prompts
 from yordamchi.core.errors import CallTimedOut, GitFailed, ProjectNotFound, ProviderUnavailable
 from yordamchi.core.paths import Paths
 from yordamchi.dev.deps import DevDeps
-from yordamchi.dev.digest import service
+from yordamchi.dev.digest import domain, service
 from yordamchi.dev.digest import store as digest_store
-from yordamchi.dev.digest.domain import Digest, ReportMode, ReportScope, ServerCheck
+from yordamchi.dev.digest.domain import Digest, Freshness, ReportMode, ReportScope, ServerCheck
 from yordamchi.dev.digest.service import DigestState
 from yordamchi.dev.routing.domain import Intent
 from yordamchi.dev.turns import service as turns
@@ -54,6 +55,8 @@ from yordamchi.ports.assistant import AssistantReply, AssistantRequest
 from yordamchi.ports.git import Commit, FileChange
 from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.models import OutboxMessage
+from yordamchi.shared.settings import defaults
+from yordamchi.shared.settings import service as settings
 
 PROJECT = "BonviHR"
 OTHER = "HRMentor"
@@ -94,6 +97,14 @@ class SlowAssistant(FakeAssistant):
 
 
 # --- fixtures and helpers -------------------------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+async def _every_freshness_line(dev_deps: DevDeps) -> None:
+    """These tests read the freshness line of every answer, so they ask for it always. The default since 2026-10-24
+    ("stale": only when it tells the owner something) has its own tests at the end of this module."""
+    origin = make_owner_origin(update_id=9000)
+    await settings.record_version(dev_deps, origin, defaults.REPORT_FRESHNESS_LINE, "always", reason="change")
+
+
 @pytest.fixture
 def root(paths: Paths) -> Path:
     return projects_root_of(paths)
@@ -821,3 +832,23 @@ async def test_server_status_is_answered_from_fresh_checks(
     assert shown(answer.text) == (
         "Serverlar: db ✗ disk 95% (12 daqiqa oldin), web ✓ (5 daqiqa oldin)\nMa'lumot: 12 daqiqa oldin"
     )
+
+
+# --- the freshness line's default (owner, 2026-10-24: "oxirida «Ma'lumot: [vaqt]» kabi narsa qo'shib qo'yyapti")
+@pytest.mark.parametrize(
+    ("minutes", "failed", "shown_line"),
+    [
+        pytest.param(5, False, None, id="fresh: no line"),
+        pytest.param(45, False, "Ma'lumot: 45 daqiqa oldin", id="older than digest.stale_after_min"),
+        pytest.param(5, True, "Ma'lumot: 5 daqiqa oldin — yangilab bo'lmadi", id="a refresh failed"),
+    ],
+)
+def test_the_freshness_line_shows_only_when_it_tells_the_owner_something(
+    minutes: int, failed: bool, shown_line: str | None
+) -> None:
+    now = FakeClock().now()
+    fresh = Freshness(now - timedelta(minutes=minutes), failed=failed)
+    note = domain.freshness_note(fresh, now=now, stale_after=timedelta(minutes=30), always=False)
+    assert note == shown_line
+    assert domain.freshness_note(fresh, now=now, stale_after=timedelta(minutes=30), always=True) is not None
+    assert domain.freshness_note(Freshness(None), now=now, stale_after=timedelta(minutes=30), always=False)
