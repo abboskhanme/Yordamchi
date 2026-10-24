@@ -9,4 +9,4 @@ tests/eval/thresholds.toml
 .protected-core
 # pending: src/yordamchi/bots/common.py
 src/yordamchi/shared/vault/**
-# pending: src/yordamchi/dev/gate/**
+src/yordamchi/dev/gate/**
