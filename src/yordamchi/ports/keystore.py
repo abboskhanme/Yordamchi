@@ -1,7 +1,9 @@
-"""Keystore: AES-256-GCM sealing with the master key, which never leaves the adapter (SPEC §4.5; STACK §2.2).
+"""Keystore: AES-256-GCM sealing with the master key, which never leaves the adapter (SPEC §4.5).
 
-The production adapter (`adapters/keystore/file.py`, T08) reads `~/.config/yordamchi/master.key` (0600). The vault
-stores only `Sealed` parts. The methods are synchronous: sealing a short secret takes microseconds.
+The production adapter is `adapters/keystore/keychain.py` `KeychainKeystore`: the key lives in the macOS login
+Keychain (owner requirement 2026-10-24), so a copied DB or data dir cannot be opened. `FileKeystore` (a 0600 file)
+remains for the offline contract suite and for importing a legacy `master.key`. The vault stores only `Sealed`
+parts. The methods are synchronous: sealing a short secret takes microseconds, and only the first call reads the key.
 """
 
 from dataclasses import dataclass, field

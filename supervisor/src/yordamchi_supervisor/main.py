@@ -48,6 +48,7 @@ from yordamchi_supervisor.backups import Backups
 from yordamchi_supervisor.caffeinate import Caffeinate
 from yordamchi_supervisor.clock import Clock, SystemClock
 from yordamchi_supervisor.control import SelfTester, SocketSelfTester
+from yordamchi_supervisor.keychain import KeychainError, SecurityKeychain, TokenSource
 from yordamchi_supervisor.launchd import LaunchCtl
 from yordamchi_supervisor.log import JsonLog, Scrubber, install_excepthook
 from yordamchi_supervisor.logtrim import trim_launchd_logs
@@ -113,6 +114,7 @@ class Supervisor:
         runner: Runner,
         spawner: Spawner,
         opener: Opener,
+        keychain: TokenSource,
         uid: int,
         pid: int,
         command_runner: CommandRunner | None = None,
@@ -128,7 +130,7 @@ class Supervisor:
         self.release = release
         self.started_at = clock.now()
         self.state = StateFile(paths.state_file)
-        self.alerter = Alerter(paths.env_file("dev"), log, scrubber, clock, opener=opener)
+        self.alerter = Alerter(paths.env_file("dev"), log, scrubber, clock, keychain=keychain, opener=opener)
         self.caffeinate = Caffeinate(spawner, log, owner_pid=pid)
         launchctl = LaunchCtl(runner, uid)
         self.watchdog = Watchdog(paths, launchctl, self.alerter, log, scrubber, self.state)
@@ -260,6 +262,11 @@ def _inert_opener(request: urllib.request.Request, timeout: float) -> int:
     return 200
 
 
+class _InertKeychain:
+    def dev_token(self) -> str:
+        raise KeychainError("keychain_unavailable")  # the trial never reads the real Keychain
+
+
 def run_selftest(log: JsonLog, scrubber: Scrubber) -> int:
     with tempfile.TemporaryDirectory(prefix="yd-sup-selftest-") as scratch:
         root = Path(scratch)
@@ -272,6 +279,7 @@ def run_selftest(log: JsonLog, scrubber: Scrubber) -> int:
             runner=_InertRunner(),
             spawner=_InertSpawner(),
             opener=_inert_opener,
+            keychain=_InertKeychain(),
             uid=os.getuid(),
             pid=os.getpid(),
             command_runner=_InertCommands(),
@@ -324,6 +332,7 @@ def main(
                 runner=SubprocessRunner(),
                 spawner=PopenSpawner(),
                 opener=urllib_opener,
+                keychain=SecurityKeychain(SubprocessRunner()),
                 uid=os.getuid(),
                 pid=os.getpid(),
                 release=own_release(),

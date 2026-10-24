@@ -44,7 +44,12 @@ class BackupCase(unittest.TestCase):
         self.clock = FakeClock(SATURDAY_0430)
         self.opener = FakeOpener()
         self.alerter = Alerter(
-            self.data.paths.env_file("dev"), self.data.log, self.data.scrubber, self.clock, opener=self.opener
+            self.data.paths.env_file("dev"),
+            self.data.log,
+            self.data.scrubber,
+            self.clock,
+            keychain=self.data.keychain,
+            opener=self.opener,
         )
         self.state = StateFile(self.data.paths.state_file)
         self.dev_db = self.data.paths.db_file("dev")

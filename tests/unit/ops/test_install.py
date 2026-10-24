@@ -1,5 +1,6 @@
-"""`scripts/install.py` against a temporary HOME with a fake uv, a fake `git archive`, a fake ffmpeg download and a
-fake launchctl (SPEC §9.3; T28). Nothing here touches the real HOME, the network or launchd.
+"""`scripts/install.py` against a temporary HOME with a fake uv, a fake `git archive`, a fake ffmpeg download, a
+fake launchctl and a fake `security` (SPEC §9.3; T28). Nothing here touches the real HOME, the network, launchd or the
+real Keychain.
 
 Golden plists live in `tests/golden/launchd/`. After a reviewed template change, regenerate them with
 `uv run python -c "from tests.unit.ops.test_install import write_goldens; write_goldens()"`.
@@ -23,8 +24,10 @@ import pytest
 from scripts import install
 from scripts.install import Completed, Installer, Options, Pin, Status, Tools
 
-from tests.factories import DEV_BOT_TOKEN, DEV_GROUP_ID, OWNER_ID, PERSONAL_BOT_TOKEN
+from tests.factories import DEV_BOT_TOKEN, DEV_GROUP_ID, OWNER_ID, PERSONAL_BOT_TOKEN, write_master_key
+from tests.fakes.security import FakeSecurity
 from yordamchi.core import config as yd_config
+from yordamchi.core import keychain
 from yordamchi.core.errors import ConfigInvalid
 from yordamchi.core.paths import BotName, Paths
 
@@ -33,6 +36,8 @@ GOLDEN = ROOT / "tests" / "golden" / "launchd"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 VERSION = "2026.10.24-0123456"
 NEW_DEV_TOKEN = "111222333:AAnewDevTokenAfterRotation_01234567"
+DEV_REF = keychain.DEV_BOT_TOKEN.reference
+PERSONAL_REF = keychain.PERSONAL_BOT_TOKEN.reference
 FFMPEG_NAMES = ("ffmpeg", "ffprobe")
 FAKE_ZIP_TIME = (2026, 10, 24, 4, 0, 0)
 STACK_PIN_ROW = re.compile(r"^\s*\| (ffmpeg|ffprobe) \| `(https://[^`]+)` \| `([0-9a-f]{64})` \|$", re.MULTILINE)
@@ -210,6 +215,7 @@ class Rig:
     prompter: KeyedPrompter
     out: io.StringIO
     environ: dict[str, str]
+    security: FakeSecurity = field(default_factory=FakeSecurity)
 
     @property
     def paths(self) -> Paths:
@@ -255,6 +261,7 @@ class Rig:
             runner=self.mac.runner,
             download=self.mac.download,
             prompter=self.prompter,
+            keychain=install.SecurityKeychain(runner=self.security),
             environ=self.environ,
             out=self.out,
             pins=good_pins() if pins is None else pins,
@@ -281,6 +288,11 @@ class Rig:
 
 @pytest.fixture
 def rig(tmp_path: Path) -> Rig:
+    return make_rig(tmp_path)
+
+
+def make_rig(tmp_path: Path) -> Rig:
+    """A temp HOME with fake tools; tests/unit/ops/test_no_plaintext_secrets.py reuses it."""
     home = tmp_path / "home"
     local = home / "tools" / ".local" / "bin"
     local.mkdir(parents=True)
@@ -313,7 +325,8 @@ def test_dry_run_builds_the_tree_with_private_modes_and_never_calls_launchctl(ri
     paths = rig.paths
     for directory in install.data_dirs(paths):
         assert mode(directory) == 0o700, directory
-    assert mode(paths.master_key) == 0o600
+    assert not paths.master_key.exists()  # the key lives in the Keychain, and a dry run never touches it
+    assert rig.security.calls == []
     assert mode(paths.env_file(BotName.DEV)) == 0o600
     called = {Path(call[0]).name for call in rig.mac.calls}
     assert "launchctl" not in called
@@ -322,6 +335,7 @@ def test_dry_run_builds_the_tree_with_private_modes_and_never_calls_launchctl(ri
     assert not any(call[1:3] == ("self", "update") or call[1:3] == ("python", "install") for call in rig.mac.calls)
     steps = rig.steps(installer)
     assert steps["launchd dev"] is Status.DRY_RUN
+    assert steps["master key"] is Status.DRY_RUN
     assert steps["time machine exclusion"] is Status.DRY_RUN
     assert steps["check"] is Status.DRY_RUN
     assert rig.prompter.asked == []  # a dry run never asks for a token
@@ -354,6 +368,8 @@ def test_dry_run_keeps_every_existing_env_value(rig: Rig) -> None:
     assert personal["OWNER_ID"] == str(OWNER_ID)  # an empty value is filled from the other file, never replaced
     for secret in (DEV_BOT_TOKEN, PERSONAL_BOT_TOKEN):
         assert secret not in rig.out.getvalue()
+    assert rig.security.calls == []  # not even to see what a rotation would replace
+    assert "would move plaintext ['DEV_BOT_TOKEN'] into the Keychain" in rig.out.getvalue()
 
 
 def test_dry_run_release_is_read_only(rig: Rig) -> None:
@@ -398,6 +414,7 @@ def test_unpinned_ffmpeg_stops_a_real_install_before_anything_changes(rig: Rig) 
     assert "not pinned in docs/STACK.md §5" in rig.out.getvalue()
     assert not rig.paths.data.exists()
     assert not rig.paths.master_key.exists()
+    assert rig.security.items == {}
 
 
 def test_the_shipped_pins_are_the_ones_stack_records() -> None:
@@ -479,13 +496,14 @@ def test_ffmpeg_is_verified_unpacked_and_checked_for_libopus(rig: Rig) -> None:
 
 # --- real mode with fakes --------------------------------------------------------------------------------------------
 def test_a_real_install_asks_only_for_missing_values_and_loads_dev_and_supervisor(rig: Rig) -> None:
-    write_env(rig.paths.env_file(BotName.DEV), f"DEV_BOT_TOKEN={DEV_BOT_TOKEN}\nOWNER_ID=\n")
+    write_env(rig.paths.env_file(BotName.DEV), f"DEV_BOT_TOKEN={DEV_REF}\nOWNER_ID=\n")
+    rig.security.put(keychain.DEV_BOT_TOKEN, DEV_BOT_TOKEN)
     rig.prompter.answers = {"OWNER_ID": [str(OWNER_ID)], "DEV_GROUP_ID": ["-12345", str(DEV_GROUP_ID)]}
     installer = rig.installer()
     assert installer.install() == 0, rig.out.getvalue()
     assert rig.prompter.asked == ["OWNER_ID", "DEV_GROUP_ID", "DEV_GROUP_ID"]  # the token was there: never asked
     values = yd_config.parse_env_file(rig.paths.env_file(BotName.DEV).read_text())
-    assert values == {"DEV_BOT_TOKEN": DEV_BOT_TOKEN, "OWNER_ID": str(OWNER_ID), "DEV_GROUP_ID": str(DEV_GROUP_ID)}
+    assert values == {"DEV_BOT_TOKEN": DEV_REF, "OWNER_ID": str(OWNER_ID), "DEV_GROUP_ID": str(DEV_GROUP_ID)}
     assert "not a -100… supergroup id" in rig.out.getvalue()
     assert ("bootstrap", "gui/501", str(rig.paths.home / "Library/LaunchAgents/uz.yordamchi.dev.plist")) in (
         rig.mac.launchctl_calls()
@@ -499,8 +517,61 @@ def test_a_typed_token_is_hidden_validated_and_never_printed(rig: Rig) -> None:
     rig.prompter.answers = {"DEV_BOT_TOKEN": ["not-a-token", DEV_BOT_TOKEN]}
     assert rig.install() == 0, rig.out.getvalue()
     assert rig.prompter.asked[:2] == ["DEV_BOT_TOKEN", "DEV_BOT_TOKEN"]
-    assert yd_config.parse_env_file(rig.paths.env_file(BotName.DEV).read_text())["DEV_BOT_TOKEN"] == DEV_BOT_TOKEN
+    assert yd_config.parse_env_file(rig.paths.env_file(BotName.DEV).read_text())["DEV_BOT_TOKEN"] == DEV_REF
+    assert rig.security.get(keychain.DEV_BOT_TOKEN) == DEV_BOT_TOKEN
     assert DEV_BOT_TOKEN not in rig.out.getvalue()
+
+
+def test_tokens_go_into_the_keychain_through_stdin_and_the_env_files_get_references(rig: Rig) -> None:
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN], "PERSONAL_BOT_TOKEN": [PERSONAL_BOT_TOKEN]}
+    assert rig.install(enable_personal=True) == 0, rig.out.getvalue()
+    assert rig.security.get(keychain.DEV_BOT_TOKEN) == DEV_BOT_TOKEN
+    assert rig.security.get(keychain.PERSONAL_BOT_TOKEN) == PERSONAL_BOT_TOKEN
+    for item in (keychain.DEV_BOT_TOKEN, keychain.PERSONAL_BOT_TOKEN, keychain.MASTER_KEY):
+        assert rig.security.trusted[(item.service, item.account)] == "/usr/bin/security"  # read later with no prompt
+    for bot, ref in ((BotName.DEV, DEV_REF), (BotName.PERSONAL, PERSONAL_REF)):
+        text = rig.paths.env_file(bot).read_text()
+        assert f"_BOT_TOKEN={ref}\n" in text
+        assert DEV_BOT_TOKEN not in text
+        assert PERSONAL_BOT_TOKEN not in text
+    for secret in rig.security.values():
+        assert all(secret not in part for call in rig.security.calls for part in call)  # never on argv
+        assert secret not in rig.out.getvalue()
+
+
+def test_a_plaintext_token_left_in_an_env_file_is_moved_into_the_keychain(rig: Rig) -> None:
+    text = f"# keep\nDEV_BOT_TOKEN={DEV_BOT_TOKEN}\nOWNER_ID={OWNER_ID}\nDEV_GROUP_ID={DEV_GROUP_ID}\n"
+    write_env(rig.paths.env_file(BotName.DEV), text)
+    installer = rig.installer()
+    assert installer.install() == 0, rig.out.getvalue()
+    assert rig.paths.env_file(BotName.DEV).read_text() == text.replace(DEV_BOT_TOKEN, DEV_REF)
+    assert rig.security.get(keychain.DEV_BOT_TOKEN) == DEV_BOT_TOKEN
+    assert rig.steps(installer)["dev.env"] is Status.WARN  # it sat in a file: the owner is told to rotate it
+    assert "--rotate-tokens" in rig.out.getvalue()
+    assert rig.prompter.asked == []
+
+
+def test_a_plaintext_token_never_overwrites_the_keychain_item(rig: Rig) -> None:
+    write_env(rig.paths.env_file(BotName.DEV), f"DEV_BOT_TOKEN={DEV_BOT_TOKEN}\nOWNER_ID={OWNER_ID}\n")
+    rig.security.put(keychain.DEV_BOT_TOKEN, NEW_DEV_TOKEN)
+    assert rig.install() == 0, rig.out.getvalue()
+    assert rig.security.get(keychain.DEV_BOT_TOKEN) == NEW_DEV_TOKEN  # the Keychain is the source of truth
+    assert DEV_BOT_TOKEN not in rig.paths.env_file(BotName.DEV).read_text()
+
+
+def test_a_reference_to_another_item_is_refused_and_kept(rig: Rig) -> None:
+    text = f"DEV_BOT_TOKEN={PERSONAL_REF}\nOWNER_ID={OWNER_ID}\nDEV_GROUP_ID={DEV_GROUP_ID}\n"
+    write_env(rig.paths.env_file(BotName.DEV), text)
+    assert rig.install() == 1
+    assert "DEV_BOT_TOKEN (must reference the Keychain item uz.yordamchi/dev-bot-token)" in rig.out.getvalue()
+    assert rig.paths.env_file(BotName.DEV).read_text() == text
+
+
+def test_a_locked_keychain_stops_a_real_install_with_a_clear_reason(rig: Rig) -> None:
+    rig.security.locked = True
+    assert rig.install() == 1
+    assert "the Keychain did not answer for uz.yordamchi/vault-master-key" in rig.out.getvalue()
+    assert not rig.paths.current_release.exists()
 
 
 def test_a_real_install_without_a_dev_token_stops_before_the_release(rig: Rig) -> None:
@@ -520,14 +591,16 @@ def test_an_existing_invalid_value_stops_the_install_and_is_kept(rig: Rig) -> No
     assert rig.mac.launchctl_calls() == []
 
 
-def test_rotate_tokens_replaces_only_the_tokens_and_restarts_loaded_bots(rig: Rig) -> None:
-    text = f"# keep\nDEV_BOT_TOKEN={DEV_BOT_TOKEN}\nOWNER_ID={OWNER_ID}\nDEV_GROUP_ID={DEV_GROUP_ID}\n"
+def test_rotate_tokens_updates_only_the_keychain_and_restarts_loaded_bots(rig: Rig) -> None:
+    text = f"# keep\nDEV_BOT_TOKEN={DEV_REF}\nOWNER_ID={OWNER_ID}\nDEV_GROUP_ID={DEV_GROUP_ID}\n"
     write_env(rig.paths.env_file(BotName.DEV), text)
+    rig.security.put(keychain.DEV_BOT_TOKEN, DEV_BOT_TOKEN)
     rig.mac.loaded = {"uz.yordamchi.dev"}
     rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN, NEW_DEV_TOKEN]}  # the old one is refused first
     installer = rig.installer(env_only=True, rotate_tokens=True)
     assert installer.install() == 0, rig.out.getvalue()
-    assert rig.paths.env_file(BotName.DEV).read_text() == text.replace(DEV_BOT_TOKEN, NEW_DEV_TOKEN)
+    assert rig.paths.env_file(BotName.DEV).read_text() == text  # the file only ever holds the reference
+    assert rig.security.get(keychain.DEV_BOT_TOKEN) == NEW_DEV_TOKEN
     assert "that is the old token" in rig.out.getvalue()
     assert ("kickstart", "-k", "gui/501/uz.yordamchi.dev") in rig.mac.launchctl_calls()
     assert rig.steps(installer)["restart personal"] is Status.UNCHANGED
@@ -535,14 +608,60 @@ def test_rotate_tokens_replaces_only_the_tokens_and_restarts_loaded_bots(rig: Ri
         assert secret not in rig.out.getvalue()
 
 
-def test_master_key_is_created_once_and_never_overwritten(rig: Rig) -> None:
-    rig.install(dry_run=True)
-    key = rig.paths.master_key.read_bytes()
-    assert key.endswith(b"\n")
-    assert len(base64.b64decode(key.strip(), validate=True)) == 32
+def test_rotate_tokens_turns_a_plaintext_line_into_a_reference(rig: Rig) -> None:
+    text = f"DEV_BOT_TOKEN={DEV_BOT_TOKEN}\nOWNER_ID={OWNER_ID}\nDEV_GROUP_ID={DEV_GROUP_ID}\n"
+    write_env(rig.paths.env_file(BotName.DEV), text)
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN, NEW_DEV_TOKEN]}
+    assert rig.installer(env_only=True, rotate_tokens=True).install() == 0, rig.out.getvalue()
+    assert rig.paths.env_file(BotName.DEV).read_text() == text.replace(DEV_BOT_TOKEN, DEV_REF)
+    assert rig.security.get(keychain.DEV_BOT_TOKEN) == NEW_DEV_TOKEN
+    assert "that is the old token" in rig.out.getvalue()
+
+
+def test_master_key_is_created_once_in_the_keychain_and_never_overwritten(rig: Rig) -> None:
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
+    installer = rig.installer()
+    assert installer.install() == 0, rig.out.getvalue()
+    assert rig.steps(installer)["master key"] is Status.DONE
+    key = rig.security.get(keychain.MASTER_KEY)
+    assert key is not None
+    assert len(base64.b64decode(key, validate=True)) == 32
+    assert not rig.paths.master_key.exists()  # never a file
     assert mode(rig.paths.config) == 0o700
-    rig.install(dry_run=True)
-    assert rig.paths.master_key.read_bytes() == key
+    again = rig.installer()
+    assert again.install() == 0, rig.out.getvalue()
+    assert rig.steps(again)["master key"] is Status.UNCHANGED
+    assert rig.security.get(keychain.MASTER_KEY) == key
+    assert all(key not in part for call in rig.security.calls for part in call)  # written through stdin only
+
+
+def test_a_legacy_master_key_file_is_imported_verified_and_deleted(rig: Rig) -> None:
+    raw = write_master_key(rig.paths.master_key)
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
+    installer = rig.installer()
+    assert installer.install() == 0, rig.out.getvalue()
+    assert rig.security.get(keychain.MASTER_KEY) == base64.b64encode(raw).decode()
+    assert not rig.paths.master_key.exists()
+    assert "imported master.key into the Keychain" in rig.out.getvalue()
+
+
+def test_a_leftover_file_with_the_keychain_key_is_deleted(rig: Rig) -> None:
+    raw = write_master_key(rig.paths.master_key)
+    rig.security.put(keychain.MASTER_KEY, base64.b64encode(raw).decode())
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
+    assert rig.install() == 0, rig.out.getvalue()
+    assert not rig.paths.master_key.exists()
+    assert rig.security.get(keychain.MASTER_KEY) == base64.b64encode(raw).decode()
+
+
+def test_a_master_key_conflict_stops_the_install_and_changes_nothing(rig: Rig) -> None:
+    raw = write_master_key(rig.paths.master_key)
+    other = base64.b64encode(bytes(32)).decode()
+    rig.security.put(keychain.MASTER_KEY, other)
+    assert rig.install() == 1
+    assert "holds a different key" in rig.out.getvalue()
+    assert base64.b64decode(rig.paths.master_key.read_bytes()) == raw
+    assert rig.security.get(keychain.MASTER_KEY) == other
 
 
 def test_a_damaged_master_key_stops_the_install_and_is_kept(rig: Rig) -> None:
@@ -550,6 +669,13 @@ def test_a_damaged_master_key_stops_the_install_and_is_kept(rig: Rig) -> None:
     rig.paths.master_key.write_text("garbage\n")
     assert rig.install() == 1
     assert rig.paths.master_key.read_text() == "garbage\n"
+    assert rig.security.items == {}
+
+
+def test_a_damaged_keychain_master_key_is_never_overwritten(rig: Rig) -> None:
+    rig.security.put(keychain.MASTER_KEY, "not-a-key")
+    assert rig.install() == 1
+    assert rig.security.get(keychain.MASTER_KEY) == "not-a-key"
 
 
 def test_a_refused_credential_source_stops_the_install(rig: Rig) -> None:
@@ -567,7 +693,7 @@ def test_a_rerun_reuses_the_release_and_restarts_instead_of_reloading(rig: Rig) 
     assert installer.install() == 0, rig.out.getvalue()
     steps = rig.steps(installer)
     assert steps["app release"] is Status.UNCHANGED
-    assert steps["master.key"] is Status.UNCHANGED
+    assert steps["master key"] is Status.UNCHANGED
     launchctl = rig.mac.launchctl_calls()
     assert ("bootout", "gui/501/uz.yordamchi.dev") in launchctl  # stopped for the migration
     assert ("kickstart", "-k", "gui/501/uz.yordamchi.supervisor") in launchctl  # unchanged plist, loaded

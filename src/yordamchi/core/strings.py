@@ -48,6 +48,23 @@ ERR_QUOTA_EXHAUSTED = Msg("{provider}: kvota yoki balans tugadi. Tarif yoki bala
 ERR_AUTH_FAILED = Msg("{provider}: kalit yoki login rad etildi. Kalitni tekshiring yoki yangisini yuboring.")
 ERR_CALL_TIMED_OUT = Msg("{operation} vaqtida tugamadi. Qayta urinib ko'ring.")
 ERR_NOT_INSTALLED = Msg("{binary} topilmadi. O'rnating yoki PATH'ni tekshiring.")
+ERR_SECRET_IN_PLAINTEXT = Msg(
+    "Ishga tushmadim: sozlash faylida {key} ochiq holda yozilgan ({problem}). Maxfiy qiymatlar faqat macOS "
+    "Keychain'da saqlanadi. Mac'da `python scripts/install.py --env-only --rotate-tokens` ni ishga tushiring: yangi "
+    "token Keychain'ga yoziladi, faylda faqat havola qoladi. Eski token faylda turgani uchun BotFather'da almashtiring."
+)
+ERR_KEYCHAIN_ITEM_MISSING = Msg(
+    "macOS Keychain'da «{key}» yozuvi topilmadi ({problem}). Mac'da "
+    "`python scripts/install.py --env-only --rotate-tokens` ni ishga tushiring."
+)
+ERR_KEYCHAIN_UNAVAILABLE = Msg(
+    "macOS Keychain'dan «{key}» o'qilmadi ({problem}): Keychain qulflangan yoki javob bermadi. Mac'ga login qiling, "
+    "keyin `python -m yordamchi.check` ni ishga tushiring."
+)
+ERR_KEYCHAIN_ITEM_FORBIDDEN = Msg(
+    "«{key}» bu botniki emas ({problem}): har bot faqat o'z Keychain yozuvlarini o'qiydi. Sozlash faylidagi "
+    "havolani tuzating."
+)
 
 # --- inbox ---
 # Markers that replace a key inside the stored text (SPEC §3.2.1 step 3); later stages and the LLM see only these.
@@ -67,10 +84,13 @@ SECRET_NOT_DELETED = Msg(
 
 # --- audit ---
 # --- vault ---
-ERR_VAULT_KEY_MISSING = Msg("Kalitlar ombori ochilmadi: master.key topilmadi. Installer'ni qayta ishga tushiring.")
+ERR_VAULT_KEY_MISSING = Msg(
+    "Kalitlar ombori ochilmadi: ombor kaliti macOS Keychain'dan o'qilmadi (Keychain qulflangan yoki kalit yo'q). "
+    "Mac'ga login qiling va `python -m yordamchi.check` ni ishga tushiring: u nima yetishmayotganini aytadi."
+)
 ERR_VAULT_KEY_INSECURE = Msg(
-    "Kalitlar ombori ochilmadi: master.key boshqalarga ham ochiq (ruxsat {mode}). "
-    "`chmod 600 ~/.config/yordamchi/master.key` qiling."
+    "Kalitlar ombori ochilmadi: eski master.key fayli boshqalarga ham ochiq (ruxsat {mode}). "
+    "`chmod 600 ~/.config/yordamchi/master.key` qiling: keyin u Keychain'ga ko'chiriladi va fayl o'chiriladi."
 )
 ERR_VAULT_DECRYPT_FAILED = Msg("«{name}» kalitini ochib bo'lmadi (ombor o'zgargan). Kalitni qayta yuboring.")
 ERR_VAULT_SECRET_NOT_FOUND = Msg("«{name}» degan kalit omborda yo'q.")

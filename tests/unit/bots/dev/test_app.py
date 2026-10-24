@@ -1,6 +1,10 @@
 """`bots/dev/app.py` startup (SPEC §2.5 steps 3–8; NFR-SEC-04): the refusals that exit 78 with `run/dev.lasterror`
 and at most one notice per 6 h, the environment scrub, the child PATH and the schema check. Then the real entry point
-in a child process: it refuses with exit 78 and never touches the network while its notice marker is fresh."""
+in a child process: it refuses with exit 78 and never touches the network.
+
+`dev.env` names the token's Keychain item (owner requirement 2026-10-24); in-process, `/usr/bin/security` is a
+`FakeSecurity` (autouse). A child process cannot use the fake and must never read the real Keychain, so the entry-point
+test gives it a plaintext token, which it refuses before anything else."""
 
 import json
 import os
@@ -8,15 +12,17 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
 
 from tests.factories import DEV_BOT_TOKEN, DEV_GROUP_ID, OWNER_ID, open_test_db
 from tests.fakes.clock import FakeClock
+from tests.fakes.security import FakeSecurity
 from yordamchi.adapters.system_clock import SystemClock
 from yordamchi.bots.dev import app
 from yordamchi.bots.dev.app import Boot
-from yordamchi.core import proc
+from yordamchi.core import keychain, proc
 from yordamchi.core import strings as S
 from yordamchi.core.config import DevConfig
 from yordamchi.core.paths import BotName, Paths
@@ -24,6 +30,15 @@ from yordamchi.core.text import BotText
 
 ROOT = Path(__file__).resolve().parents[4]
 REFUSED_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"  # one of core.proc.REFUSED_ENV_VARS
+
+
+@pytest.fixture(autouse=True)
+def fake_keychain(monkeypatch: pytest.MonkeyPatch) -> FakeSecurity:
+    """The dev token's Keychain item, in memory: `core.config` resolves `dev.env`'s reference through it."""
+    security = FakeSecurity()
+    security.put(keychain.DEV_BOT_TOKEN, DEV_BOT_TOKEN)
+    monkeypatch.setattr(keychain, "security_runner", security)
+    return security
 
 
 class Notices:
@@ -34,10 +49,10 @@ class Notices:
         self.sent.append((config.dev_group_id, text))
 
 
-def _environ(paths: Paths, **extra: str) -> dict[str, str]:
+def _environ(paths: Paths, *, token: str = keychain.DEV_BOT_TOKEN.reference, **extra: str) -> dict[str, str]:
     env_file = paths.env_file(BotName.DEV)
     env_file.parent.mkdir(parents=True, exist_ok=True)
-    env_file.write_text(f"DEV_BOT_TOKEN={DEV_BOT_TOKEN}\nOWNER_ID={OWNER_ID}\nDEV_GROUP_ID={DEV_GROUP_ID}\n")
+    env_file.write_text(f"DEV_BOT_TOKEN={token}\nOWNER_ID={OWNER_ID}\nDEV_GROUP_ID={DEV_GROUP_ID}\n")
     return {
         "YORDAMCHI_DATA_DIR": str(paths.data),
         "YORDAMCHI_CONFIG_DIR": str(paths.config),
@@ -140,7 +155,9 @@ async def test_a_db_behind_the_head_is_refused_unless_an_update_runs(paths: Path
     await booted.db.dispose()
 
 
-async def test_a_clean_start_scrubs_the_environment_and_puts_the_shims_first(paths: Paths) -> None:
+async def test_a_clean_start_scrubs_the_environment_and_puts_the_shims_first(
+    paths: Paths, fake_keychain: FakeSecurity
+) -> None:
     clock, notices = FakeClock(), Notices()
     _binaries(paths, "claude", "git")
     _migrate(paths.db_file(BotName.DEV))
@@ -148,6 +165,8 @@ async def test_a_clean_start_scrubs_the_environment_and_puts_the_shims_first(pat
     booted = await _prepare(paths, environ, clock, notices)
     assert isinstance(booted, Boot)
     try:
+        assert booted.config.bot_token == DEV_BOT_TOKEN  # from the fake Keychain, never the real one
+        assert fake_keychain.calls == [tuple(keychain.find_argv(keychain.DEV_BOT_TOKEN, reveal=True))]
         assert "CLAUDECODE" not in environ
         assert "CLAUDE_CODE_ENTRYPOINT" not in environ
         assert booted.search_path.split(":")[:3] == [str(paths.shims), str(paths.local_bin), str(paths.bin)]
@@ -181,16 +200,22 @@ def test_the_release_version_comes_from_the_installers_marker(tmp_path: Path) ->
 
 
 async def test_the_entry_point_refuses_with_78_in_a_real_process(paths: Paths) -> None:
-    """`python -I -m yordamchi.bots.dev.app` as launchd runs it. The notice marker is fresh, so the refusal is
-    reported to `run/dev.lasterror` only: the child never opens a connection."""
+    """`python -I -m yordamchi.bots.dev.app` as launchd runs it, with a plaintext token in `dev.env` (and a refused
+    credential in its environment): it refuses the plaintext token first, before any Keychain read, reports it to
+    `run/dev.lasterror` by name only, and never opens a connection. The child cannot use the in-process fake Keychain,
+    which is why the credentials refusal is covered in-process above."""
     marker = app.refusal_marker(paths)
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps({"at": SystemClock().now().isoformat(), "reason": "credentials"}))
-    environ = _environ(paths, **{REFUSED_TOKEN: "sk-ant-oat01-not-a-real-token"})
+    environ = _environ(paths, token=DEV_BOT_TOKEN, **{REFUSED_TOKEN: "sk-ant-oat01-not-a-real-token"})
     environ |= {"HOME": str(paths.home), "PATH": os.defpath, "LANG": "en_US.UTF-8"}
     result = await proc.run([sys.executable, "-I", "-m", "yordamchi.bots.dev.app"], env=environ, timeout=60)
     assert result.returncode == 78, result.stderr.decode(errors="replace")[-400:]
-    assert f"env:{REFUSED_TOKEN}" in paths.last_error(BotName.DEV).read_text()
+    lasterror = paths.last_error(BotName.DEV).read_text()
+    assert "startup_refused config: DEV_BOT_TOKEN: plaintext_in_dev.env" in lasterror
     logged = paths.log_file("dev").read_text()
     assert '"event": "startup_refused"' in logged
-    assert "sk-ant-oat01" not in logged
+    for text in (lasterror, logged, result.stdout.decode(), result.stderr.decode()):
+        assert "sk-ant-oat01" not in text
+        assert DEV_BOT_TOKEN not in text
+        assert DEV_BOT_TOKEN.split(":", 1)[1] not in text

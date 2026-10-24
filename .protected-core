@@ -19,3 +19,6 @@ src/yordamchi/core/control.py
 bin/yordamchi-helper
 src/yordamchi/bots/cli/helper.py
 src/yordamchi/shared/integrations/**
+# Secrets in the macOS Keychain (owner requirement 2026-10-24): the per-bot item allowlist (UC-36) and the keystore.
+src/yordamchi/core/keychain.py
+src/yordamchi/adapters/keystore/**

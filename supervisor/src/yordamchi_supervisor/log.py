@@ -1,9 +1,9 @@
 """JSON-lines log at `~/Library/Logs/Yordamchi/supervisor.jsonl`, rotated at 10 MB × 2 (SPEC §9.2), always scrubbed.
 
 One line is `{"ts", "level", "event", ...fields}`. Fields carry ids, codes, counts and durations, never message
-content. `Scrubber` masks every Telegram bot token, whether it matches the pattern or is a value the supervisor has
-read from `dev.env`. It runs on every line and on uncaught tracebacks (`install_excepthook`). Uncaught tracebacks go
-to stderr, which is the launchd log.
+content. `Scrubber` masks every Telegram bot token, whether it matches the pattern or is the value the supervisor has
+read from the Keychain item `dev.env` names. It runs on every line and on uncaught tracebacks (`install_excepthook`).
+Uncaught tracebacks go to stderr, which is the launchd log.
 """
 
 import json

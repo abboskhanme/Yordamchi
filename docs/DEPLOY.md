@@ -1,15 +1,16 @@
 # Yordamchi — Deploy, operate, roll back
 
 How Yordamchi is installed on the owner's MacBook, how it is updated and rolled back, where to look when something
-is wrong, and how to rotate the bot tokens. Sources: SPEC §2.2 (layout), §2.5 (startup), §2.8 (heartbeat and
-watchdog), §9 (ops), §12 (DoD); STACK §5 (runtime dependencies).
+is wrong, where the secrets are and how to rotate them. Sources: SPEC §2.2 (layout), §2.5 (startup), §2.8 (heartbeat
+and watchdog), §9 (ops), §12 (DoD); STACK §5 (runtime dependencies); the owner's requirement of 2026-10-24 (a copied
+file must never be usable: ASSUMPTIONS).
 
 Everything runs as the owner's user. There is no server, no inbound port, no Docker and no Homebrew.
 
 ```
 DATA = ~/Library/Application Support/Yordamchi        (0700)
 LOGS = ~/Library/Logs/Yordamchi
-KEY  = ~/.config/yordamchi/master.key                 (0600, dir 0700, excluded from Time Machine)
+KC   = the macOS login Keychain, service uz.yordamchi: dev-bot-token, personal-bot-token, vault-master-key
 UID  = $(id -u)
 ```
 
@@ -19,6 +20,10 @@ UID  = $(id -u)
   Agents run `--dry-run` only.
 - Run the installer with the uv-managed Python: `~/.local/bin/python3.12 -I scripts/install.py …`.
 - Never paste a token into a chat (Telegram, Claude, anywhere). Tokens are typed at the installer's hidden prompt.
+- **No secret sits in any file**: not the env files, the DBs, the backups, the logs or the tests. Bot tokens and the
+  vault master key are in the login Keychain (`KC`); the env files hold only references such as
+  `DEV_BOT_TOKEN=@keychain:uz.yordamchi/dev-bot-token`, and the DBs only ciphertext. A bot refuses to start on a
+  plaintext token, and the check script is red on one (§9).
 - Never edit files inside `DATA/releases/*`: they are read-only on purpose. A change is a new commit and a new
   release.
 - Before any migration, a backup is taken (the installer does it in `backups/pre-update/install-…`). A rollback
@@ -54,12 +59,16 @@ Steps:
    ~/.local/bin/python3.12 -I scripts/install.py --release <commit>      # add --skip-ffmpeg if not pinned yet
    ```
    It asks you to type `install`, then, in order: preflight → uv 0.13.5 and Python 3.12.15 → the DATA tree (0700)
-   → `master.key` (created once, never overwritten) → env files → `git archive <commit>` into
-   `DATA/releases/<YYYY.MM.DD-sha7>/` with its own `.venv`, made read-only → the supervisor release → ffmpeg →
+   → the vault master key in the Keychain (created once, never overwritten; a legacy `master.key` is imported,
+   verified and deleted, §9.2) → env files (tokens into the Keychain, references into the files)
+   → `git archive <commit>` into `DATA/releases/<YYYY.MM.DD-sha7>/` with its own `.venv`, made read-only → the supervisor release → ffmpeg →
    DB backup → `alembic upgrade head` on `db/dev.db` and `db/personal.db` → `current` symlinks → plists →
    `launchctl bootstrap` → the check script.
    - Env files: a value already in `dev.env` / `personal.env` is **never** overwritten. Only empty values are asked
-     for. Tokens are read hidden. `OWNER_ID` and `DEV_GROUP_ID` may be left empty and filled in later (§1.1).
+     for. Tokens are read hidden and written to the Keychain through `security -i` on stdin (never on a command
+     line), read back to verify, and the env file gets the reference. A plaintext token still in a file is moved
+     into the Keychain and the step ends `warn`: it sat in a file, so rotate it (§6). `OWNER_ID` and
+     `DEV_GROUP_ID` may be left empty and filled in later (§1.1).
    - `DEV_GROUP_ID` must be a `-100…` supergroup id. A basic group changes its id when Telegram upgrades it, and the
      bot would then leave it as a foreign group.
    - `uz.yordamchi.personal` is rendered into `DATA/launchd/` only. It is installed and loaded with
@@ -70,8 +79,8 @@ Steps:
    ```
    (`python -m yordamchi.check` once its entry point is wired; see `docs/PENDING_WIRING.md`.)
 
-Rollback of a first install: §4.3 (stop and remove the jobs). Nothing outside DATA, the key, the logs and the three
-plists is created.
+Rollback of a first install: §4.3 (stop and remove the jobs). Nothing outside DATA, the three Keychain items, the
+logs and the three plists is created (`~/.config/yordamchi` stays as an empty 0700 dir).
 
 ### 1.1 Finding OWNER_ID and DEV_GROUP_ID
 
@@ -113,8 +122,8 @@ a plist in `~/Library/LaunchAgents` by hand: the next install replaces it.
    Keep it until the new version has run for a day.
 5. Run the check (§1 step 4) and say "holat?" in the dev group.
 
-Re-running the installer on the same commit is safe: a built release is reused, the key and env values are kept,
-and the jobs are restarted with `kickstart -k`.
+Re-running the installer on the same commit is safe: a built release is reused, the Keychain items and env values
+are kept, and the jobs are restarted with `kickstart -k`.
 
 ## 4. Rollback
 
@@ -146,7 +155,9 @@ rm ~/Library/LaunchAgents/uz.yordamchi.{dev,supervisor}.plist   # only to uninst
 Start again: `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/uz.yordamchi.<x>.plist`. The supervisor leaves a
 booted-out bot alone (it acts only on loaded jobs).
 
-Never delete `master.key`: the vault in the DBs cannot be decrypted without it.
+Never delete the Keychain item `uz.yordamchi/vault-master-key`: the vault in the DBs (and in every backup) cannot be
+decrypted without it. To uninstall completely, and only then:
+`security delete-generic-password -s uz.yordamchi -a <dev-bot-token|personal-bot-token|vault-master-key>`.
 
 ## 5. Restore a database from a backup
 
@@ -166,23 +177,28 @@ rm -f db/dev.db-wal db/dev.db-shm                                # 5. drop the o
 chmod 600 db/dev.db
 launchctl bootstrap gui/$UID ~/Library/LaunchAgents/uz.yordamchi.dev.plist   # 6. start it
 ```
-Then run the check and "holat?". The restore is tested: `supervisor/tests/test_backups.py::Restore` runs exactly
+A restored DB opens with the same Keychain master key; a DB copied to another Mac (or another user) holds only
+ciphertext it cannot open there. Then run the check and "holat?". The restore is tested:
+`supervisor/tests/test_backups.py::Restore` runs exactly
 these steps on a scratch copy and compares every row. Practise it once on a copy (`cp -R DATA/db /tmp/restore-test`)
 after T43, so the first real restore is not the first one.
 
 ## 6. Rotate the bot tokens
 
-Do this before T43 (the current tokens were pasted into a chat transcript) and whenever a token may have leaked.
+Do this before T43 (the current tokens were pasted into a chat transcript), whenever a token may have leaked, and
+whenever a bot refuses to start with "… ochiq holda yozilgan" (a plaintext token was found in an env file).
 
 1. BotFather → `/revoke` → choose the bot. The old token stops working at once; the bot goes silent until step 2.
 2. On the Mac:
    ```sh
    ~/.local/bin/python3.12 -I scripts/install.py --env-only --rotate-tokens
    ```
-   It asks for each existing token with hidden input, refuses the old value and anything that is not a BotFather
-   token, replaces only the token lines (every other line, comment and id stays), keeps the files 0600, and restarts
-   the loaded bots with `kickstart -k`. The supervisor reads `dev.env` at send time, so it needs no restart.
-3. Run the check: `getMe` must answer for each bot.
+   It asks for each existing token with hidden input, refuses the old value (read from the Keychain) and anything
+   that is not a BotFather token, **updates the Keychain item** (`security -i` on stdin, then read back), and leaves
+   the env files as they are: they hold only the reference. A plaintext token line still in a file is replaced by
+   its reference. The files stay 0600 and the loaded bots are restarted with `kickstart -k`. The supervisor reads
+   the token from the Keychain at send time, so it needs no restart.
+3. Run the check: the Keychain lines and `getMe` must be green for each bot.
 
 Inside a full install, `--rotate-tokens` does the same at the env step.
 
@@ -199,6 +215,7 @@ Inside a full install, `--rotate-tokens` does the same at the env step.
 | Disk | the dev bot warns below `guard.min_free_disk_gb` (once per 6 h) and queues coding turns below `guard.block_disk_gb`; the supervisor alerts when a backup is skipped for lack of space; the check prints free space |
 | Backups | `ls DATA/backups/daily/` (one dir per day); a failed or skipped backup is alerted in the dev group; restore: §5 |
 | Power | the check's "Quvvat" line (`pmset` AC sleep must be 0); after a sleep the bot posts "Mac uxlagan edi …" |
+| Are the secrets safe? | the check's "Maxfiy qiymatlar (Keychain)" section: no plaintext in any env file, every referenced item present, the master key in the Keychain, no `master.key` file left (§9) |
 
 Log rotation (NFR-CAP-05, ≤ 200 MB total): bots 20 MB × 4, supervisor 10 MB × 2, launchd logs copy-truncated by
 the supervisor above 5 MB (`.1` keeps the last 1 MB).
@@ -212,3 +229,70 @@ the supervisor above 5 MB (`.1` keeps the last 1 MB).
   ```
 - `DATA/launchd/*.plist` are the rendered copies of the last install, for diffing against `~/Library/LaunchAgents`.
 - `uv` builds the release venvs with `--link-mode clone`, so `chmod -R a-w` never reaches into uv's cache.
+
+## 9. Secrets: where they are and what to do when something is off
+
+**Where.** Everything that could be used if copied lives in the owner's login Keychain, as generic passwords of the
+service `uz.yordamchi`, each created with `-T /usr/bin/security` so a launchd job reads it without a prompt:
+
+| Item (account) | What | Read by | Written by |
+|---|---|---|---|
+| `dev-bot-token` | the dev bot token | the dev bot, the supervisor (alerts), the check script | installer |
+| `personal-bot-token` | the personal bot token | the personal bot, the check script | installer |
+| `vault-master-key` | 32 random bytes, base64: AES-256-GCM key of the vault and the OAuth grants | both bots | installer (or a bot importing a legacy `master.key`) |
+| `google-api-key`, `openrouter-api-key` | keys for the opt-in live tests only (`tests/integration/stt_harness.live_key`) | `pytest -m live` | the owner, by hand (below) |
+
+Files hold no usable secret: env files hold `@keychain:` references, the DBs and their backups hold ciphertext,
+`run/secret-hashes.json` holds one-way sha256 hashes for the pre-push scan, logs are scrubbed. The Keychain is
+encrypted with the login password and is not part of a file copy or of Time Machine. The cost: the vault in a backup
+opens only on this Mac's login Keychain. If the Keychain item is lost, the stored API keys and integration logins are
+lost with it; send the keys again by chat and reconnect the integrations.
+
+**Look, without showing a value.** `security find-generic-password -s uz.yordamchi -a dev-bot-token` prints the
+item's attributes, never its value (that needs `-w`; do not run `-w` where a screen is shared or recorded). The check
+script does the same for every item.
+
+**A bot refuses to start.** The reason is in `DATA/run/<bot>.lasterror` and the launchd log, in Uzbek:
+- "… faylida … ochiq holda yozilgan": a plaintext secret in the env file → §6 (rotate; the installer moves it into
+  the Keychain and leaves only the reference).
+- "macOS Keychain'da «…» yozuvi topilmadi": the item is gone → §6 (`--env-only --rotate-tokens` stores a new one).
+- "macOS Keychain'dan «…» o'qilmadi": the Keychain is locked or `security` did not answer → log in at the Mac (after
+  a reboot nothing runs until the owner logs in anyway, R-02), then run the check. If the check is still red and the
+  item was edited by hand in Keychain Access, its access list may now prompt: store it again with the installer.
+- "«…» bu botniki emas": an env file points at another bot's item (the personal bot may never read the dev token,
+  UC-36) → fix the reference, e.g. `PERSONAL_BOT_TOKEN=@keychain:uz.yordamchi/personal-bot-token`.
+
+**The vault is degraded** ("Kalitlar ombori ochilmadi"): the bot runs, but it cannot store or open keys until the
+master key can be read. Log in and run the check; it names what is missing.
+
+### 9.1 Add a live-test key without a file
+
+```sh
+read -rs KEY    # paste the key, then Enter; nothing is echoed
+printf 'add-generic-password -U -s uz.yordamchi -a openrouter-api-key -T /usr/bin/security -w "%s"\n' "$KEY" \
+  | /usr/bin/security -i
+unset KEY
+```
+`printf` is a shell builtin, so the key is never on a process command line. A shell variable
+`YORDAMCHI_LIVE_OPENROUTER_API_KEY` still wins over the item when it is set.
+
+### 9.2 The legacy `master.key` file
+
+Until 2026-10-24 the master key was `~/.config/yordamchi/master.key`. It is moved into the Keychain by the next
+install, or by the first bot start that needs the vault: written to `vault-master-key`, read back, compared byte for
+byte, and only then deleted. The check is red while the file exists. A file readable by others (`chmod 600` it first)
+or one that is not base64 of 32 bytes is never imported and never deleted.
+
+**Conflict** (the installer stops with "holds a different key", or the bot logs `master_key_conflict`): the
+Keychain already has a different key than the file. Nothing was written or deleted. Find out which key the vault
+rows were sealed with, without printing either key:
+```sh
+cd "$HOME/Library/Application Support/Yordamchi"
+sqlite3 -readonly db/dev.db 'select distinct key_fp from vault_secrets'                    # the rows' key
+base64 -d < ~/.config/yordamchi/master.key | shasum -a 256 | cut -c1-8                     # the file's key
+security find-generic-password -s uz.yordamchi -a vault-master-key -w | base64 -d | shasum -a 256 | cut -c1-8
+```
+If the rows show one fingerprint and it is the file's, delete the Keychain item
+(`security delete-generic-password -s uz.yordamchi -a vault-master-key`) and run the installer: it imports the file
+and deletes it only once the Keychain holds the same key. If it is the Keychain's, delete the file. If the rows show
+two fingerprints, or neither matches, delete nothing: each key still opens some rows.

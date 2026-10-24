@@ -45,6 +45,7 @@ class SupervisorLoop(unittest.TestCase):
             runner=self.launchctl,
             spawner=self.spawner,
             opener=self.opener,
+            keychain=self.data.keychain,
             uid=UID,
             pid=4321,
         )

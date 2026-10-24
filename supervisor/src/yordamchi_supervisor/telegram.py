@@ -1,8 +1,10 @@
 """Owner alerts through the Telegram Bot API, stdlib `urllib` only (SPEC §2.2, CONVENTIONS §12).
 
-The dev bot token and `DEV_GROUP_ID` are read from the 0600 `DATA/dev.env` at send time, so a re-install is picked up
-without a restart. The token is registered with the log scrubber the moment it is read, and no URL, request or
-exception text is ever logged: only the alert kind, an HTTP status or an exception class name.
+`DEV_GROUP_ID` and the token's Keychain reference are read from the 0600 `DATA/dev.env` at send time, and the token
+itself from the macOS Keychain (`keychain.py`), so a re-install or a rotation is picked up without a restart. A
+plaintext token in `dev.env`, or a reference to any other item, is refused (owner requirement 2026-10-24): nothing is
+sent until the installer has fixed the file. The token is registered with the log scrubber the moment it is read, and
+no URL, request or exception text is ever logged: only the alert kind, an HTTP status or an exception class name.
 
 Alerts are queued in memory. A network drop (the Mac just woke, Wi-Fi is off) keeps the queue and the next tick
 retries; a definite refusal from Telegram (a bad token or chat, HTTP 400/401/403/404) drops the alert and logs it.
@@ -23,6 +25,7 @@ from typing import Final
 
 from yordamchi_supervisor import strings as S
 from yordamchi_supervisor.clock import TASHKENT, Clock
+from yordamchi_supervisor.keychain import DEV_TOKEN_REFERENCE, REFERENCE_PREFIX, KeychainError, TokenSource
 from yordamchi_supervisor.log import JsonLog, Scrubber
 
 API_BASE: Final = "https://api.telegram.org"
@@ -70,8 +73,9 @@ def parse_env_file(text: str) -> dict[str, str]:
     return values
 
 
-def read_alert_target(path: Path) -> AlertTarget:
-    """The dev token and dev group. Refuses a file that group or others can read: the token must stay 0600."""
+def read_alert_target(path: Path, keychain: TokenSource) -> AlertTarget:
+    """The dev group from `dev.env` and the dev token from the Keychain item it names. Refuses a file that group or
+    others can read, a plaintext token, and a reference to any item but `uz.yordamchi/dev-bot-token`."""
     try:
         info = path.stat()
         text = path.read_text(encoding="utf-8")
@@ -82,9 +86,17 @@ def read_alert_target(path: Path) -> AlertTarget:
     if info.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
         raise AlertConfigError("env_mode_unsafe")
     values = parse_env_file(text)
-    token, chat = values.get("DEV_BOT_TOKEN", ""), values.get("DEV_GROUP_ID", "")
-    if not token or not chat or token.startswith("<") or chat.startswith("<"):
+    reference, chat = values.get("DEV_BOT_TOKEN", ""), values.get("DEV_GROUP_ID", "")
+    if not reference or not chat or reference.startswith("<") or chat.startswith("<"):
         raise AlertConfigError("env_incomplete")
+    if not reference.startswith(REFERENCE_PREFIX):
+        raise AlertConfigError("env_token_plaintext")
+    if reference != DEV_TOKEN_REFERENCE:
+        raise AlertConfigError("env_token_reference_refused")
+    try:
+        token = keychain.dev_token()
+    except KeychainError as exc:
+        raise AlertConfigError(exc.problem) from None
     return AlertTarget(token=token, chat_id=chat)
 
 
@@ -103,10 +115,12 @@ class Alerter:
         scrubber: Scrubber,
         clock: Clock,
         *,
+        keychain: TokenSource,
         opener: Opener = urllib_opener,
         max_queue: int = MAX_QUEUE,
     ) -> None:
         self._env_file = env_file
+        self._keychain = keychain
         self._log = log
         self._scrub = scrubber
         self._clock = clock
@@ -130,7 +144,7 @@ class Alerter:
         if not self._queue:
             return
         try:
-            target = read_alert_target(self._env_file)
+            target = read_alert_target(self._env_file, self._keychain)
         except AlertConfigError as exc:
             if exc.problem != self._config_problem:
                 self._log.error("alert_config_problem", problem=exc.problem, queued=len(self._queue))

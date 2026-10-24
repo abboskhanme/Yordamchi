@@ -1,8 +1,16 @@
 """Bootstrap values, read once at startup — one class per process (CONVENTIONS §3, §12; SPEC §2.2, §2.5 step 2).
 
-The env file named by `YORDAMCHI_ENV_FILE` (default `DATA/<bot>.env`, 0600) holds only the bot token, the owner id
-and the chat ids. It is parsed here and **never exported into `os.environ`**, so no child process can inherit the
-token. Everything else is a DB setting (`shared/settings`).
+The env file named by `YORDAMCHI_ENV_FILE` (default `DATA/<bot>.env`, 0600) holds the owner id, the chat ids and a
+**reference** to the bot token, never the token itself (owner requirement 2026-10-24, `core.keychain`):
+`DEV_BOT_TOKEN=@keychain:uz.yordamchi/dev-bot-token`. At load time:
+- a plaintext secret anywhere in the file (a `*_TOKEN`/`*_SECRET`/`*_PASSWORD`/`*_API_KEY` value that is not a
+  reference, or any value `core.redact` recognises as a key) is refused: `SecretInPlaintext`, whose Uzbek message
+  tells the owner to run `scripts/install.py --env-only --rotate-tokens`;
+- the token reference is resolved through `/usr/bin/security`, scoped to this bot (`core.keychain.Keychain`): the
+  personal process can never resolve `dev-bot-token` (UC-36). `keychain_runner` replaces `/usr/bin/security` for
+  tests only; production passes nothing.
+Values are parsed here and **never exported into `os.environ`**, so no child process can inherit the token.
+Everything else is a DB setting (`shared/settings`).
 
 Process-environment overrides for the roots (tests, the supervisor's `make check`): `YORDAMCHI_DATA_DIR`,
 `YORDAMCHI_CONFIG_DIR`, `YORDAMCHI_LOG_DIR`.
@@ -10,13 +18,13 @@ Process-environment overrides for the roots (tests, the supervisor's `make check
 
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Final
 
-from yordamchi.core import redact
-from yordamchi.core.errors import ConfigInvalid
+from yordamchi.core import keychain, redact
+from yordamchi.core.errors import ConfigInvalid, SecretInPlaintext
 from yordamchi.core.paths import SECRET_HASHES_FILE, BotName, Paths
 
 ENV_FILE_VAR: Final = "YORDAMCHI_ENV_FILE"
@@ -31,9 +39,13 @@ MCP_SERVER_NAME_VAR: Final = "CLAUDE_CODE_MCP_SERVER_NAME"
 
 DEV_KEYS: Final = ("DEV_BOT_TOKEN", "OWNER_ID", "DEV_GROUP_ID")
 PERSONAL_KEYS: Final = ("PERSONAL_BOT_TOKEN", "OWNER_ID", "PERSONAL_GROUP_ID")
+# The keys whose value is an `@keychain:` reference that the loader resolves.
+DEV_SECRET_KEYS: Final = ("DEV_BOT_TOKEN",)
+PERSONAL_SECRET_KEYS: Final = ("PERSONAL_BOT_TOKEN",)
 
 _KEY = re.compile(r"[A-Z_][A-Z0-9_]*")
 _BOT_TOKEN = re.compile(r"\d{8,10}:[A-Za-z0-9_-]{35}")
+_SECRET_NAME = re.compile(r"(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|PRIVATE_KEY)$")
 
 
 def load_paths(environ: Mapping[str, str] | None = None, *, home: Path | None = None) -> Paths:
@@ -78,6 +90,47 @@ def read_env_file(path: Path) -> dict[str, str]:
     except OSError:
         raise ConfigInvalid(key=ENV_FILE_VAR, problem="file_unreadable") from None
     return parse_env_file(text)
+
+
+def plaintext_secrets(values: Mapping[str, str]) -> tuple[str, ...]:
+    """The keys (sorted, never their values) that hold a secret in the clear: a non-empty value under a secret name
+    (`*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_API_KEY`, …) that is not an `@keychain:` reference, or any value in which
+    `core.redact` finds a key. The check script reports the same list."""
+    found = {
+        key
+        for key, value in values.items()
+        if value
+        and not keychain.is_reference(value)
+        and (_SECRET_NAME.search(key) is not None or bool(redact.find_secrets(f"{key}={value}")))
+    }
+    return tuple(sorted(found))
+
+
+def resolve_secrets(
+    values: Mapping[str, str], *, source: str, keys: Collection[str], chain: keychain.Keychain
+) -> dict[str, str]:
+    """Refuse a plaintext secret anywhere in `values` (`SecretInPlaintext`), then replace each `@keychain:` reference
+    under `keys` with the item's value. `chain` is scoped to one bot, so a reference to another bot's item raises
+    `KeychainItemForbidden` before `security` runs, and a token key naming this bot's other item (the master key) is
+    `ConfigInvalid`; a missing item or a locked Keychain raises `KeychainItemMissing` / `KeychainUnavailable`.
+    Unknown keys are never resolved."""
+    plaintext = plaintext_secrets(values)
+    if plaintext:
+        raise SecretInPlaintext(source=source, keys=", ".join(plaintext))
+    resolved = dict(values)
+    for key in keys:
+        value = values.get(key, "")
+        if not keychain.is_reference(value):
+            continue
+        try:
+            item = keychain.parse_reference(value)
+        except ValueError:
+            raise ConfigInvalid(key=key, problem="bad_keychain_reference") from None
+        if chain.allows(item) and item != keychain.TOKEN_ITEMS.get(key, item):
+            # This bot's other item (the master key) is never read as a token.
+            raise ConfigInvalid(key=key, problem="wrong_keychain_item")
+        resolved[key] = chain.read(item)  # an item outside this bot's scope raises KeychainItemForbidden here
+    return resolved
 
 
 def _required(values: Mapping[str, str], key: str) -> str:
@@ -166,11 +219,29 @@ def _env_file(env: Mapping[str, str], paths: Paths, bot: BotName) -> Path:
     return Path(named).expanduser() if named else paths.env_file(bot)
 
 
-def load_dev_config(environ: Mapping[str, str] | None = None, *, home: Path | None = None) -> DevConfig:
-    """Read the dev env file. The token joins the redaction set at once, before anything can log it."""
+def _load_values(
+    env: Mapping[str, str],
+    paths: Paths,
+    bot: BotName,
+    keys: Collection[str],
+    runner: keychain.Runner | None,
+) -> dict[str, str]:
+    path = _env_file(env, paths, bot)
+    chain = keychain.Keychain(bot, runner=runner)  # the scope comes from the process, never from the file
+    return resolve_secrets(read_env_file(path), source=path.name, keys=keys, chain=chain)
+
+
+def load_dev_config(
+    environ: Mapping[str, str] | None = None,
+    *,
+    home: Path | None = None,
+    keychain_runner: keychain.Runner | None = None,
+) -> DevConfig:
+    """Read the dev env file and resolve its token from the Keychain. The token joins the redaction set at once,
+    before anything can log it. `keychain_runner`: tests only (a fake `/usr/bin/security`)."""
     env = os.environ if environ is None else environ
     paths = load_paths(env, home=home)
-    config = dev_config_from(read_env_file(_env_file(env, paths, BotName.DEV)), paths)
+    config = dev_config_from(_load_values(env, paths, BotName.DEV, DEV_SECRET_KEYS, keychain_runner), paths)
     redact.add_known_secrets([config.bot_token])
     return config
 
@@ -206,9 +277,16 @@ def load_mcp_server_name(environ: Mapping[str, str] | None = None) -> str:
     return env.get(MCP_SERVER_NAME_VAR, "")
 
 
-def load_personal_config(environ: Mapping[str, str] | None = None, *, home: Path | None = None) -> PersonalConfig:
+def load_personal_config(
+    environ: Mapping[str, str] | None = None,
+    *,
+    home: Path | None = None,
+    keychain_runner: keychain.Runner | None = None,
+) -> PersonalConfig:
+    """`load_dev_config` for the personal bot; its Keychain scope never includes the dev token (UC-36)."""
     env = os.environ if environ is None else environ
     paths = load_paths(env, home=home)
-    config = personal_config_from(read_env_file(_env_file(env, paths, BotName.PERSONAL)), paths)
+    values = _load_values(env, paths, BotName.PERSONAL, PERSONAL_SECRET_KEYS, keychain_runner)
+    config = personal_config_from(values, paths)
     redact.add_known_secrets([config.bot_token])
     return config

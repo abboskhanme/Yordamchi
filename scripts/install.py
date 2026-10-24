@@ -11,11 +11,15 @@ Steps, in order. Each one is idempotent, so a failed run is fixed and simply run
     (`core.proc`'s refuse-list); the ffmpeg SHA-256 pins (or `--skip-ffmpeg`).
  2. toolchain: uv 0.13.5 (`uv self update`) and Python 3.12.15 (`uv python install`).
  3. the DATA tree (0700), `~/.config/yordamchi` (0700), the log dir (0700).
- 4. `master.key`: base64 of 32 random bytes plus a newline, 0600, created only if absent, never overwritten;
-    `tmutil addexclusion` on its directory.
+ 4. the vault master key in the macOS login Keychain (`uz.yordamchi/vault-master-key`, base64 of 32 random bytes),
+    created only if absent, never overwritten. A legacy `~/.config/yordamchi/master.key` is imported, read back,
+    compared and only then deleted; a different key already in the Keychain stops the install with nothing changed.
+    `tmutil addexclusion` on `~/.config/yordamchi`.
  5. env files `dev.env` / `personal.env` (0600): a value already there is never overwritten. Only missing values are
-    asked for, tokens with hidden input (`getpass`); `--rotate-tokens` asks for new tokens and replaces them.
-    `DEV_GROUP_ID` must be a `-100…` supergroup id.
+    asked for, tokens with hidden input (`getpass`). **Tokens go into the Keychain** (`uz.yordamchi/dev-bot-token`,
+    `…/personal-bot-token`) and the env file gets only the reference (`@keychain:uz.yordamchi/dev-bot-token`); a
+    plaintext token still in a file is moved into the Keychain (and should then be rotated). `--rotate-tokens` asks
+    for new tokens and updates the Keychain items. `DEV_GROUP_ID` must be a `-100…` supergroup id.
  6. the app release `releases/<YYYY.MM.DD-sha7>/` from `git archive <commit>` (never the working copy), its `.venv`
     from `uv sync --frozen` with Python 3.12.15, then `chmod -R a-w`.
  7. the supervisor release `supervisor/releases/<version>/` from `git archive <commit>:supervisor`, same build.
@@ -29,11 +33,13 @@ Steps, in order. Each one is idempotent, so a failed run is fixed and simply run
 
 `--dry-run` builds everything under a temporary HOME (the release, its venv with `uv sync --offline`, the DBs, the
 plists) and skips whatever would change this Mac outside it: `uv self update`, `uv python install`, the ffmpeg
-download, `tmutil`, every `launchctl` call and the final check. It never reads the owner's real env files.
+download, `tmutil`, every `launchctl` call, **every Keychain read and write** (the Keychain is not under HOME) and the
+final check. It never reads the owner's real env files.
 
 Standard library only, plus `yordamchi.core` and `yordamchi.bots.cli.check` from this checkout (both stdlib-only,
-A9), so the layout, the env-file grammar and the refuse-list have one definition. Secrets never reach the output:
-tokens are registered with `core.redact` the moment they are read and every printed line is scrubbed.
+A9), so the layout, the env-file grammar, the Keychain item names and the refuse-list have one definition. Secrets
+never reach a file, argv or the output: the Keychain is written through `security -i` stdin and read back to verify,
+values are registered with `core.redact` the moment they are known, and every printed line is scrubbed.
 """
 
 import argparse
@@ -67,9 +73,10 @@ if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
 
 from yordamchi.bots.cli import check as yd_check  # needs the sys.path entry above
+from yordamchi.core import keychain as yd_keychain
 from yordamchi.core import proc as yd_proc
 from yordamchi.core import redact
-from yordamchi.core.errors import ConfigInvalid
+from yordamchi.core.errors import ConfigInvalid, KeychainItemMissing, KeychainUnavailable
 from yordamchi.core.paths import BotName, Paths, ProcessName
 
 UV_VERSION: Final = "0.13.5"
@@ -82,6 +89,7 @@ DIR_MODE: Final = 0o700
 FILE_MODE: Final = 0o600
 PLIST_MODE: Final = 0o644
 TOKEN_PROMPT_TRIES: Final = 3
+MASTER_KEY_BYTES: Final = 32
 SYSTEM_PATH: Final = "/usr/bin:/bin:/usr/sbin:/sbin"
 # The same grammar `core.config` enforces at bot start (tests/unit/ops/test_install.py keeps them in step).
 BOT_TOKEN: Final = re.compile(r"\d{8,10}:[A-Za-z0-9_-]{35}")
@@ -96,6 +104,7 @@ TIMEOUT_DOWNLOAD_S: Final = 300.0
 TIMEOUT_MIGRATE_S: Final = 300.0
 TIMEOUT_LAUNCHCTL_S: Final = 45.0
 TIMEOUT_CHECK_S: Final = 120.0
+TIMEOUT_KEYCHAIN_S: Final = 15.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +211,48 @@ def urllib_download(url: str, dest: Path, *, timeout: float) -> None:
         raise ValueError(msg)
     with urllib.request.urlopen(url, timeout=timeout) as response, dest.open("wb") as handle:  # noqa: S310  # https only
         shutil.copyfileobj(response, handle)
+
+
+class KeychainStore(Protocol):
+    """The installer's view of the login Keychain. Unlike a bot's `core.keychain.Keychain` it is not scoped: the
+    installer is the owner's own tool and writes every `uz.yordamchi` item."""
+
+    def read(self, item: yd_keychain.KeychainItem) -> str | None:
+        """The value, or None when there is no such item. Raises `KeychainUnavailable`."""
+        ...
+
+    def write(self, item: yd_keychain.KeychainItem, value: str) -> None:
+        """Create or replace it, then read it back. Raises `KeychainUnavailable` unless the copy is exact."""
+        ...
+
+
+class SecurityKeychain:
+    """`/usr/bin/security` through `core.keychain`'s command lines: the value goes in on stdin and comes back on
+    stdout, never on argv. `runner` is the test seam (a fake `security`)."""
+
+    def __init__(self, runner: yd_keychain.Runner = yd_keychain.security_runner) -> None:
+        self._run = runner
+
+    def _call(self, argv: Sequence[str], item: yd_keychain.KeychainItem, stdin: bytes | None) -> yd_proc.ProcResult:
+        try:
+            return self._run(argv, stdin=stdin, timeout=TIMEOUT_KEYCHAIN_S)
+        except (TimeoutError, OSError):
+            raise KeychainUnavailable(item=str(item)) from None
+
+    def read(self, item: yd_keychain.KeychainItem) -> str | None:
+        result = self._call(yd_keychain.find_argv(item, reveal=True), item, None)
+        try:
+            value = yd_keychain.password_from(result, item)
+        except KeychainItemMissing:
+            return None
+        redact.add_known_secrets([value])
+        return value
+
+    def write(self, item: yd_keychain.KeychainItem, value: str) -> None:
+        redact.add_known_secrets([value])
+        result = self._call(yd_keychain.write_argv(), item, yd_keychain.add_script(item, value))
+        if result.returncode != 0 or self.read(item) != value:
+            raise KeychainUnavailable(item=str(item))
 
 
 class TerminalPrompter:
@@ -400,11 +451,17 @@ ENV_SPECS: Final[Mapping[BotName, tuple[EnvKey, ...]]] = {
 }
 ENV_HEADER: Final = (
     "# Written by scripts/install.py (SPEC §2.2). Mode 0600. Never commit this file and never paste it into chat.\n"
+    "# Tokens are not here: each *_BOT_TOKEN names its macOS Keychain item (@keychain:<service>/<account>).\n"
+)
+ROTATE_ADVICE: Final = (
+    "they sat in a file in plaintext, so revoke them in BotFather and run: "
+    "scripts/install.py --env-only --rotate-tokens"
 )
 
 
 def env_problem(key: str, value: str) -> str | None:
-    """Why `value` is not acceptable for `key`, or None."""
+    """Why `value` is not acceptable for `key`, or None. A token is checked as typed (plaintext): what reaches the
+    Keychain, not the file."""
     if key.endswith("_BOT_TOKEN"):
         return None if BOT_TOKEN.fullmatch(value) else "not a BotFather token (digits:35 characters)"
     if key == "OWNER_ID":
@@ -421,6 +478,36 @@ def env_problem(key: str, value: str) -> str | None:
     return None
 
 
+def file_value_problem(key: str, value: str) -> str | None:
+    """Why a value already in an env file is not acceptable. A token line holds its own Keychain reference, or a
+    legacy plaintext token that this run moves into the Keychain."""
+    item = yd_keychain.TOKEN_ITEMS.get(key)
+    if item is not None and yd_keychain.is_reference(value):
+        return None if value == item.reference else f"must reference the Keychain item {item}"
+    return env_problem(key, value)
+
+
+def _master_key_bytes(encoded: str) -> bytes | None:
+    """The raw key from standard base64 of exactly 32 bytes, else None."""
+    try:
+        raw = base64.b64decode(encoded.strip(), validate=True)
+    except ValueError:
+        return None
+    return raw if len(raw) == MASTER_KEY_BYTES else None
+
+
+@dataclass(slots=True)
+class EnvPlan:
+    """What one env file needs: values to write, keys whose value is replaced, keys left empty, tokens that were in
+    the file in plaintext and are now only in the Keychain, and (dry run) tokens a rotation would ask for."""
+
+    updates: dict[str, str] = field(default_factory=dict)
+    replace: set[str] = field(default_factory=set)
+    missing: list[str] = field(default_factory=list)
+    moved: list[str] = field(default_factory=list)
+    rotatable: list[str] = field(default_factory=list)
+
+
 # --- the installer ---------------------------------------------------------------------------------------------------
 class Installer:
     def __init__(
@@ -431,6 +518,7 @@ class Installer:
         runner: Runner,
         download: Downloader,
         prompter: Prompter,
+        keychain: KeychainStore,
         environ: Mapping[str, str],
         out: TextIO,
         pins: Mapping[str, Pin | None] = FFMPEG_PINS,
@@ -443,6 +531,7 @@ class Installer:
         self.run_cmd = runner
         self.download = download
         self.prompter = prompter
+        self.keychain = keychain
         self.environ = environ
         self.out = out
         self.pins = pins
@@ -570,23 +659,9 @@ class Installer:
         detail = f"{len(data_dirs(self.paths))} dirs at 0700 ({changed} created or fixed)"
         self.record("data tree", Status.DONE if changed or fixed else Status.UNCHANGED, detail + _fixed(fixed))
 
-    # --- 4. master key ---
+    # --- 4. master key (in the Keychain) ---
     def master_key(self) -> None:
-        key = self.paths.master_key
-        if key.exists():
-            raw = key.read_bytes()
-            try:
-                ok = len(base64.b64decode(raw.strip(), validate=True)) == yd_check.MASTER_KEY_BYTES
-            except ValueError:
-                ok = False
-            if not ok:
-                self.problem("master.key", f"{key} exists but is not base64 of 32 bytes; it is never overwritten")
-                return
-            key.chmod(FILE_MODE)
-            self.record("master.key", Status.UNCHANGED, "kept (never overwritten), mode 0600")
-        else:
-            write_private(key, base64.b64encode(os.urandom(yd_check.MASTER_KEY_BYTES)) + b"\n")
-            self.record("master.key", Status.DONE, "created: 32 random bytes, base64, mode 0600")
+        self._master_key_item()
         exclusion = [self.tools.tmutil, "addexclusion", self.paths.config]
         if self.dry:
             self.would("time machine exclusion", exclusion)
@@ -596,6 +671,50 @@ class Installer:
             )
         else:
             self.record("time machine exclusion", Status.DONE, str(self.paths.config))
+
+    def _master_key_item(self) -> None:
+        item, legacy = yd_keychain.MASTER_KEY, self.paths.master_key
+        if self.dry:
+            what = "import the legacy master.key into" if legacy.exists() else "keep or create it in"
+            self.record("master key", Status.DRY_RUN, f"would {what} the Keychain as {item} (never in a dry run)")
+            return
+        try:
+            stored = self.keychain.read(item)
+            if legacy.exists():
+                self._import_master_key(stored)
+            elif stored is None:
+                self.keychain.write(item, base64.b64encode(os.urandom(MASTER_KEY_BYTES)).decode("ascii"))
+                self.record("master key", Status.DONE, f"created in the Keychain as {item}: 32 random bytes, base64")
+            elif _master_key_bytes(stored) is None:
+                self.problem(
+                    "master key", f"the Keychain item {item} is not base64 of 32 bytes; it is never overwritten"
+                )
+            else:
+                self.record("master key", Status.UNCHANGED, f"kept in the Keychain as {item}, never overwritten")
+        except KeychainUnavailable:
+            self.problem("master key", f"the Keychain did not answer for {item}: log in at the Mac and run again")
+
+    def _import_master_key(self, stored: str | None) -> None:
+        """A legacy `master.key` file: into the Keychain, read back, compared, and only then deleted."""
+        item, legacy = yd_keychain.MASTER_KEY, self.paths.master_key
+        raw = _master_key_bytes(legacy.read_bytes().decode("ascii", errors="replace"))
+        if raw is None:
+            self.problem("master key", f"{legacy} is not base64 of 32 bytes; nothing imported, the file is kept")
+            return
+        if stored is None:
+            self.keychain.write(item, base64.b64encode(raw).decode("ascii"))  # verified by reading it back
+            detail = f"imported {legacy.name} into the Keychain as {item}, verified, deleted the file"
+        elif _master_key_bytes(stored) == raw:
+            detail = f"the Keychain item {item} already holds this key; deleted the leftover {legacy.name}"
+        else:
+            self.problem(
+                "master key",
+                f"the Keychain item {item} holds a different key than {legacy}; nothing was changed "
+                "(docs/DEPLOY.md, master key conflict)",
+            )
+            return
+        legacy.unlink()
+        self.record("master key", Status.DONE, detail)
 
     # --- 5. env files ---
     def env_files(self) -> None:
@@ -625,57 +744,94 @@ class Installer:
         invalid = [
             f"{spec.name} ({problem})"
             for spec in specs
-            if values.get(spec.name) and (problem := env_problem(spec.name, values[spec.name])) is not None
+            if values.get(spec.name) and (problem := file_value_problem(spec.name, values[spec.name])) is not None
         ]
         if invalid:
             self.problem(path.name, "invalid value, fix it by hand (it is never overwritten): " + "; ".join(invalid))
             return
-        updates, replace, missing = self._collect(specs, values, known_owner)
+        try:
+            plan = self._collect(specs, values, known_owner)
+        except KeychainUnavailable as exc:
+            self.problem(path.name, f"the Keychain did not answer for {exc.params['key']}: log in at the Mac, rerun")
+            return
         text = (
             path.read_text(encoding="utf-8") if path.exists() else ENV_HEADER + "".join(f"{s.name}=\n" for s in specs)
         )
-        new_text, changed = yd_check.update_env_text(text, updates, replace=replace)
+        new_text, changed = yd_check.update_env_text(text, plan.updates, replace=plan.replace)
         if new_text != text or not path.exists():
             yd_check.write_env_file(path, new_text)
         path.chmod(FILE_MODE)
-        kept = [spec.name for spec in specs if values.get(spec.name) and spec.name not in replace]
-        detail = f"kept {kept or '-'}, set {list(changed) or '-'}, empty {missing or '-'}; mode 0600"
-        required = bot is BotName.DEV or self.options.enable_personal
-        required_missing = [spec.name for spec in specs if required and spec.required and spec.name in missing]
-        rotatable = [s.name for s in specs if s.secret and values.get(s.name)] if self.options.rotate_tokens else []
-        if self.dry and (missing or rotatable):
-            asked = [*missing, *rotatable]
-            self.record(path.name, Status.DRY_RUN, f"{detail}. Would ask at the terminal for {asked} (tokens hidden)")
-        elif required_missing:
-            self.problem(path.name, f"{detail}. Required and still empty: {required_missing}")
-        elif missing and any(name in {"OWNER_ID", "DEV_GROUP_ID"} for name in missing):
-            self.record(path.name, Status.WARN, detail + ". Find the ids: python -m yordamchi.check --discover-ids")
-        else:
-            self.record(path.name, Status.DONE if changed else Status.UNCHANGED, detail)
+        self._report_env(bot, specs, values, plan, changed)
 
-    def _collect(
-        self, specs: Sequence[EnvKey], values: Mapping[str, str], known_owner: str
-    ) -> tuple[dict[str, str], set[str], list[str]]:
-        """New values to write, the keys whose value is replaced (token rotation only), and what stays empty."""
-        updates: dict[str, str] = {}
-        replace: set[str] = set()
-        missing: list[str] = []
+    def _report_env(
+        self, bot: BotName, specs: Sequence[EnvKey], values: Mapping[str, str], plan: EnvPlan, changed: Sequence[str]
+    ) -> None:
+        name = self.paths.env_file(bot).name
+        kept = [spec.name for spec in specs if values.get(spec.name) and spec.name not in plan.replace]
+        detail = f"kept {kept or '-'}, set {list(changed) or '-'}, empty {plan.missing or '-'}; mode 0600"
+        required = bot is BotName.DEV or self.options.enable_personal
+        required_missing = [spec.name for spec in specs if required and spec.required and spec.name in plan.missing]
+        if self.dry and (plan.missing or plan.rotatable or plan.moved):
+            asked = [*plan.missing, *plan.rotatable]
+            moved = f"; would move plaintext {plan.moved} into the Keychain" if plan.moved else ""
+            self.record(name, Status.DRY_RUN, f"{detail}. Would ask at the terminal for {asked} (tokens hidden){moved}")
+        elif required_missing:
+            self.problem(name, f"{detail}. Required and still empty: {required_missing}")
+        elif plan.moved:
+            self.record(name, Status.WARN, f"{detail}. Moved plaintext {plan.moved} into the Keychain: {ROTATE_ADVICE}")
+        elif plan.missing and any(key in {"OWNER_ID", "DEV_GROUP_ID"} for key in plan.missing):
+            self.record(name, Status.WARN, detail + ". Find the ids: python -m yordamchi.check --discover-ids")
+        else:
+            self.record(name, Status.DONE if changed else Status.UNCHANGED, detail)
+
+    def _collect(self, specs: Sequence[EnvKey], values: Mapping[str, str], known_owner: str) -> EnvPlan:
+        plan = EnvPlan()
         for spec in specs:
             current = values.get(spec.name, "")
-            if spec.secret and current and self.options.rotate_tokens:
-                new = self._ask(spec, rotate_from=current)
-                if new:
-                    updates[spec.name] = new
-                    replace.add(spec.name)
+            if spec.secret:
+                self._plan_token(spec, current, plan)
             elif current:
                 continue  # an existing value is never overwritten
             elif spec.name == "OWNER_ID" and known_owner:
-                updates[spec.name] = known_owner  # the same owner in both files
+                plan.updates[spec.name] = known_owner  # the same owner in both files
             elif new := self._ask(spec):
-                updates[spec.name] = new
+                plan.updates[spec.name] = new
             else:
-                missing.append(spec.name)
-        return updates, replace, missing
+                plan.missing.append(spec.name)
+        return plan
+
+    def _plan_token(self, spec: EnvKey, current: str, plan: EnvPlan) -> None:
+        """The token goes to its Keychain item (written through stdin, read back); the env file only ever gets the
+        item's reference. A dry run never reads or writes the Keychain and never asks."""
+        item = yd_keychain.TOKEN_ITEMS[spec.name]
+        plaintext = current if current and not yd_keychain.is_reference(current) else ""
+        if self.dry:
+            if plaintext:
+                plan.moved.append(spec.name)
+            elif not current:
+                plan.missing.append(spec.name)
+            elif self.options.rotate_tokens:
+                plan.rotatable.append(spec.name)
+            return
+        stored = self.keychain.read(item)
+        if self.options.rotate_tokens and (stored or plaintext):
+            new = self._ask(spec, rotate_from=stored or plaintext)
+            if new:
+                self.keychain.write(item, new)
+                _point_at(item, current, spec.name, plan)
+                return
+        if plaintext:
+            if stored is None:
+                self.keychain.write(item, plaintext)
+            plan.moved.append(spec.name)
+            _point_at(item, current, spec.name, plan)
+        elif stored is not None:
+            _point_at(item, current, spec.name, plan)  # an empty line is filled; a reference stays as it is
+        elif new := self._ask(spec):
+            self.keychain.write(item, new)
+            _point_at(item, current, spec.name, plan)
+        else:
+            plan.missing.append(spec.name)
 
     def _ask(self, spec: EnvKey, *, rotate_from: str = "") -> str:
         # A dry run never asks: a real token typed into a throwaway HOME would be a copy nobody cleans up.
@@ -1009,6 +1165,15 @@ class Installer:
         self.say("\n".join(lines) + "\n")
 
 
+def _point_at(item: yd_keychain.KeychainItem, current: str, key: str, plan: EnvPlan) -> None:
+    """The env line becomes the item's reference; a plaintext token on it is replaced."""
+    if current == item.reference:
+        return
+    plan.updates[key] = item.reference
+    if current:
+        plan.replace.add(key)
+
+
 def _fixed(names: list[str]) -> str:
     return f"; fixed modes of {names}" if names else ""
 
@@ -1068,6 +1233,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         runner=subprocess_runner(child_env(environ, real_home)),
         download=urllib_download,
         prompter=TerminalPrompter(),
+        keychain=SecurityKeychain(),
         environ=environ,
         out=sys.stdout,
     )

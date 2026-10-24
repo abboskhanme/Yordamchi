@@ -68,7 +68,12 @@ class Rig:
         self.opener = FakeOpener()
         self.clock = FakeClock(app_clock.now())  # one Mac, one wall clock
         alerter = Alerter(
-            self.data.paths.env_file("dev"), self.data.log, self.data.scrubber, self.clock, opener=self.opener
+            self.data.paths.env_file("dev"),
+            self.data.log,
+            self.data.scrubber,
+            self.clock,
+            keychain=self.data.keychain,
+            opener=self.opener,
         )
         self.watchdog = Watchdog(
             self.data.paths,

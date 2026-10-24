@@ -182,6 +182,7 @@ class SupervisorWiring(unittest.TestCase):
             runner=FakeLaunchctl(),
             spawner=FakeSpawner(),
             opener=FakeOpener(),
+            keychain=data.keychain,
             uid=UID,
             pid=4321,
             release="2026.10.24-abcdef0",

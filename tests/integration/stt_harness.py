@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import aiohttp
 import httpx
@@ -27,6 +27,9 @@ import pytest
 from aiohttp import web
 from google import genai
 from google.genai import types as genai_types
+
+from yordamchi.core import keychain, redact
+from yordamchi.core.errors import KeychainItemMissing, KeychainUnavailable
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 GOOGLE_KEY = "AIza" + "SyntheticKeyForOfflineTests_0123456"
@@ -225,9 +228,33 @@ async def slow(seconds: float, reply: Recording) -> Recording:
 
 
 # --- live ----------------------------------------------------------------------------------------------------------
-def live_key(name: str) -> str:
-    """The opt-in key for a `live` test; the test is skipped without it."""
+# Where a live test finds its key when the shell does not export it: the owner's login Keychain, so no plaintext key
+# file is ever needed (owner requirement 2026-10-24).
+LIVE_KEYCHAIN_ITEMS: Final = {
+    "YORDAMCHI_LIVE_GOOGLE_API_KEY": keychain.GOOGLE_API_KEY,
+    "YORDAMCHI_LIVE_OPENROUTER_API_KEY": keychain.OPENROUTER_API_KEY,
+}
+
+
+def _keychain_key(item: keychain.KeychainItem, runner: keychain.Runner) -> str:
+    try:
+        result = runner(keychain.find_argv(item, reveal=True), stdin=None, timeout=keychain.TIMEOUT_S)
+        return keychain.password_from(result, item)
+    except (KeychainItemMissing, KeychainUnavailable, TimeoutError, OSError):
+        return ""
+
+
+def live_key(name: str, *, runner: keychain.Runner = keychain.security_runner) -> str:
+    """The opt-in key for a `live` test: the environment variable `name`, else its Keychain item
+    (`uz.yordamchi/google-api-key`, `uz.yordamchi/openrouter-api-key`) through `/usr/bin/security`. The test is skipped
+    without either. Called only inside a `live` test body, so the default suite never touches the Keychain; `runner`
+    is the offline test seam."""
     value = os.environ.get(name, "").strip()  # noqa: TID251  # live tests take their opt-in key from the shell
+    item = LIVE_KEYCHAIN_ITEMS.get(name)
+    if not value and item is not None:
+        value = _keychain_key(item, runner)
     if not value:
-        pytest.skip(f"set {name} to run this live test")
+        where = f" or add the Keychain item {item}" if item is not None else ""
+        pytest.skip(f"set {name}{where} to run this live test")
+    redact.add_known_secrets([value])
     return value

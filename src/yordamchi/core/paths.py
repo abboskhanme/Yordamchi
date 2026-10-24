@@ -1,6 +1,7 @@
 """Where Yordamchi keeps things on disk (SPEC §2.2, decided).
 
-Every path derives from four roots: the home directory, the data dir, the config dir (master key) and the log dir.
+Every path derives from four roots: the home directory, the data dir, the config dir (the legacy master-key file)
+and the log dir.
 Production uses the defaults below; tests and the supervisor's `make check` run (`YORDAMCHI_DATA_DIR=<tmp>`) point the
 roots elsewhere through `core.config.load_paths()`. Nothing here touches the disk.
 """
@@ -68,7 +69,9 @@ class Paths:
 
     @property
     def master_key(self) -> Path:
-        """32 random bytes, base64, 0600; created by the installer, never by a bot (SPEC §4.5)."""
+        """The legacy master-key file (before 2026-10-24). The key now lives in the Keychain (`core.keychain`
+        `MASTER_KEY`): `KeychainKeystore` and the installer import this file, verify the copy and delete it, and the
+        check script is red while it exists."""
         return self.config / "master.key"
 
     # --- releases ------------------------------------------------------------------------------------------------

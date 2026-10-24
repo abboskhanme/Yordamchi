@@ -1,13 +1,20 @@
-"""Telegram alerts through urllib (SPEC §2.2): request shape, retry after a network drop, the token never logged."""
+"""Telegram alerts through urllib (SPEC §2.2): request shape, retry after a network drop, the token never logged, and
+the token only ever from the Keychain item `dev.env` names (owner requirement 2026-10-24)."""
 
 import io
 import sys
 import unittest
 import urllib.error
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 
+from yordamchi_supervisor.keychain import DEV_TOKEN_REFERENCE, KeychainError, SecurityKeychain, dev_token_argv
 from yordamchi_supervisor.log import MASK, JsonLog, Scrubber, install_excepthook
-from yordamchi_supervisor.telegram import Alerter, parse_env_file, read_alert_target
+from yordamchi_supervisor.proc import RunResult
+from yordamchi_supervisor.telegram import AlertConfigError, Alerter, parse_env_file, read_alert_target
 from yordamchi_supervisor.testing import GROUP_ID, START, TOKEN, FakeClock, FakeOpener, TempData, http_error
+
+NEW_TOKEN = "8123456789:AARotatedTokenForSupervisorTests_xyz12"  # noqa: S105 - a fake
 
 
 class AlertCase(unittest.TestCase):
@@ -17,7 +24,12 @@ class AlertCase(unittest.TestCase):
         self.clock = FakeClock(START)
         self.opener = FakeOpener()
         self.alerter = Alerter(
-            self.data.paths.env_file("dev"), self.data.log, self.data.scrubber, self.clock, opener=self.opener
+            self.data.paths.env_file("dev"),
+            self.data.log,
+            self.data.scrubber,
+            self.clock,
+            keychain=self.data.keychain,
+            opener=self.opener,
         )
 
     def assert_token_absent(self) -> None:
@@ -89,7 +101,7 @@ class Delivery(AlertCase):
 
 class EnvFile(AlertCase):
     def test_an_env_file_others_can_read_is_refused(self) -> None:
-        self.data.write_env(f"DEV_BOT_TOKEN={TOKEN}\nDEV_GROUP_ID={GROUP_ID}\n", mode=0o644)
+        self.data.write_env(f"DEV_BOT_TOKEN={DEV_TOKEN_REFERENCE}\nDEV_GROUP_ID={GROUP_ID}\n", mode=0o644)
         self.alerter.send("bot_restarted", "a")
         self.assertEqual(self.opener.sent, [])
         self.assertIn("env_mode_unsafe", self.data.log_text())
@@ -112,8 +124,89 @@ class EnvFile(AlertCase):
         self.assertEqual(values, {"DEV_BOT_TOKEN": "abc", "DEV_GROUP_ID": "-100"})
 
     def test_the_target_repr_hides_the_token(self) -> None:
-        target = read_alert_target(self.data.paths.env_file("dev"))
+        target = read_alert_target(self.data.paths.env_file("dev"), self.data.keychain)
+        self.assertEqual(target.token, TOKEN)
         self.assertNotIn(TOKEN, repr(target))
+
+
+class KeychainToken(AlertCase):
+    def test_a_plaintext_token_in_dev_env_is_refused_and_never_used(self) -> None:
+        self.data.write_env(f"DEV_BOT_TOKEN={TOKEN}\nDEV_GROUP_ID={GROUP_ID}\n")
+        self.alerter.send("bot_restarted", "a")
+        self.assertEqual(self.opener.sent, [])
+        self.assertIn("env_token_plaintext", self.data.log_text())
+        self.assertEqual(self.data.keychain.reads, 0)
+        self.assertEqual(self.alerter.pending, 1)  # kept until the installer fixes the file
+        self.assert_token_absent()
+
+    def test_a_reference_to_any_other_item_is_refused(self) -> None:
+        for reference in ("@keychain:uz.yordamchi/personal-bot-token", "@keychain:other.service/dev-bot-token"):
+            self.data.write_env(f"DEV_BOT_TOKEN={reference}\nDEV_GROUP_ID={GROUP_ID}\n")
+            with self.assertRaises(AlertConfigError) as caught:
+                read_alert_target(self.data.paths.env_file("dev"), self.data.keychain)
+            self.assertEqual(caught.exception.problem, "env_token_reference_refused")
+        self.assertEqual(self.data.keychain.reads, 0)
+
+    def test_a_missing_item_or_a_locked_keychain_keeps_the_alert(self) -> None:
+        self.data.keychain.token = None
+        self.alerter.send("bot_restarted", "a")
+        self.assertIn("keychain_item_missing", self.data.log_text())
+        self.data.keychain.token = TOKEN
+        self.data.keychain.problem = "keychain_unavailable"
+        self.alerter.flush()
+        self.assertIn("keychain_unavailable", self.data.log_text())
+        self.assertEqual(self.opener.sent, [])
+        self.data.keychain.problem = None
+        self.alerter.flush()
+        self.assertEqual(len(self.opener.sent), 1)
+
+    def test_the_token_is_read_at_send_time_so_a_rotation_needs_no_restart(self) -> None:
+        self.alerter.send("bot_restarted", "a")
+        self.data.keychain.token = NEW_TOKEN
+        self.alerter.send("bot_restarted", "b")
+        self.assertEqual(
+            [sent.url for sent in self.opener.sent],
+            [
+                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                f"https://api.telegram.org/bot{NEW_TOKEN}/sendMessage",
+            ],
+        )
+        self.assertNotIn(NEW_TOKEN, self.data.log_text())
+
+
+@dataclass
+class RecordingRunner:
+    answer: RunResult
+    calls: list[list[str]] = field(default_factory=list)
+    timeouts: list[float] = field(default_factory=list)
+
+    def run(self, argv: Sequence[str], *, timeout: float) -> RunResult:
+        self.calls.append(list(argv))
+        self.timeouts.append(timeout)
+        return self.answer
+
+
+class SecurityCommand(unittest.TestCase):
+    def test_it_asks_security_for_exactly_the_dev_token_item_and_never_puts_the_token_on_argv(self) -> None:
+        runner = RecordingRunner(RunResult(returncode=0, stdout=f"{TOKEN}\n"))
+        self.assertEqual(SecurityKeychain(runner).dev_token(), TOKEN)
+        self.assertEqual(
+            runner.calls,
+            [["/usr/bin/security", "find-generic-password", "-s", "uz.yordamchi", "-a", "dev-bot-token", "-w"]],
+        )
+        self.assertEqual(runner.calls, [dev_token_argv()])
+        self.assertLessEqual(max(runner.timeouts), 30)
+
+    def test_exit_codes_become_problem_codes(self) -> None:
+        for answer, problem in (
+            (RunResult(returncode=44), "keychain_item_missing"),
+            (RunResult(returncode=0, stdout="\n"), "keychain_item_missing"),
+            (RunResult(returncode=51), "keychain_unavailable"),
+            (RunResult(returncode=None, stderr="timeout"), "keychain_unavailable"),
+        ):
+            with self.assertRaises(KeychainError) as caught:
+                SecurityKeychain(RecordingRunner(answer)).dev_token()
+            self.assertEqual(caught.exception.problem, problem)
 
 
 class TokenNeverLogged(AlertCase):

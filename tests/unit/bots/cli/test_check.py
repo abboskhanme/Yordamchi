@@ -1,7 +1,8 @@
-"""`python -m yordamchi.check` (SPEC §9.3 step 8, §12; T28) against a fixture Mac: files, launchd, heartbeats and a
-fake Bot API. The network stays closed: the Telegram calls go to an injected fake, and `UrllibBotApi` is driven
-through an in-process urllib handler."""
+"""`python -m yordamchi.check` (SPEC §9.3 step 8, §12; T28) against a fixture Mac: files, the Keychain, launchd,
+heartbeats and a fake Bot API. The network stays closed: the Telegram calls go to an injected fake, and `UrllibBotApi`
+is driven through an in-process urllib handler. `security` answers from a `FakeSecurity`, never the real Keychain."""
 
+import base64
 import email.message
 import io
 import os
@@ -15,9 +16,10 @@ from pathlib import Path
 import pytest
 
 from tests.factories import DEV_BOT_TOKEN, DEV_GROUP_ID, OWNER_ID, PERSONAL_BOT_TOKEN, make_paths, write_master_key
+from tests.fakes.security import FakeSecurity
 from yordamchi.bots.cli import check
 from yordamchi.bots.cli.check import Context, Level, Line, Params, Report, RunResult, TelegramError
-from yordamchi.core import redact
+from yordamchi.core import keychain, redact
 from yordamchi.core.paths import BotName, Paths, ProcessName
 
 NOW = 1_800_000_000.0
@@ -27,18 +29,33 @@ PMSET_OK = "Battery Power:\n sleep                1\nAC Power:\n displaysleep   
 
 
 # --- fakes -----------------------------------------------------------------------------------------------------------
+MASTER_KEY_B64 = base64.b64encode(bytes(range(32))).decode()
+
+
+def fixture_keychain() -> FakeSecurity:
+    security = FakeSecurity()
+    security.put(keychain.DEV_BOT_TOKEN, DEV_BOT_TOKEN)
+    security.put(keychain.PERSONAL_BOT_TOKEN, PERSONAL_BOT_TOKEN)
+    security.put(keychain.MASTER_KEY, MASTER_KEY_B64)
+    return security
+
+
 @dataclass
 class FakeRunner:
-    """`launchctl print` answers from `loaded`; every other command from `answers` (by argv[0] basename + argv[1])."""
+    """`launchctl print` answers from `loaded`; `security` from `keychain`; every other command from `answers` (by
+    argv[0] basename + argv[1])."""
 
     loaded: set[str] = field(default_factory=lambda: {"uz.yordamchi.dev", "uz.yordamchi.supervisor"})
     answers: dict[str, RunResult] = field(default_factory=dict)
     calls: list[tuple[str, ...]] = field(default_factory=list)
+    keychain: FakeSecurity = field(default_factory=fixture_keychain)
 
     async def __call__(self, argv: Sequence[str], timeout: float) -> RunResult:
-        del timeout
         self.calls.append(tuple(argv))
         name = Path(argv[0]).name
+        if name == "security":
+            done = self.keychain(argv, stdin=None, timeout=timeout)
+            return RunResult(done.returncode, done.stdout.decode())
         if name == "launchctl":
             label = argv[2].rsplit("/", 1)[-1]
             return RunResult(0 if label in self.loaded else 113, "")
@@ -148,16 +165,15 @@ def mac(tmp_path: Path) -> Mac:
         directory.chmod(0o700)
     write_env(
         paths.env_file(BotName.DEV),
-        {"DEV_BOT_TOKEN": DEV_BOT_TOKEN, "OWNER_ID": OWNER_ID, "DEV_GROUP_ID": DEV_GROUP_ID},
+        {"DEV_BOT_TOKEN": keychain.DEV_BOT_TOKEN.reference, "OWNER_ID": OWNER_ID, "DEV_GROUP_ID": DEV_GROUP_ID},
     )
     write_env(
         paths.env_file(BotName.PERSONAL),
-        {"PERSONAL_BOT_TOKEN": PERSONAL_BOT_TOKEN, "OWNER_ID": OWNER_ID, "PERSONAL_GROUP_ID": ""},
+        {"PERSONAL_BOT_TOKEN": keychain.PERSONAL_BOT_TOKEN.reference, "OWNER_ID": OWNER_ID, "PERSONAL_GROUP_ID": ""},
     )
     for bot in BotName:
         paths.db_file(bot).write_bytes(b"")
         paths.db_file(bot).chmod(0o600)
-    write_master_key(paths.master_key)
     for name in ("claude", "gh", "node"):
         _exe(paths.local_bin / name)
     bin_dir = tmp_path / "usr-bin"
@@ -222,22 +238,104 @@ async def test_exit_code_is_one_when_any_line_is_red(mac: Mac) -> None:
 async def test_wrong_modes_are_red_with_the_fix(mac: Mac) -> None:
     mac.paths.env_file(BotName.DEV).chmod(0o644)
     mac.paths.data.chmod(0o755)
-    mac.paths.master_key.chmod(0o640)
+    mac.paths.config.chmod(0o750)
     report = await mac.report()
     fails = [line for line in report.lines if line.level is Level.FAIL]
     assert any("dev.env: ruxsat 0644, kerak 0600" in line.text for line in fails)
     assert any("ruxsat 0755, kerak 0700" in line.text for line in fails)
-    assert any("master.key: ruxsat 0640" in line.text for line in fails)
+    assert any(line.text.endswith("config: ruxsat 0750, kerak 0700") for line in fails)
     assert any(line.hint.startswith("chmod 600") for line in fails)
 
 
-async def test_a_missing_or_malformed_master_key_is_red(mac: Mac) -> None:
-    mac.paths.master_key.write_text("not a key\n")
+# --- secrets: references only, values in the Keychain ----------------------------------------------------------------
+async def test_the_keychain_lines_are_green_and_never_read_a_value_for_them(mac: Mac) -> None:
+    report = await mac.report(telegram=False)
+    oks = texts(report, Level.OK)
+    assert "dev.env: ochiq maxfiy qiymat yo'q (faqat Keychain havolalari)" in oks
+    assert "uz.yordamchi/dev-bot-token: Keychain'da bor (dev.env DEV_BOT_TOKEN)" in oks
+    assert "uz.yordamchi/personal-bot-token: Keychain'da bor (personal.env PERSONAL_BOT_TOKEN)" in oks
+    assert "Ombor kaliti: Keychain'da (uz.yordamchi/vault-master-key)" in oks
+    security_calls = [call for call in mac.runner.calls if call[0] == keychain.SECURITY]
+    assert security_calls
+    assert all("-w" not in call for call in security_calls)  # offline: existence only, no value is read
+
+
+async def test_a_plaintext_token_in_an_env_file_is_red_and_never_used(mac: Mac) -> None:
+    write_env(mac.paths.env_file(BotName.DEV), {"DEV_BOT_TOKEN": DEV_BOT_TOKEN, "OWNER_ID": OWNER_ID})
     report = await mac.report()
-    assert any("master.key: formati noto'g'ri" in text for text in failures(report))
-    mac.paths.master_key.unlink()
+    [line] = [line for line in report.lines if "DEV_BOT_TOKEN ochiq holda yozilgan" in line.text]
+    assert line.level is Level.FAIL
+    assert line.hint == "python scripts/install.py --env-only --rotate-tokens"
+    assert mac.apis[DEV_BOT_TOKEN].calls == []  # a plaintext token is never used, not even for getMe
+    assert DEV_BOT_TOKEN not in check.render(report, colour=False)
+
+
+async def test_item_names_survive_the_scrubber_in_the_rendered_report(mac: Mac) -> None:
+    rendered = check.render(await mac.report(telegram=False), colour=False)
+    assert "uz.yordamchi/dev-bot-token: Keychain'da bor" in rendered
+    assert "Ombor kaliti: Keychain'da (uz.yordamchi/vault-master-key)" in rendered
+
+
+async def test_any_plaintext_secret_in_an_env_file_is_red(mac: Mac) -> None:
+    path = mac.paths.env_file(BotName.PERSONAL)
+    path.write_text(path.read_text() + "GOOGLE_API_KEY=AIza" + "SyntheticKeyForOfflineTests_0123456\n")
+    assert "personal.env: GOOGLE_API_KEY ochiq holda yozilgan (Keychain havolasi emas)" in failures(await mac.report())
+
+
+async def test_a_reference_to_a_missing_item_is_red_with_the_rotation_hint(mac: Mac) -> None:
+    mac.runner.keychain.items.pop((keychain.SERVICE, "dev-bot-token"))
     report = await mac.report()
-    assert any("master.key: topilmadi" in text for text in failures(report))
+    [line] = [line for line in report.lines if line.text == "uz.yordamchi/dev-bot-token: Keychain'da topilmadi"]
+    assert line.hint == "python scripts/install.py --env-only --rotate-tokens"
+    assert mac.apis[DEV_BOT_TOKEN].calls == []
+
+
+async def test_a_locked_keychain_is_red(mac: Mac) -> None:
+    mac.runner.keychain.locked = True
+    fails = failures(await mac.report())
+    assert "uz.yordamchi/dev-bot-token: Keychain'dan o'qilmadi (qulflanganmi?)" in fails
+    assert "Ombor kaliti: Keychain'da uz.yordamchi/vault-master-key yo'q yoki o'qilmadi" in fails
+
+
+async def test_the_personal_env_may_not_point_at_the_dev_token(mac: Mac) -> None:
+    """UC-36: even a reference to another bot's item is red, and the check never reads it for that bot."""
+    write_env(
+        mac.paths.env_file(BotName.PERSONAL),
+        {"PERSONAL_BOT_TOKEN": keychain.DEV_BOT_TOKEN.reference, "OWNER_ID": OWNER_ID},
+    )
+    report = await mac.report()
+    expected = "personal.env: PERSONAL_BOT_TOKEN boshqa botning yozuvini ko'rsatadi"
+    assert any(text.startswith(expected) for text in failures(report))
+    assert mac.apis[PERSONAL_BOT_TOKEN].calls == []
+
+
+async def test_a_token_key_naming_the_master_key_is_red_and_the_key_is_never_read(mac: Mac) -> None:
+    write_env(
+        mac.paths.env_file(BotName.DEV),
+        {"DEV_BOT_TOKEN": keychain.MASTER_KEY.reference, "OWNER_ID": OWNER_ID, "DEV_GROUP_ID": DEV_GROUP_ID},
+    )
+    report = await mac.report()
+    [line] = [line for line in report.lines if "DEV_BOT_TOKEN boshqa yozuvni" in line.text]
+    assert line.level is Level.FAIL
+    assert "uz.yordamchi/dev-bot-token" in line.hint
+    reads = [call for call in mac.runner.calls if call[0] == keychain.SECURITY and "-w" in call]
+    assert reads == [tuple(keychain.find_argv(keychain.PERSONAL_BOT_TOKEN, reveal=True))]  # never the master key
+    assert MASTER_KEY_B64 not in check.render(report, colour=False)
+
+
+async def test_a_missing_master_key_item_is_red(mac: Mac) -> None:
+    mac.runner.keychain.items.pop((keychain.SERVICE, "vault-master-key"))
+    fails = failures(await mac.report())
+    assert "Ombor kaliti: Keychain'da uz.yordamchi/vault-master-key yo'q yoki o'qilmadi" in fails
+
+
+async def test_a_leftover_master_key_file_is_red(mac: Mac) -> None:
+    write_master_key(mac.paths.master_key)
+    report = await mac.report()
+    [line] = [line for line in report.lines if "master.key" in line.text]
+    assert line.level is Level.FAIL
+    assert line.text.endswith("master.key: kalit hali fayl sifatida turibdi")
+    assert "Keychain'ga ko'chiriladi" in line.hint
 
 
 async def test_personal_env_is_optional_before_p3(mac: Mac) -> None:
@@ -526,21 +624,33 @@ def test_find_candidates_reads_owners_groups_and_migrations() -> None:
     assert found.migrated == {-555: -1009}
 
 
+DEV_REF = keychain.DEV_BOT_TOKEN.reference
+PERSONAL_REF = keychain.PERSONAL_BOT_TOKEN.reference
+
+
 async def test_discover_ids_writes_only_the_empty_keys(tmp_path: Path) -> None:
     paths = make_paths(tmp_path)
     paths.data.mkdir(parents=True)
-    write_env(paths.env_file(BotName.DEV), {"DEV_BOT_TOKEN": DEV_BOT_TOKEN, "OWNER_ID": "", "DEV_GROUP_ID": ""})
-    write_env(paths.env_file(BotName.PERSONAL), {"PERSONAL_BOT_TOKEN": PERSONAL_BOT_TOKEN, "OWNER_ID": ""})
+    write_env(paths.env_file(BotName.DEV), {"DEV_BOT_TOKEN": DEV_REF, "OWNER_ID": "", "DEV_GROUP_ID": ""})
+    write_env(paths.env_file(BotName.PERSONAL), {"PERSONAL_BOT_TOKEN": PERSONAL_REF, "OWNER_ID": ""})
+    tokens: list[str] = []
     api = FakeBotApi({"getUpdates": UPDATES})
     answers = iter(["ha", str(DEV_GROUP_ID)])
     out = io.StringIO()
-    code = await check.discover_ids(paths, lambda _token: api, ask=lambda _prompt: next(answers), out=out)
+
+    def bot_api(token: str) -> FakeBotApi:
+        tokens.append(token)
+        return api
+
+    code = await check.discover_ids(paths, bot_api, run=FakeRunner(), ask=lambda _prompt: next(answers), out=out)
     assert code == 0
+    assert tokens == [DEV_BOT_TOKEN]  # the token came from the Keychain item the file names
     assert api.calls == [("getUpdates", {"timeout": 0, "limit": 100})]  # no offset: nothing is confirmed
     dev = paths.env_file(BotName.DEV).read_text()
     assert f"OWNER_ID={OWNER_ID}\n" in dev
     assert f"DEV_GROUP_ID={DEV_GROUP_ID}\n" in dev
-    assert f"DEV_BOT_TOKEN={DEV_BOT_TOKEN}\n" in dev
+    assert f"DEV_BOT_TOKEN={DEV_REF}\n" in dev
+    assert DEV_BOT_TOKEN not in dev
     assert f"OWNER_ID={OWNER_ID}\n" in paths.env_file(BotName.PERSONAL).read_text()
     assert paths.env_file(BotName.DEV).stat().st_mode & 0o777 == 0o600
     assert DEV_BOT_TOKEN not in out.getvalue()
@@ -550,7 +660,7 @@ async def test_discover_ids_writes_only_the_empty_keys(tmp_path: Path) -> None:
 async def test_discover_ids_never_replaces_an_existing_id(tmp_path: Path) -> None:
     paths = make_paths(tmp_path)
     paths.data.mkdir(parents=True)
-    original = {"DEV_BOT_TOKEN": DEV_BOT_TOKEN, "OWNER_ID": "111", "DEV_GROUP_ID": "-100999999999"}
+    original = {"DEV_BOT_TOKEN": DEV_REF, "OWNER_ID": "111", "DEV_GROUP_ID": "-100999999999"}
     write_env(paths.env_file(BotName.DEV), original)
     before = paths.env_file(BotName.DEV).read_text()
 
@@ -558,15 +668,30 @@ async def test_discover_ids_never_replaces_an_existing_id(tmp_path: Path) -> Non
         raise AssertionError(f"nothing to ask, but asked: {prompt}")
 
     api = FakeBotApi({"getUpdates": UPDATES})
-    assert await check.discover_ids(paths, lambda _token: api, ask=ask, out=io.StringIO()) == 0
+    assert await check.discover_ids(paths, lambda _token: api, run=FakeRunner(), ask=ask, out=io.StringIO()) == 0
     assert paths.env_file(BotName.DEV).read_text() == before
 
 
 async def test_discover_ids_while_the_bot_polls_is_a_clear_error(tmp_path: Path) -> None:
     paths = make_paths(tmp_path)
     paths.data.mkdir(parents=True)
-    write_env(paths.env_file(BotName.DEV), {"DEV_BOT_TOKEN": DEV_BOT_TOKEN, "OWNER_ID": "", "DEV_GROUP_ID": ""})
+    write_env(paths.env_file(BotName.DEV), {"DEV_BOT_TOKEN": DEV_REF, "OWNER_ID": "", "DEV_GROUP_ID": ""})
     api = FakeBotApi({"getUpdates": TelegramError("conflict", 409)})
     out = io.StringIO()
-    assert await check.discover_ids(paths, lambda _token: api, ask=lambda _p: "", out=out) == 1
+    assert await check.discover_ids(paths, lambda _token: api, run=FakeRunner(), ask=lambda _p: "", out=out) == 1
     assert "launchctl bootout" in out.getvalue()
+
+
+@pytest.mark.parametrize("plaintext", [True, False], ids=["plaintext_token", "missing_item"])
+async def test_discover_ids_uses_only_a_token_from_the_keychain(tmp_path: Path, plaintext: bool) -> None:
+    paths = make_paths(tmp_path)
+    paths.data.mkdir(parents=True)
+    value = DEV_BOT_TOKEN if plaintext else DEV_REF
+    write_env(paths.env_file(BotName.DEV), {"DEV_BOT_TOKEN": value, "OWNER_ID": "", "DEV_GROUP_ID": ""})
+    api = FakeBotApi({"getUpdates": UPDATES})
+    out = io.StringIO()
+    runner = FakeRunner(keychain=FakeSecurity())
+    assert await check.discover_ids(paths, lambda _token: api, run=runner, ask=lambda _p: "", out=out) == 1
+    assert api.calls == []
+    assert "--rotate-tokens" in out.getvalue()
+    assert DEV_BOT_TOKEN not in out.getvalue()

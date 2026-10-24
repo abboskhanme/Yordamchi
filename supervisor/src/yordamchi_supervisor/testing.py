@@ -1,5 +1,6 @@
 """Test doubles for the supervisor's seams: virtual clock, scripted `launchctl`, a recording Telegram opener, a fake
-`caffeinate` and a temp data dir. Nothing in the supervisor imports this module; only `supervisor/tests` does.
+`caffeinate`, a fake Keychain and a temp data dir. Nothing in the supervisor imports this module; only
+`supervisor/tests` does. No test reads the real Keychain.
 
 It lives in the package, not in `supervisor/tests/`, because the root `mypy` run resolves `tests.*` to the app's
 `tests` package, so a `supervisor/tests/fakes.py` could not be imported under both runners. T57 (the updater) reuses it.
@@ -17,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from email.message import Message
 from pathlib import Path
 
+from yordamchi_supervisor.keychain import DEV_TOKEN_REFERENCE, KeychainError
 from yordamchi_supervisor.log import JsonLog, Scrubber
 from yordamchi_supervisor.paths import SupervisorPaths
 from yordamchi_supervisor.proc import Child, RunResult
@@ -25,6 +27,23 @@ from yordamchi_supervisor.proc import Child, RunResult
 TOKEN = "8123456789:AAFakeTokenForSupervisorTests_abcdefgh"  # noqa: S105 - a fake
 GROUP_ID = "-1001234567890"
 UID = 501
+
+
+@dataclass
+class FakeKeychain:
+    """The dev token item. `token=None` is a missing item; `problem` makes every read fail with that code."""
+
+    token: str | None = TOKEN
+    problem: str | None = None
+    reads: int = 0
+
+    def dev_token(self) -> str:
+        self.reads += 1
+        if self.problem is not None:
+            raise KeychainError(self.problem)
+        if self.token is None:
+            raise KeychainError("keychain_item_missing")
+        return self.token
 
 
 class FakeClock:
@@ -191,7 +210,8 @@ class FakeSpawner:
 
 
 class TempData:
-    """A temp HOME with the SPEC §2.2 data dir and log dir, and a 0600 `dev.env`."""
+    """A temp HOME with the SPEC §2.2 data dir and log dir, a 0600 `dev.env` that names the token's Keychain item,
+    and `keychain`, the fake Keychain holding that token."""
 
     def __init__(self) -> None:
         self._dir = tempfile.TemporaryDirectory(prefix="yd-sup-")
@@ -199,7 +219,8 @@ class TempData:
         self.paths = SupervisorPaths(home=root, data=root / "data", logs=root / "logs")
         for directory in (self.paths.data, self.paths.run, self.paths.data / "db", self.paths.logs):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.write_env(f"DEV_BOT_TOKEN={TOKEN}\nOWNER_ID=11111\nDEV_GROUP_ID={GROUP_ID}\n")
+        self.write_env(f"DEV_BOT_TOKEN={DEV_TOKEN_REFERENCE}\nOWNER_ID=11111\nDEV_GROUP_ID={GROUP_ID}\n")
+        self.keychain = FakeKeychain()
         self.scrubber = Scrubber()
         self.log = JsonLog(self.paths.log_file, self.scrubber)
 

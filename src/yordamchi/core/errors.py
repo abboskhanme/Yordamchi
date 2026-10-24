@@ -9,6 +9,7 @@ Block file (TASKS R2): each P1 feature adds its codes and classes only inside it
 """
 
 from enum import StrEnum
+from typing import ClassVar
 
 type ErrorParam = str | int
 
@@ -23,6 +24,11 @@ class ErrorCode(StrEnum):
     AUTH_FAILED = "auth_failed"
     CALL_TIMED_OUT = "call_timed_out"
     NOT_INSTALLED = "not_installed"
+    # Secrets live in the macOS login Keychain, never in a file (owner requirement 2026-10-24; core/keychain.py).
+    SECRET_IN_PLAINTEXT = "secret_in_plaintext"  # noqa: S105  # an error code, not a secret
+    KEYCHAIN_ITEM_MISSING = "keychain_item_missing"
+    KEYCHAIN_UNAVAILABLE = "keychain_unavailable"
+    KEYCHAIN_ITEM_FORBIDDEN = "keychain_item_forbidden"
     # --- inbox ---
     # --- audit ---
     # --- vault ---
@@ -151,10 +157,52 @@ class ExternalError(YordamchiError):
 
 # --- core ---
 class ConfigInvalid(DomainError):
-    """A bootstrap value (env file, environment) is missing or malformed. `problem` is a short snake_case code."""
+    """A bootstrap value (env file, environment) is missing or malformed. `problem` is a short snake_case code.
+
+    The Keychain errors below are bootstrap failures too, so a startup that refuses on `ConfigInvalid` refuses on
+    them: each keeps the `key`/`problem` params (names and codes, never a value) under its own code and message."""
+
+    code_of: ClassVar[ErrorCode] = ErrorCode.CONFIG_INVALID
 
     def __init__(self, *, key: str, problem: str) -> None:
-        super().__init__(ErrorCode.CONFIG_INVALID, key=key, problem=problem)
+        super().__init__(self.code_of, key=key, problem=problem)
+
+
+class SecretInPlaintext(ConfigInvalid):
+    """An env file holds a secret in the clear instead of an `@keychain:` reference; the process refuses to start.
+    `key` names the offending keys, never their values."""
+
+    code_of = ErrorCode.SECRET_IN_PLAINTEXT
+
+    def __init__(self, *, source: str, keys: str) -> None:
+        super().__init__(key=keys, problem=f"plaintext_in_{source}")
+
+
+class KeychainItemMissing(ConfigInvalid):
+    """The login Keychain has no item `<service>/<account>` (`key`), or it is empty."""
+
+    code_of = ErrorCode.KEYCHAIN_ITEM_MISSING
+
+    def __init__(self, *, item: str) -> None:
+        super().__init__(key=item, problem="keychain_item_missing")
+
+
+class KeychainUnavailable(ConfigInvalid):
+    """`/usr/bin/security` could not read or write the item: the Keychain is locked, it timed out, or it failed."""
+
+    code_of = ErrorCode.KEYCHAIN_UNAVAILABLE
+
+    def __init__(self, *, item: str) -> None:
+        super().__init__(key=item, problem="keychain_unavailable")
+
+
+class KeychainItemForbidden(ConfigInvalid):
+    """The item is not on this bot's allowlist (UC-36: the personal process never reads the dev token)."""
+
+    code_of = ErrorCode.KEYCHAIN_ITEM_FORBIDDEN
+
+    def __init__(self, *, item: str, bot: str) -> None:
+        super().__init__(key=item, problem=f"not_for_the_{bot}_bot")
 
 
 class ProviderUnavailable(ExternalError):
@@ -198,15 +246,17 @@ class NotInstalled(ExternalError):
 # --- audit ---
 # --- vault ---
 class VaultKeyMissing(DomainError):
-    """`master.key` is absent, unreadable or not 32 base64 bytes; the installer creates it, a bot never does (SPEC
-    §4.5)."""
+    """The master key cannot be used: the Keychain item `uz.yordamchi/vault-master-key` is absent, malformed or
+    unreadable (a locked Keychain), or a legacy `master.key` is not 32 base64 bytes. The installer creates the key, a
+    bot never does (SPEC §4.5)."""
 
     def __init__(self) -> None:
         super().__init__(ErrorCode.VAULT_KEY_MISSING)
 
 
 class VaultKeyInsecure(DomainError):
-    """`master.key` is readable by the group or others (NFR-SEC-02 wants 0600); the vault refuses to use it."""
+    """A legacy `master.key` file is readable by the group or others (NFR-SEC-02 wants 0600); it is neither used nor
+    imported into the Keychain until it is 0600."""
 
     def __init__(self, *, mode: str) -> None:
         super().__init__(ErrorCode.VAULT_KEY_INSECURE, mode=mode)

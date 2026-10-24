@@ -99,7 +99,12 @@ class World:
                 "update", {"last_good": {"app": {"version": self.previous.name, "tests": previous_tests}}}
             )
         self.alerter = Alerter(
-            self.paths.env_file("dev"), self.data.log, self.data.scrubber, self.clock, opener=self.opener
+            self.paths.env_file("dev"),
+            self.data.log,
+            self.data.scrubber,
+            self.clock,
+            keychain=self.data.keychain,
+            opener=self.opener,
         )
         self.updater = self.new_updater()
         self.bots.step(self.clock.now())

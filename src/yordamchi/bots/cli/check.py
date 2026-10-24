@@ -5,15 +5,18 @@ red. It runs at install time, at bot start and on "tekshir", ideally inside the 
 judges is the bots' own.
 
 What it checks:
-- modes: DATA and its `db/`, `run/` (0700), the env files and the DB files (0600), `~/.config/yordamchi` (0700) and
-  `master.key` (0600, base64 of 32 bytes);
+- modes: DATA and its `db/`, `run/` (0700), the env files and the DB files (0600), `~/.config/yordamchi` (0700);
+- secrets (owner requirement 2026-10-24): no env file holds a plaintext secret (`core.config.plaintext_secrets`), every
+  `@keychain:` reference names an item of that bot that exists, the vault master key is in the Keychain, and no
+  legacy `master.key` file is left. Existence is checked without `-w`, so no value is read for it;
 - `~/.local/bin/claude`, and `claude auth status` reporting `authMethod: "claude.ai"` (only that field is shown);
 - no refused credential source in the environment or in `~/.claude/settings.json` (`core.proc`'s refuse-list);
 - `claude`, `git`, `gh`, `ffmpeg`, `node` on the bots' search path (`core.proc.build_search_path`);
 - the LaunchAgents are loaded (`uz.yordamchi.personal` stays unloaded until P3, which is not an error);
 - heartbeats: the supervisor's must be fresh; a bot's must be fresh once the bot has written one;
 - `OWNER_ID` and a `-100…` supergroup `DEV_GROUP_ID` are set;
-- Telegram setup (X01), through the Bot API with each bot's token read from its env file: privacy off for the dev
+- Telegram setup (X01), through the Bot API with each bot's token read from the Keychain item its env file names
+  (a plaintext token is not used): privacy off for the dev
   bot, join-groups off, an empty command menu, the dev group is a supergroup where the bot is an admin that can delete
   and pin, and the owner does not post there as an anonymous admin;
 - power (`pmset` AC sleep 0), free disk and FileVault (the last two for information).
@@ -21,7 +24,8 @@ What it checks:
 `--discover-ids` calls `getUpdates` once without an offset (nothing is confirmed, so the bot still receives those
 updates later), prints the candidate owner id and group ids, and offers to write the missing ones into the env files.
 
-Tokens never reach the output: they are added to `core.redact`'s known set when read, every printed line passes
+Tokens never reach the output or argv: `security` gets the item name only, the value is added to `core.redact`'s known
+set when read, every printed line passes
 `redact.scrubbed`, and no URL or exception text from a Telegram call is shown (only a short problem code). The network
 is used only for the Telegram checks. Imports: `yordamchi.core` and the standard library only (A9).
 
@@ -31,8 +35,6 @@ same code: a key that already has a value is never overwritten unless the caller
 
 import argparse
 import asyncio
-import base64
-import binascii
 import http.client
 import json
 import os
@@ -51,7 +53,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final, Protocol, TextIO
 
-from yordamchi.core import config, proc, redact
+from yordamchi.core import config, keychain, proc, redact
 from yordamchi.core.errors import ConfigInvalid
 from yordamchi.core.paths import LAUNCHD_PREFIX, BotName, Paths, ProcessName
 
@@ -64,7 +66,9 @@ LAUNCHCTL: Final = "/bin/launchctl"
 PMSET: Final = "/usr/bin/pmset"
 FDESETUP: Final = "/usr/bin/fdesetup"
 EXPECTED_AUTH_METHOD: Final = "claude.ai"
-MASTER_KEY_BYTES: Final = 32
+KEYCHAIN_TIMEOUT_S: Final = 10.0
+ROTATE_HINT: Final = "python scripts/install.py --env-only --rotate-tokens"
+INSTALL_HINT: Final = "python scripts/install.py"
 DIR_MODE: Final = 0o700
 FILE_MODE: Final = 0o600
 # The supervisor writes its heartbeat every 15 s; a bot's is judged like the watchdog judges it (SPEC §2.8).
@@ -382,22 +386,6 @@ def _mode_line(paths: Paths, path: Path, expected: int, *, missing: Line | None 
     return ok(f"{shown}: ruxsat {expected:04o}")
 
 
-def _master_key_line(paths: Paths) -> Line | None:
-    try:
-        raw = paths.master_key.read_bytes()
-    except OSError:
-        return None  # the mode line already reported it
-    try:
-        decoded = base64.b64decode(raw.strip(), validate=True)
-    except (binascii.Error, ValueError):
-        decoded = b""
-    if len(decoded) != MASTER_KEY_BYTES:
-        return fail(
-            "master.key: formati noto'g'ri (32 baytli base64 emas)", "kalitni o'zgartirmang: DEPLOY.md ga qarang"
-        )
-    return ok("master.key: formati to'g'ri")
-
-
 def check_files(paths: Paths) -> list[Line]:
     lines = [
         _mode_line(paths, paths.data, DIR_MODE, is_dir=True),
@@ -416,11 +404,97 @@ def check_files(paths: Paths) -> list[Line]:
     candidates = [db.with_name(db.name + suffix) for db in db_files for suffix in ("", "-wal", "-shm")]
     lines.extend(_mode_line(paths, path, FILE_MODE, is_dir=False) for path in candidates if path.exists())
     lines.append(_mode_line(paths, paths.config, DIR_MODE, is_dir=True))
-    lines.append(_mode_line(paths, paths.master_key, FILE_MODE, is_dir=False))
-    key_line = _master_key_line(paths)
-    if key_line is not None:
-        lines.append(key_line)
     return lines
+
+
+# --- secrets: env files hold references only, the values live in the Keychain ----------------------------------------
+async def _keychain_value(run: Runner, item: keychain.KeychainItem, *, reveal: bool) -> tuple[str | None, Line | None]:
+    """(the value when `reveal`, else "" when it exists; None and a red line when it cannot be had). Lines start with
+    the item name: after "Keychain:" `core.redact`'s generic rule would take the name for a secret and mask it."""
+    result = await run(keychain.find_argv(item, reveal=reveal), KEYCHAIN_TIMEOUT_S)
+    if result.returncode == keychain.ITEM_NOT_FOUND_EXIT:
+        return None, fail(f"{item}: Keychain'da topilmadi", ROTATE_HINT)
+    value = result.stdout.removesuffix("\n") if reveal else ""
+    if result.returncode != 0 or (reveal and not value):
+        return None, fail(f"{item}: Keychain'dan o'qilmadi (qulflanganmi?)", "Mac'ga login qiling, qayta tekshiring")
+    if value:
+        redact.add_known_secrets([value])
+    return value, None
+
+
+def _reference_hint(item: keychain.KeychainItem) -> str:
+    # The reference is never printed whole: `core.redact` would read "keychain:<long value>" as a secret and mask it.
+    return f"havola shunday bo'lsin: @keychain:<service>/<account>, yozuv {item}"
+
+
+def _reference(bot: BotName, key: str, value: str) -> tuple[keychain.KeychainItem | None, Line | None]:
+    """The item a token key names, if it is a well-formed reference to one of this bot's items."""
+    try:
+        item = keychain.parse_reference(value)
+    except ValueError:
+        return None, fail(f"{bot}.env: {key} havolasi noto'g'ri", _reference_hint(keychain.TOKEN_ITEMS[key]))
+    if item not in keychain.ALLOWED[bot]:
+        return None, fail(f"{bot}.env: {key} boshqa botning yozuvini ko'rsatadi ({item})", "faqat o'z yozuvi (UC-36)")
+    expected = keychain.TOKEN_ITEMS[key]
+    if item != expected:  # e.g. the master key: it must never be read as a token, let alone sent to Telegram
+        return None, fail(f"{bot}.env: {key} boshqa yozuvni ko'rsatadi ({item})", _reference_hint(expected))
+    return item, None
+
+
+async def _env_secret_lines(ctx: Context, bot: BotName, values: Mapping[str, str]) -> list[Line]:
+    name = f"{bot}.env"
+    plaintext = config.plaintext_secrets(values)
+    lines = [fail(f"{name}: {key} ochiq holda yozilgan (Keychain havolasi emas)", ROTATE_HINT) for key in plaintext]
+    if not plaintext:
+        lines.append(ok(f"{name}: ochiq maxfiy qiymat yo'q (faqat Keychain havolalari)"))
+    for key in keychain.TOKEN_ITEMS:
+        value = values.get(key, "")
+        if not keychain.is_reference(value):
+            continue
+        item, problem = _reference(bot, key, value)
+        if item is None:
+            lines.append(problem or fail(f"{name}: {key}"))
+            continue
+        _, problem = await _keychain_value(ctx.run, item, reveal=False)
+        lines.append(problem or ok(f"{item}: Keychain'da bor ({name} {key})"))
+    return lines
+
+
+async def check_secrets(ctx: Context) -> list[Line]:
+    lines: list[Line] = []
+    for bot in BotName:
+        path = ctx.paths.env_file(bot)
+        if not path.exists():
+            continue
+        try:
+            values = read_env_values(path)
+        except ConfigInvalid:
+            continue  # the Telegram section reports an unreadable file
+        lines.extend(await _env_secret_lines(ctx, bot, values))
+    _, problem = await _keychain_value(ctx.run, keychain.MASTER_KEY, reveal=False)
+    if problem is not None:
+        lines.append(fail(f"Ombor kaliti: Keychain'da {keychain.MASTER_KEY} yo'q yoki o'qilmadi", INSTALL_HINT))
+    else:
+        lines.append(ok(f"Ombor kaliti: Keychain'da ({keychain.MASTER_KEY})"))
+    if ctx.paths.master_key.exists() or ctx.paths.master_key.is_symlink():
+        lines.append(
+            fail(
+                f"{_home_relative(ctx.paths, ctx.paths.master_key)}: kalit hali fayl sifatida turibdi",
+                "python scripts/install.py: kalit Keychain'ga ko'chiriladi, tekshiriladi va fayl o'chiriladi",
+            )
+        )
+    return lines
+
+
+async def _token(run: Runner, bot: BotName, values: Mapping[str, str], key: str) -> tuple[str | None, Line | None]:
+    """The token to call the Bot API with: only ever from the Keychain. (None, None) when another line covers it."""
+    value = values.get(key, "")
+    if not value or not keychain.is_reference(value):
+        return None, None  # empty: reported by the caller; plaintext: red in the secrets section, never used
+    item, problem = _reference(bot, key, value)
+    if item is None:
+        return None, problem
+    return await _keychain_value(run, item, reveal=True)
 
 
 # --- claude --------------------------------------------------------------------------------------------------------
@@ -666,33 +740,53 @@ async def _dev_group(api: BotApi, values: Mapping[str, str], bot_id: int) -> lis
     return lines
 
 
+def _no_token(who: str) -> list[Line]:
+    # The red line for the token itself is in the secrets section; this one only says what was skipped.
+    return [info(f"{who}: Telegram tekshiruvi o'tkazib yuborildi (token Keychain'dan olinmadi)")]
+
+
+async def _dev_telegram(ctx: Context, values: Mapping[str, str]) -> list[Line]:
+    token, _ = await _token(ctx.run, BotName.DEV, values, "DEV_BOT_TOKEN")
+    lines = [] if token else _no_token("dev bot")
+    if token:
+        api = ctx.bot_api(token)
+        identity, bot_id = await _bot_identity(api, "dev bot", privacy_off_required=True)
+        lines.extend(identity)
+        if bot_id is not None:
+            lines.extend(await _dev_group(api, values, bot_id))
+    return lines
+
+
+async def _personal_telegram(ctx: Context, values: Mapping[str, str]) -> list[Line]:
+    if not values.get("PERSONAL_BOT_TOKEN", ""):
+        return [info("PERSONAL_BOT_TOKEN: bo'sh (P3 gacha shart emas)")]
+    if not ctx.telegram:
+        return []
+    token, _ = await _token(ctx.run, BotName.PERSONAL, values, "PERSONAL_BOT_TOKEN")
+    lines = [] if token else _no_token("shaxsiy bot")
+    if token:
+        identity, _ = await _bot_identity(ctx.bot_api(token), "shaxsiy bot", privacy_off_required=False)
+        lines.extend(identity)
+    return lines
+
+
 async def check_telegram(ctx: Context) -> list[Line]:
     lines: list[Line] = []
     dev_values, problem = _read(ctx.paths.env_file(BotName.DEV))
     if problem is not None or dev_values is None:
         return [problem or fail("dev.env: o'qilmadi")]
     lines.extend(check_ids(dev_values))
-    dev_token = dev_values.get("DEV_BOT_TOKEN", "")
-    if not dev_token:
+    if not dev_values.get("DEV_BOT_TOKEN", ""):
         lines.append(fail("DEV_BOT_TOKEN: bo'sh", "python scripts/install.py (token yashirin kiritiladi)"))
     elif ctx.telegram:
-        api = ctx.bot_api(dev_token)
-        identity, bot_id = await _bot_identity(api, "dev bot", privacy_off_required=True)
-        lines.extend(identity)
-        if bot_id is not None:
-            lines.extend(await _dev_group(api, dev_values, bot_id))
+        lines.extend(await _dev_telegram(ctx, dev_values))
     personal_path = ctx.paths.env_file(BotName.PERSONAL)
     if personal_path.exists():
         personal_values, problem = _read(personal_path)
         if problem is not None or personal_values is None:
             lines.append(problem or fail("personal.env: o'qilmadi"))
         else:
-            token = personal_values.get("PERSONAL_BOT_TOKEN", "")
-            if not token:
-                lines.append(info("PERSONAL_BOT_TOKEN: bo'sh (P3 gacha shart emas)"))
-            elif ctx.telegram:
-                identity, _ = await _bot_identity(ctx.bot_api(token), "shaxsiy bot", privacy_off_required=False)
-                lines.extend(identity)
+            lines.extend(await _personal_telegram(ctx, personal_values))
     if not ctx.telegram:
         lines.append(info("Telegram tekshiruvlari o'tkazib yuborildi (--offline)"))
     return lines
@@ -747,6 +841,7 @@ OWNER_CHECKLIST: Final = (
 async def run_checks(ctx: Context) -> Report:
     report = Report()
     report.add("Fayllar va ruxsatlar", check_files(ctx.paths))
+    report.add("Maxfiy qiymatlar (Keychain)", await check_secrets(ctx))
     report.add("Claude", [*await check_claude(ctx), *check_credentials(ctx)])
     report.add("Dasturlar", check_binaries(ctx))
     report.add("launchd", await check_launchd(ctx))
@@ -809,18 +904,28 @@ def _choose(ask: Ask, write: Callable[[str], None], key: str, options: Sequence[
     return None
 
 
-async def discover_ids(paths: Paths, bot_api: BotApiFactory, *, ask: Ask, out: TextIO) -> int:
+async def _discovery_token(paths: Paths, run: Runner) -> tuple[dict[str, str] | None, str | None, str]:
+    """(dev.env values, the dev token from the Keychain, why not) for `--discover-ids`."""
+    values, problem = _read(paths.env_file(BotName.DEV))
+    if problem is not None or values is None:
+        return None, None, problem.text if problem else "dev.env: topilmadi"
+    if not values.get("DEV_BOT_TOKEN", ""):
+        return values, None, "DEV_BOT_TOKEN bo'sh: avval python scripts/install.py"
+    token, problem = await _token(run, BotName.DEV, values, "DEV_BOT_TOKEN")
+    if token is None:
+        if problem is None:
+            return values, None, f"DEV_BOT_TOKEN Keychain havolasi emas -> {ROTATE_HINT}"
+        return values, None, f"{problem.text} -> {problem.hint}"
+    return values, token, ""
+
+
+async def discover_ids(paths: Paths, bot_api: BotApiFactory, *, run: Runner, ask: Ask, out: TextIO) -> int:
     def say(text: str) -> None:
         out.write(redact.scrubbed(text))
 
-    dev_path = paths.env_file(BotName.DEV)
-    values, problem = _read(dev_path)
-    if problem is not None or values is None:
-        say(f"[XATO] {problem.text if problem else 'dev.env: topilmadi'}\n")
-        return EXIT_FAILED
-    token = values.get("DEV_BOT_TOKEN", "")
-    if not token:
-        say("[XATO] DEV_BOT_TOKEN bo'sh: avval python scripts/install.py\n")
+    values, token, problem_text = await _discovery_token(paths, run)
+    if values is None or token is None:
+        say(f"[XATO] {problem_text}\n")
         return EXIT_FAILED
     try:
         # No offset: nothing is confirmed, so the bot still receives these updates once it runs.
@@ -907,14 +1012,15 @@ async def _main(args: argparse.Namespace, environ: Mapping[str, str], out: TextI
     def factory(token: str) -> BotApi:
         return UrllibBotApi(token)
 
+    run = process_runner(environ, search_path)
     if args.discover_ids:
-        return await discover_ids(paths, factory, ask=input, out=out)
+        return await discover_ids(paths, factory, run=run, ask=input, out=out)
     ctx = Context(
         paths=paths,
         environ=environ,
         uid=os.getuid(),
         now=time.time(),  # noqa: TID251  # a CLI: the heartbeat age is wall-clock against the file's mtime
-        run=process_runner(environ, search_path),
+        run=run,
         bot_api=factory,
         search_path=search_path,
         telegram=not args.offline,
