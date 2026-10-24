@@ -250,3 +250,13 @@ question. Correct any line and it changes.
 - [2026-10-24] Personal bot chats → the owner's DM plus `access.personal_group_id` when non-zero → SPEC §2.2.
 - [2026-10-24] Polling constants (25 s long poll, 1→30 s backoff with jitter [0.8, 1], 429 waits ≥ `retry_after`) are code, not settings; after a failure, short `timeout=0` probes with a 10 s budget → the watchdog depends on them; resume ≤ 40 s even with hung connections (NFR-REL-03).
 - [2026-10-24] `guarded()` → never raises (re-raises cancellation); the owner notice has a 5 s bound and goes to the bot's home chat if no chat is known; incident id = 8 hex chars → one bad update or job can't stop the bot.
+
+## Outbox (T15, merged 2026-10-24)
+- [2026-10-24] Ordering → messages and deletes go strictly in (priority, id) order per chat, and an undue or in-flight row holds back later ones; edits, pins, reactions and typing don't queue → replies never overtake each other.
+- [2026-10-24] Rate limits → 1/s per chat, 20/min per group, 30/s overall; edits count, deletes, reactions and typing don't; `retry_after` parks the chat and moves its pending rows; a 429 costs no attempt → NFR-CAP-02/03.
+- [2026-10-24] Unknown delivery → resend under the same row, except `echo`, `heartbeat` and `voice` (a duplicate costs more than a loss); at restart every `sending` row is resent (SPEC §2.7) → NFR-REL-05/06.
+- [2026-10-24] Attempt caps → messages 30 (~25 min awake, so a 10-min network drop loses nothing), edits and pins 5, delete/react/typing 3.
+- [2026-10-24] Key-message delete → retried 3× before the "kalitni almashtiring" advice; the masked reply waits for the delete → UC-04.
+- [2026-10-24] Formatting → plain text unless it contains ``` fences (then escaped HTML with `<pre>`); captions always plain; lengths in UTF-16 units; more than `max_parts` parts → one `.md` document (scrubbed, 0600, deleted after the send) → Telegram limits.
+- [2026-10-24] Keyboard guard → each op has a fixed list of payload keys, checked at enqueue and before the call; a stored row carrying `reply_markup` fails `payload_invalid` → D8 enforced at the last line.
+- [2026-10-24] Progress → one post per turn, then edits at most every `outbox.progress_edit_s`; older pending edits are superseded → UC-11.

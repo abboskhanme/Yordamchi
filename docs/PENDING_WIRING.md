@@ -22,7 +22,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
 ## From T08 (inbox, audit, vault, cost)
 - [ ] Optional setting `timeouts.ack_s` (float 2.5, Range(0.5, 10), TIMEOUTS, BOTH): add it to SPEC §4.3, to `SPEC_KEYS` in `test_registry` and to the inbox defaults block, then replace `inbox.domain.ACK_TIMEOUT_S` with it.
 - [x] T14 done: OwnerOnly mints `OwnerOrigin`; the poller handles offsets. Remaining part → see T34 under "From T14".
-- [ ] T15: move the calls in `inbox.service._acknowledge` into priority-0 outbox rows inside `_record`'s transaction, and add typing dedupe and repeat (4 s, up to 60 s). **Known gap until then:** a crash after commit and before the ack leaves the key message undeleted.
+- [x] T15 done: inbox acks are priority-0 outbox rows, written in the same transaction; typing dedupe and repeat are in the outbox.
 - [ ] T16: consume `list_received_updates` and `mark_updates_attached(s, …)`, and add `ForeignKey("bursts.id")` to `inbound_updates.burst_id`.
 - [ ] T34:
   - `FileKeystore(paths.master_key)`.
@@ -136,3 +136,24 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] T28 check script and QOLLANMA:
   - `DEV_GROUP_ID` must be a `-100…` **supergroup** id. A basic group that Telegram later upgrades changes its id, and the bot would then leave it as foreign.
   - The owner must not post as an **anonymous admin**: messages then come from `GroupAnonymousBot` and are dropped.
+
+## From T15 (outbox)
+- [ ] T34 `app.py`:
+  - `aio.spawn("outbox", aio.forever("outbox", lambda: outbox.run_sender(deps)))`;
+  - on shutdown, `outbox.flush_queue(deps, max_priority=1, within_s=5)` (SPEC §2.6);
+  - retention calls `outbox.service.apply_retention(deps)`.
+- [ ] `inbox/domain.py`: delete the unused `ACK_TIMEOUT_S`. The ack timeout is now `SenderConfig.ack_timeout_s`.
+- [ ] Optional settings (SPEC §4.3 + `SPEC_KEYS`): `timeouts.telegram_ack_s` (2.5), `timeouts.telegram_send_s` (10), `timeouts.telegram_file_s` (60).
+- [ ] `schedule.quiet_hours` → `disable_notification`: apply it in the outbox sender.
+- [ ] Callers:
+  - `outbox.stop_typing(s, …)` when work ends without a reply (T20, T24, P3 Q&A);
+  - T24: `show_progress(s, …, every_s=snap[OUTBOX_PROGRESS_EDIT_S])`;
+  - pass `max_parts=snap[OUTBOX_MAX_PARTS]` to `enqueue_text` / `enqueue_file`;
+  - T20: the reply signal is `outbox.find_message_link(deps, chat_id=…, message_id=…)`;
+  - T32 heartbeat:
+    - `enqueue_text(kind=HEARTBEAT, ref="online")`;
+    - `enqueue_pin(target="heartbeat:online:0")`;
+    - store `get_delivery(deps, key).message_id` in `kv_state`;
+    - `enqueue_edit(message_id=…)`.
+- [ ] FKs (`ON DELETE SET NULL`) on `outbox_messages.project_id` / `turn_id` and on `message_links.project_id` / `turn_id` / `question_id` / `decision_id`, once those tables exist.
+- [ ] Optional T09: a `parse_entities_failed` code, so HTML that Telegram refuses is resent as plain text.
