@@ -250,3 +250,27 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] T20 follow-up: pass `models.routing_effort` as `effort=` on routing asks; route the settings intent to `handle_request`.
 - [ ] P3: a conversational `AskOwner` for the personal bot (stores `PendingChange.to_json()`, then `apply_pending_change`).
 - [ ] SPEC §4.3: add `timeouts.settings_s`, `assistant.warm_clients`, `models.routing_effort` and the `DictOf` check; mention `prompts/dev/settings_context.md` in §3.2.15.
+
+## From T24 (turns)
+- [ ] T34:
+  - build `TurnsState()`, then run `recover_turns(deps)` first; its `interrupted` list feeds `S.HEALTH_RESTARTED` (T32);
+  - `aio.forever("turns", lambda: turns.run_scheduler(deps, state))`.
+- [ ] T34 router:
+  - `turns.service.route_turn(deps, state, item, facts)`; when `submitted` is None, handle `routed` (an ASK reply + `set_clarification_message`, reports, …);
+  - `Correction.MOVED` → `correct_wrong_target(deps, state, from_project=, to_project=, burst_id=)`;
+  - when a revert offer is open, call `answer_revert` before `gate.answer_decision`;
+  - `gate.answer_decision` results → `deliver_decision(deps, state, answer)`.
+- [ ] T34 intents: `stop_turn`, `stop_all`, `redirect_turn`, `continue_turn`, `retry_delivery`.
+- [ ] T34 control socket scope: `state.scope_for(session_token)`.
+- [ ] T34 lifecycle:
+  - on SIGTERM, `shutdown_turns` before the outbox flush;
+  - retention calls `turns.service.apply_retention`;
+  - media paths go in via `request_from_input(files=, images=)`.
+- [ ] Burst: `get_turn_input(deps, burst_id)` is needed for `Resolution` and `Correction` re-delivery.
+- [ ] T29: set `state.questions` to a hook that posts `S.AGENT_QUESTION`; answers go through `answer_question(..., fallback_text=)`.
+- [ ] T30: read `latest_handoff(deps, project)`. When `needs_synthesis` is set, it carries the last 20 progress lines; a turn-end hook is still to add.
+- [ ] T31: refine `prompts/dev/investigate_system.md`; investigations are `submit_turn(kind=TurnKind.INVESTIGATE)`.
+- [ ] T32: smoke turns need a registered project row; register a hidden `smoke` project or relax the check.
+- [ ] Outbox FKs to `turns.id` (`ON DELETE SET NULL`) are now possible.
+- [ ] SPEC §4.2/§4.3: the new `turns` columns (`start_dirty`, `start_files_json`, `waiting_since`, `handoff_json`, `revert_status`), the queue reasons `disk`/`busy`, and `guard.max_pressure_level` Range(1, 3).
+- [ ] Open gap (T20/T27): an edit to a message already in a running turn is not treated as a continuation.

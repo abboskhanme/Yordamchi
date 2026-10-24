@@ -308,3 +308,13 @@ question. Correct any line and it changes.
 - [2026-10-24] Side effect → in investigation sessions, `git -c core.pager=less log` is denied unless the pager is on the read-only program list → acceptable; investigations should not page.
 - [2026-10-24] ffmpeg → 9.0.2 arm64 static builds from ffmpeg.martin-riedl.de; SHA-256 taken from the publisher's `.sha256` files and re-verified locally; the binaries are Developer-ID signed and include libopus → STACK §5.
 - [2026-10-24] `python -m yordamchi.check` → a two-line shim module; it is also reachable as `-m yordamchi.bots.cli.check`.
+
+## Turns (T24) and gate fixes, merged 2026-10-24
+- [2026-10-24] `guard.max_pressure_level` → int, default 2, Range(1, 3), weakens on increase; level 4 always queues; an unreadable pressure level queues, while an unreadable disk or session list doesn't block; pressure applies to every kind, disk and the cap only to coding turns → SPEC §5.6 revised.
+- [2026-10-24] Wrong-target revert → stored on `turns.revert_status`, not in gate decisions; the order is checkout tracked changes → delete files created in the turn → `git revert` the turn's commits; files the owner changed before the turn are never touched → UC-10, and protected core stays unchanged.
+- [2026-10-24] Resume → before each resume, check the transcript file exists (by name only); if it's gone, open a new session seeded with the last handoff note and tell the owner (`S.SESSION_RENEWED`) → C1 fallback, `cleanupPeriodDays` untouched.
+- [2026-10-24] Recovery → a `starting` turn with nothing delivered goes back to queued; undelivered follow-ups of an interrupted turn move to a new queued turn; a send that raised is marked failed + `S.DELIVERY_UNCERTAIN` and never resent → NFR-REL-05/07.
+- [2026-10-24] Stop semantics → "to'xta" drops the stopped turn's undelivered follow-ups; a runaway pause keeps them; queued or waiting turns are cancelled; at shutdown, working turns become interrupted with "davom ettiraymi?" → UC-03.
+- [2026-10-24] Fixed SPEC timings are domain constants for now: interrupt 2 s, usage-limit retry 10 min (40 s after an account switch), investigation 60 steps / 3 min, smoke 5 min on haiku, scheduler tick 15 s.
+- [2026-10-24] PEM block inside a source file → the pre-push hook also scans each file's joined added lines for multi-line secrets, reporting the line where the block starts → T25 bug.
+- [2026-10-24] Guard fall-through cwd → `can_use_tool` uses the cwd PreToolUse recorded for that tool-use id, else the session's last known cwd (256 ids kept) → both entry points give the same verdict.
