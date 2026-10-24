@@ -933,7 +933,7 @@ never produce a second final result.
     instruction is lost.
 - **Scheduler.** A queued turn starts only when all hold:
   - working turns (`starting|running|stopping`) < `turns.max_concurrent`;
-  - `sysctl kern.memorystatus_vm_pressure_level == 1`;
+  - `sysctl kern.memorystatus_vm_pressure_level` ≤ `guard.max_pressure_level` (default 2 = warn; 4 = critical always queues). T22 measured this Mac sitting at level 2 under normal load, so `== 1` would queue every turn. An unreadable level → queue and log;
   - free disk ≥ `guard.block_disk_gb`.
 
   Otherwise `S.QUEUED(project, position, reason)`. At pressure level 4 it also suggests parking. Idle live

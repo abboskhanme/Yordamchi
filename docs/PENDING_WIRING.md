@@ -39,3 +39,12 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] T28 check script: `run/supervisor.heartbeat.json` is fresh; `dev.env` is 0600.
 - [ ] **T32 must ship the bot heartbeat writer** (`run/<bot>.heartbeat.json`, written atomically, with `started_at`) before T43. Otherwise the watchdog restarts the dev bot every ~2 min.
 - [ ] Optional: a low-disk alert in the supervisor, as a backstop for when the dev bot is down.
+
+## From T22 (ssh + macos adapters)
+- [ ] T24 + DEF: add the setting `guard.max_pressure_level` (int, default 2, OneOf(1, 2, 4), a safeguard: raising it weakens it) and use it in the scheduler (SPEC §5.6, revised). An unreadable pressure level queues the turn and logs it.
+- [ ] Error codes `ssh_host_unknown` and `ssh_host_key_rejected` (optionally also `ssh_dns_failed`, `ssh_config_invalid`) in `core/errors.py` and `core/strings.py`, then update `adapters/ssh/translate.py::to_error`. Until then the owner sees a generic "javob bermayapti".
+- [ ] T34 `app.py`:
+  - `OpenSshRemoteShell(ssh="/usr/bin/ssh", path=<login-shell PATH + SYSTEM_PATH, without paths.shims>)`.
+  - `MacOsHost(home=paths.home)` in both bots.
+- [ ] T31: pass the ≤ 3 min timeout from settings, and truncate `RemoteResult` output before storing it (`core.proc.run` has no output cap).
+- [ ] T54: match `interactive_sessions()` ids against our own sessions. Without a registry, an orphaned SDK process counts as the owner's (deliberately conservative).
