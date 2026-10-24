@@ -1,0 +1,1 @@
+{"hosts":{"github.com":[{"active":true,"error":"Get \"https://api.github.com/\": dial tcp: lookup api.github.com: no such host","gitProtocol":"https","host":"github.com","login":"abboskhanme","scopes":"","state":"error","tokenSource":"keyring"}]}}

@@ -108,6 +108,10 @@ class ErrorCode(StrEnum):
     SELFUPDATE_BUSY = "selfupdate_busy"
     SELFUPDATE_DIRTY = "selfupdate_dirty"
     SELFUPDATE_NOT_ON_MAIN = "selfupdate_not_on_main"
+    # --- github ---
+    GITHUB_FAILED = "github_failed"  # adapters/github (T52): a `gh` command failed
+    # --- newproject ---
+    NEWPROJECT_FOLDER_FAILED = "newproject_folder_failed"
 
 
 class YordamchiError(Exception):
@@ -630,3 +634,23 @@ class PageNotReadable(ExternalError):
 
     def __init__(self, *, site: str) -> None:
         super().__init__(ErrorCode.MEDIA_PAGE_NOT_READABLE, retryable=False, site=site)
+
+
+# --- github ---
+class GitHubFailed(ExternalError):
+    """A `gh` command exited non-zero for a reason that is not the network or the login (adapters/github). `reason`
+    is for code and logs only: `name_taken`, `not_found`, `not_a_repo`, `remote_exists`, `forbidden` or `failed`.
+    `gh`'s own output is never kept."""
+
+    def __init__(self, *, operation: str, reason: str) -> None:
+        super().__init__(ErrorCode.GITHUB_FAILED, retryable=False, operation=operation)
+        self.reason = reason
+
+
+# --- newproject ---
+class NewProjectFolderFailed(DomainError):
+    """The new project's folder could not be made: no free name, or the disk refused (UC-14). Nothing existing was
+    touched."""
+
+    def __init__(self, *, name: str) -> None:
+        super().__init__(ErrorCode.NEWPROJECT_FOLDER_FAILED, name=name)

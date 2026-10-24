@@ -396,10 +396,12 @@ def _progress_key(turn_id: int) -> str:
 
 
 def _limits(snap: Snapshot, kind: TurnKind) -> RunawayLimits:
+    # SPEC §3.2.8 step 6: a new project's plan turn has its own wall limit (UC-14 AC: the plan within 15 min).
+    wall = defaults.NEWPROJECT_PLAN_MAX_MIN if kind is TurnKind.PLAN else defaults.TURNS_MAX_WALL_MIN
     return domain.runaway_limits(
         kind,
         max_steps=snap[defaults.TURNS_MAX_STEPS],
-        max_wall_min=snap[defaults.TURNS_MAX_WALL_MIN],
+        max_wall_min=snap[wall],
         max_same_failure=snap[defaults.TURNS_MAX_SAME_FAILURE],
     )
 
@@ -893,7 +895,8 @@ async def _start_turn(deps: DevDeps, state: TurnsState, turn_id: int) -> None:
     now = deps.clock.now()
     live.turn_id = turn_id  # before the move, so a stop that lands now finds this session
     # The gate policy is the turn's, not the session's: a `selfupdate` turn in Yordamchi's coding session that an
-    # instruction opened earlier still runs under SELF_UPDATE (no push or merge to main, UC-19).
+    # instruction opened earlier still runs under SELF_UPDATE (no push or merge to main, UC-19), and a new project's
+    # build (FULL) runs in the session its plan (PLAN_ONLY) opened.
     live.turn_kind, live.policy = kind, domain.policy_of(kind)
     live.dirty = dirty
     live.turn_started_at = row.started_at or now

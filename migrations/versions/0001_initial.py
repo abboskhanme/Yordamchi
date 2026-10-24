@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 15:05:28.686715
+Create Date: 2026-10-24 15:33:59.437893
 """
 
 from collections.abc import Sequence
@@ -565,6 +565,29 @@ def upgrade() -> None:
         batch_op.create_index("ix_deliveries_status", ["status"], unique=False)
 
     op.create_table(
+        "project_drafts",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("status", sa.String(length=24), nullable=False),
+        sa.Column("parts_json", sa.Text(), nullable=False),
+        sa.Column("proposed_name", sa.String(length=64), nullable=True),
+        sa.Column("project_id", sa.String(length=64), nullable=True),
+        sa.Column("plan_turn_id", sa.Integer(), nullable=True),
+        sa.Column("build_turn_id", sa.Integer(), nullable=True),
+        sa.Column("repo_url", sa.String(length=200), nullable=True),
+        sa.Column("error_code", sa.String(length=48), nullable=True),
+        sa.Column("opened_at", sa.DateTime(), nullable=False),
+        sa.Column("last_part_at", sa.DateTime(), nullable=False),
+        sa.Column("closed_at", sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["build_turn_id"], ["turns.id"], name=op.f("fk_project_drafts_build_turn_id_turns"), ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["plan_turn_id"], ["turns.id"], name=op.f("fk_project_drafts_plan_turn_id_turns"), ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], name=op.f("fk_project_drafts_project_id_projects")),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_project_drafts")),
+    )
+    op.create_table(
         "questions",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("project_id", sa.String(length=64), nullable=False),
@@ -613,6 +636,7 @@ def downgrade() -> None:
         batch_op.drop_index("ix_questions_status")
 
     op.drop_table("questions")
+    op.drop_table("project_drafts")
     with op.batch_alter_table("deliveries", schema=None) as batch_op:
         batch_op.drop_index("ix_deliveries_status")
         batch_op.drop_index(batch_op.f("ix_deliveries_burst_id"))

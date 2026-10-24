@@ -2,14 +2,17 @@
 
 Git semantics are tested with the real adapter on `tmp_path` repos (CONVENTIONS §4); `FakeGit` is for services that
 only need scripted facts (a status, a head) or a scripted failure. Unknown repos answer like an empty clean repo.
+`FakeGitHub` holds repositories in memory: a created one is visible to `view_repo`, and a name already there (GitHub
+compares names case-insensitively) fails as `gh` does.
 """
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from yordamchi.core.errors import GitHubFailed
 from yordamchi.ports.git import Commit, FileChange, Git, GitStatus
-from yordamchi.ports.github import GitHub
+from yordamchi.ports.github import GitHub, GitHubRepo
 
 CLEAN = GitStatus(branch="main", head=None, upstream=None, ahead=0, behind=0, changed=0, untracked=0)
 
@@ -108,14 +111,38 @@ class FakeGit:
 class FakeGitHub:
     def __init__(self, *, user: str | None = "abboskhanme") -> None:
         self.user = user
-        self.created: list[tuple[str, str, Path]] = []
+        self.repos: dict[tuple[str, str], GitHubRepo] = {}  # (owner, name) case-folded → the repository
+        self.created: list[tuple[str, str, Path, bool]] = []  # (owner, name, source, private) per create_repo
+        self.failures: dict[str, Exception] = {}  # method → raised once, on its next call
+        self.calls: list[tuple[str, ...]] = []
+
+    def _call(self, method: str, *args: str) -> None:
+        self.calls.append((method, *args))
+        if method in self.failures:
+            raise self.failures.pop(method)
+
+    def add_repo(self, owner: str, name: str, *, private: bool = True) -> GitHubRepo:
+        """A repository that is already on GitHub."""
+        repo = GitHubRepo(owner=owner, name=name, url=f"https://github.com/{owner}/{name}", private=private)
+        self.repos[owner.casefold(), name.casefold()] = repo
+        return repo
 
     async def auth_user(self, *, timeout: float) -> str | None:
+        self._call("auth_user")
         return self.user
 
-    async def create_private_repo(self, owner: str, name: str, *, source: Path, timeout: float) -> str:
-        self.created.append((owner, name, source))
-        return f"https://github.com/{owner}/{name}"
+    async def view_repo(self, owner: str, name: str, *, timeout: float) -> GitHubRepo | None:
+        self._call("view_repo", owner, name)
+        return self.repos.get((owner.casefold(), name.casefold()))
+
+    async def create_repo(
+        self, owner: str, name: str, *, source: Path, private: bool = True, timeout: float
+    ) -> GitHubRepo:
+        self._call("create_repo", owner, name)
+        if (owner.casefold(), name.casefold()) in self.repos:
+            raise GitHubFailed(operation="gh_repo_create", reason="name_taken")
+        self.created.append((owner, name, source, private))
+        return self.add_repo(owner, name, private=private)
 
 
 _git: Git = FakeGit()

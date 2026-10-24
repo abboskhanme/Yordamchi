@@ -40,6 +40,7 @@ from yordamchi.dev.gate import store as gate_store
 from yordamchi.dev.gate.domain import Policy
 from yordamchi.dev.gate.models import Decision
 from yordamchi.dev.gate.service import GateScope
+from yordamchi.dev.newproject.service import NewProjectState
 from yordamchi.dev.projects.domain import Project, ProjectPrefs, is_archive_name, project_view
 from yordamchi.dev.questions import domain as questions_domain
 from yordamchi.dev.questions import store as questions_store
@@ -1539,3 +1540,39 @@ async def store_video_key(deps: PersonalDeps, provider: str = "google") -> Secre
     kind = {"google": "google_api_key", "openrouter": "openrouter_api_key"}[provider]
     assert isinstance(deps.keystore, InMemoryKeystore), "test deps hold the in-memory keystore"
     return await store_secret(deps.db, deps.keystore, kind, FAKE_KEYS[kind], bot=BotName.PERSONAL)
+
+
+# --- github ---
+GITHUB_OWNER: Final = "abboskhanme"  # the logged-in `gh` account of `FakeGitHub` (ASSUMPTIONS 2026-10-23)
+
+
+# --- newproject ---
+def make_new_project_state(turns: TurnsState | None = None) -> NewProjectState:
+    """The state `bots/dev/app.py` builds next to the turns state."""
+    return NewProjectState(turns=turns or TurnsState())
+
+
+async def make_owner_burst(
+    deps: DevDeps,
+    text: str | None,
+    *,
+    update_id: int,
+    kind: UpdateKind | None = None,
+    transcript: str | None = None,
+    reply_to_message_id: int | None = None,
+) -> TurnInput:
+    """One closed burst holding one owner part received now (`deps.clock`), with its `bursts` row; `transcript`
+    makes it a voice note whose transcript arrived."""
+    part = make_part(
+        update_id,
+        kind=UpdateKind.VOICE if transcript is not None else kind,
+        text=text,
+        reply_to_message_id=reply_to_message_id,
+        start=deps.clock.now(),
+    )
+    if transcript is not None:
+        part = replace(
+            part, transcript=burst_domain.TranscriptState.DONE, transcript_text=transcript, transcript_at=part.at
+        )
+    async with deps.db.uow() as s:
+        return await make_closed_burst(s, part)

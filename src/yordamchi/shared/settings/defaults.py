@@ -1500,6 +1500,20 @@ SELFUPDATE_SUPERVISOR_SWITCH_S = Setting(
     doc="How long a new supervisor has to show its heartbeat before the dev bot switches it back (SPEC §3.2.12).",
 )
 
+# --- github ---
+TIMEOUTS_GITHUB_S = Setting(
+    "timeouts.github_s",
+    float,
+    30.0,
+    check=Range(5, 120),
+    group=Group.TIMEOUTS,
+    bots=DEV,
+    doc="One gh call Yordamchi makes itself: who is logged in, does a repo exist, create the new project's repo.",
+)
+
+# --- newproject ---
+# `newproject.draft_silence_s` and `newproject.plan_max_min` were seeded in the "newproject (P2)" block above.
+
 
 # Every Setting bound above, by key (Registry rejects a duplicate key).
 REGISTRY: Final = Registry.from_namespace(globals())

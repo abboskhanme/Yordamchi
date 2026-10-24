@@ -953,6 +953,42 @@ ERR_SELFUPDATE_NOT_ON_MAIN = Msg(
     "«Yordamchi'da main'ga qayt» deb ayting."
 )
 
+# --- github ---
+ERR_GITHUB_FAILED = Msg("GitHub amali bajarilmadi ({operation}). Mac'da `gh auth status` ni tekshiring.")
+
+# --- newproject ---
+# UC-14: a new project from a description, in as many messages as the owner likes. No buttons: "tamom", "ha",
+# "o'zgartir: …" and "yo'q" are typed (or said).
+NEWPROJECT_COLLECTING = Msg(
+    "Yangi loyiha: tavsifini yozib boring — bir nechta xabar yoki ovoz bo'lsa ham bo'ladi. Tugagach «tamom» deng "
+    "(yoki {minutes} daqiqa jim tursangiz, o'zim boshlayman)."
+)
+NEWPROJECT_EMPTY = Msg("Yangi loyiha: tavsif hali bo'sh — nima qurmoqchi ekanligingizni yozing.")
+NEWPROJECT_EMPTY_CANCELLED = Msg("Yangi loyiha: tavsif kelmadi — bekor qildim.")
+NEWPROJECT_CANCELLED = Msg("Yangi loyiha bekor qilindi.")
+NEWPROJECT_PROJECT_CANCELLED = Msg("{project}: yangi loyiha bekor qilindi — papka va repo o'z holicha qoldi.")
+NEWPROJECT_PLANNING = Msg("{project}: papkasi ochildi ({path}). Rejani yozyapman — ~{minutes} daqiqada yuboraman.")
+# ASSUMPTIONS 2026-10-23: a taken name continues with the first free <Name>2, and the message says so.
+NEWPROJECT_RENAMED = Msg("«{wanted}» nomi band edi — {project} deb ochdim.")
+NEWPROJECT_REPO = Msg("GitHub: {url} (private)")
+NEWPROJECT_REPO_FAILED = Msg("GitHub repo ochilmadi: {why} Reja shu yerda yoziladi; keyingi bosqichda yana urinaman.")
+NEWPROJECT_GITHUB_LOGGED_OUT = Msg("Mac'da GitHub'ga kirilmagan — `gh auth login` qiling.")
+# SPEC §3.2.8 step 5: the summary, the docs as files, and one question.
+NEWPROJECT_PLAN_READY = Msg("{project} · Reja tayyor: {summary}")
+NEWPROJECT_PLAN_DOCS = Msg("Hujjatlar: {names}")
+NEWPROJECT_PLAN_NO_DOCS = Msg("Hujjatlar: docs/ papkasida topilmadi.")
+NEWPROJECT_PLAN_ASK = Msg("Rejani tasdiqlaysizmi? (ha / o'zgartir: … / yo'q)")
+NEWPROJECT_DOC_CAPTION = Msg("{project} · {name}")
+NEWPROJECT_BUILDING = Msg("{project}: reja tasdiqlandi — noldan quryapman; commit va push o'zim qilaman.")
+NEWPROJECT_REVISING = Msg("{project}: rejani o'zgartiryapman.")
+NEWPROJECT_REVISE_WHAT = Msg("{project}: rejada nimani o'zgartiray? «o'zgartir: …» deb yozing.")
+NEWPROJECT_DONE = Msg("{project}: yangi loyiha qurildi.")
+NEWPROJECT_WHICH = Msg("Qaysi yangi loyiha haqida: {projects}? Loyiha nomini yozing.")
+NEWPROJECT_FAILED = Msg("Yangi loyihani ochib bo'lmadi: {why}")
+ERR_NEWPROJECT_FOLDER_FAILED = Msg(
+    "«{name}» papkasini ochib bo'lmadi — ~/Documents/Projects'ni tekshiring. Mavjud papkalarga tegmadim."
+)
+
 
 # --- media ---
 # UC-31: the immediate ack for a video, a YouTube link or a page (≤ 2 s; the analysis follows within 60 s).

@@ -32,6 +32,7 @@ from yordamchi.dev.deps import DevDeps
 from yordamchi.dev.gate import service as gate
 from yordamchi.dev.gate import store as gate_store
 from yordamchi.dev.gate.service import DecisionReply
+from yordamchi.dev.newproject import service as newproject
 from yordamchi.dev.projects import service as projects
 from yordamchi.dev.questions import service as questions
 from yordamchi.dev.servers import service as servers
@@ -120,6 +121,14 @@ async def _answer_owner(deps: DevDeps, fakes: Fakes) -> object:
         1, DEV_GROUP_ID, [part], opened_at=fakes.clock.now(), closed_at=fakes.clock.now(), reason=CloseReason.QUIET
     )
     return await questions.answer_owner(deps, turns.TurnsState(), FAKE, item)
+
+
+def _description() -> burst_domain.TurnInput:
+    """ "yangi loyiha: …" as routing hands it to `dev/newproject`."""
+    part = make_part(1, text="yangi loyiha: kutubxona boti")
+    return burst_domain.turn_input(
+        1, DEV_GROUP_ID, [part], opened_at=part.at, closed_at=part.at, reason=CloseReason.QUIET
+    )
 
 
 INTEGRATION_URL: Final = "https://hr.bonvi.example.uz/mcp"
@@ -218,6 +227,12 @@ ENTRIES: Final[dict[str, Entry]] = {
         deps, FAKE, "bonvi-srv"
     ),
     "yordamchi.dev.questions.service.answer_owner": _answer_owner,
+    "yordamchi.dev.newproject.service.start_draft": lambda deps, _: newproject.start_draft(
+        deps, newproject.NewProjectState(turns=turns.TurnsState()), FAKE, _description()
+    ),
+    "yordamchi.dev.newproject.service.take_message": lambda deps, _: newproject.take_message(
+        deps, newproject.NewProjectState(turns=turns.TurnsState()), FAKE, _description()
+    ),
     "yordamchi.shared.integrations.service.add_integration": lambda deps, _: integrations.add_integration(
         deps, IntegrationsState(), FAKE, AddIntegration("Bonvi HR", INTEGRATION_URL)
     ),
