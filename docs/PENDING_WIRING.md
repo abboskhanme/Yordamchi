@@ -291,3 +291,40 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Gate probe (SPEC §5.6, `ssh yordamchi-nohost true` must be denied) is not run yet. It needs a dry-run gate check API.
 - [ ] **T32b (orchestrator decision, before T43): a network outage must not look like a dead bot.** The heartbeat gains `last_poll_attempt_at` and `last_poll_error_kind` (network or other). The watchdog restarts only when no poll *attempt* happened for 120 s (stuck loop). Polls that fail with network errors mean "offline", not "dead": the watchdog logs it and sends no alert, so a long Wi-Fi drop doesn't cause restart loops or crash-loop alerts. This needs a supervisor change plus a health change, with tests for both.
 - [ ] `pressure` health events are not recorded yet.
+
+## From T30 (digest)
+- [ ] T34 `app.py`:
+  - `DigestState(turns=turns_state, server_checks=<T31 reader>)`;
+  - `turns_state.turn_ended = partial(digest.service.refresh_after_turn, state=digest_state)`;
+  - `aio.forever("digest", lambda: digest.service.run_digest_poll(deps, digest_state))`;
+  - `digest.service.warm_report(deps)` at startup and after settings changes.
+- [ ] T34 router: when `route_turn` submits nothing and the intent is in `digest.domain.REPORT_INTENTS`:
+  - call `digest.service.answer_report(deps, digest_state, digest.domain.question_of(item, routed.decision, route_id=routed.route_id))`;
+  - hand `needs_server_check` to T31;
+  - `/hisobot [X]` takes the same path.
+- [ ] T31: provide `latest_checks(deps) -> Sequence[digest.domain.ServerCheck]` and handle `needs_server_check`.
+- [ ] T24 gap: `handoff_json` is written only for turns that end done. `_fail_turn` and `_end_stopped` should write a block-less `HandoffNote`, so interrupted and failed turns are synthesized too.
+- [ ] Routing: `Intent.INVESTIGATE` via `route_turn` sends no "Tekshiryapman" yet.
+- [ ] Docs:
+  - SPEC §4.2: the extra `digests` columns;
+  - SPEC §4.3: candidate keys `timeouts.report_budget_s`, `timeouts.digest_refresh_s`, `timeouts.handoff_synthesis_s`, `digest.active_within_days`;
+  - the new prompts `report_context.md`, `digest_handoff_fallback.md`;
+  - QOLLANMA lines.
+
+## From T29 (questions)
+- [ ] T34:
+  - `state.questions = questions.service.open_question`;
+  - startup: `recover_questions(deps, state)` after `recover_turns`;
+  - retention: `questions.service.apply_retention`.
+- [ ] T34 router step 3: after `answer_revert`, call `answer_owner(...)`. It handles gate decisions and agent questions, so it replaces the direct call to `gate.answer_decision`.
+- [ ] T34: when `answer_owner` returns ASKED and the outbox has sent `message_key`, call `routing.set_clarification_message(...)`.
+- [ ] T34: a routing `Resolution` with `Intent.ANSWER` → `answer_clarified(deps, state, item, asked=get_turn_input(resolution.burst_id), project_id=…)`. `burst.get_turn_input` is still to build. Skip `Resolution.reply` here, so the owner doesn't get "→ X" twice.
+- [ ] T34 `RouteFacts`:
+  - `open_questions = await waiting_projects(deps)`;
+  - set `others_pending` (routing) and `RevertReply.others_pending` (turns) when `open_items` or `gate.pending_items` is non-empty.
+- [ ] Outbox: `ForeignKey("questions.id", ondelete="SET NULL")` on `message_links.question_id`.
+- [ ] Docs:
+  - SPEC §4.2 `questions`: `UNIQUE(turn_id, tool_use_id)`;
+  - SPEC §3.2.2: the binding order;
+  - the prompt `questions_answer.md`;
+  - QOLLANMA: how to answer ("2", option text, own words, voice, reply, "BonviHR 2").
