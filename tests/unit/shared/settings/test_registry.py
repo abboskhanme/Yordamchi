@@ -82,6 +82,26 @@ SPEC_KEYS.extend(
     ]
 )
 
+# SPEC §3.2.14 gives the artefact limits inline (1280×800, ≤ 50 MB, 49/46 MB, 720/480p, 64 kbps audio); T74 names them.
+SPEC_KEYS.extend(
+    [
+        "web.viewport_width_px",
+        "web.viewport_height_px",
+        "web.file_max_mb",
+        "web.video_send_max_mb",
+        "web.video_target_mb",
+        "web.video_download_max_mb",
+        "web.video_max_height_px",
+        "web.video_low_height_px",
+        "web.video_audio_kbps",
+        "web.video_min_kbps",
+        "timeouts.screenshot_s",
+        "timeouts.fetch_file_s",
+        "timeouts.video_download_s",
+        "timeouts.video_encode_s",
+    ]
+)
+
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")
 SAFEGUARD_KEYS = (

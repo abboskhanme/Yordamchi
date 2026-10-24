@@ -634,6 +634,59 @@ HOLAT_NO_ERRORS = Msg("Oxirgi xatolar: yo'q")
 
 # --- wiring (bots) ---
 
+# --- web ---
+# adapters/web failures (UC-32 F). `site` is the link's host name.
+ERR_WEB_UNREACHABLE = Msg("{site} ochilmadi: sayt topilmadi yoki ulanishni rad etdi. Manzilni tekshirib ko'ring.")
+ERR_WEB_NOT_FOUND = Msg("{site}: bu sahifa yoki fayl topilmadi (404). Havola eskirgan bo'lishi mumkin.")
+ERR_WEB_ACCESS_DENIED = Msg(
+    "{site} kirishga ruxsat bermadi (403): sayt botlarni to'sayotgan yoki login talab qilayotgan bo'lishi mumkin."
+)
+ERR_WEB_LOGIN_REQUIRED = Msg(
+    "{site}: bu kontent faqat login qilganlar uchun. Men loginsiz, toza brauzer bilan ishlayman, shuning uchun uni "
+    "ocha olmayman."
+)
+ERR_WEB_PAYWALLED = Msg("{site}: bu kontent pullik (obuna yoki to'lov kerak), uni yuklab bera olmayman.")
+ERR_WEB_GEO_BLOCKED = Msg("{site}: bu kontent bizning mintaqada ochilmaydi (geo-cheklov).")
+ERR_WEB_BOT_CHECK = Msg("{site} so'rovimni bot deb to'xtatdi. Birozdan keyin qayta so'rab ko'ring.")
+ERR_WEB_CONTENT_UNAVAILABLE = Msg("{site}: bu kontent o'chirilgan yoki yopilgan, endi mavjud emas.")
+ERR_WEB_NO_MEDIA = Msg("{site}: bu sahifada yuklab olinadigan rasm yoki fayl topmadim.")
+ERR_WEB_NOT_A_PAGE = Msg(
+    "{site}: bu havola sahifa emas, fayl ekan. Skrinshot o'rniga faylning o'zini yuborishim mumkin."
+)
+ERR_WEB_CONTENT_TOO_LARGE = Msg("Fayl {limit_mb} MB dan katta, Telegram orqali yubora olmayman.")
+ERR_VIDEO_NOT_FOUND = Msg("{site}: bu havolada yuklab olinadigan video topmadim.")
+ERR_VIDEO_IS_LIVE = Msg("{site}: bu jonli efir. Efir tugamaguncha uni yuklab bo'lmaydi.")
+ERR_VIDEO_TOO_LONG = Msg(
+    "Video juda uzun ({minutes} daqiqa): Telegram'ga sig'adigan hajmga hatto past sifatda ham tushmaydi."
+)
+ERR_VIDEO_ENCODE_FAILED = Msg(
+    "Videoni kichraytirib bo'lmadi (ffmpeg xatosi). Qayta urinib ko'ring yoki qisqaroq qismini so'rang."
+)
+
+# --- artefacts ---
+ERR_WEB_URL_INVALID = Msg("Bu havolani ocha olmayman: faqat http:// yoki https:// bilan boshlanadigan manzillar.")
+ERR_VIDEO_CLIP_INVALID = Msg(
+    "Qism noto'g'ri: boshlanishi tugashidan oldin bo'lsin va {max_minutes} daqiqadan oshmasin (masalan 1:30–4:00)."
+)
+ERR_VIDEO_TOO_LARGE = Msg("Bu video {limit_mb} MB ga hatto past sifatda ham sig'maydi.")
+# UC-32: captions of what is sent. `size` is "12.3 MB", `duration` "4:05".
+ARTEFACT_SCREENSHOT = Msg("{site} — skrinshot.")
+ARTEFACT_SCREENSHOT_FULL = Msg("{site} — to'liq sahifa.")
+ARTEFACT_FILE = Msg("{site} — {name} ({size}).")
+ARTEFACT_VIDEO = Msg("{site} — video ({duration}, {size}).")
+ARTEFACT_VIDEO_REENCODED = Msg(
+    "{site} — video ({duration}, {size}). {limit_mb} MB ga sig'ishi uchun {height}p sifatga tushirdim."
+)
+# UC-32 F: what can be done instead. `minutes` is the longest clip that still fits.
+ARTEFACT_VIDEO_OFFER = Msg(
+    "Buning o'rniga: {minutes} daqiqagacha bo'lgan qismini yuborishim (qaysi joyidan — ayting), qisqacha mazmunini "
+    "aytib berishim yoki havolaning o'zini qoldirishim mumkin."
+)
+ARTEFACT_VIDEO_OFFER_NO_ACCESS = Msg(
+    "Buning o'rniga havolaning o'zini qoldiraman; videoni o'zingiz menga yuborsangiz, mazmunini aytib beraman."
+)
+ARTEFACT_DIRECT_LINK = Msg("Videoning o'z sahifasi: {url}")
+
 
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(

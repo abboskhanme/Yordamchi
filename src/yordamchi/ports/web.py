@@ -1,4 +1,12 @@
-"""WebTools: screenshots, file fetches and video downloads for the personal bot (SPEC §3.2.14; P3)."""
+"""WebTools: screenshots, file fetches and video downloads for the personal bot (SPEC §3.2.14; P3).
+
+Every call works in a clean, logged-out context: no owner cookies, no stored login (ASSUMPTIONS 2026-10-23). Files
+are written into `dest_dir` (one fresh folder per request, chosen by the caller) with mode 0600.
+
+The size-fit policy for videos is the caller's (`personal/artefacts/domain.py`): it picks the yt-dlp format selector,
+the longest duration worth downloading and, after the download, whether and how to re-encode. The adapter only
+carries those decisions out.
+"""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,13 +35,49 @@ class DownloadedVideo:
     size_bytes: int
     duration_s: float | None
     title: str
+    # The video's own page when the link was a page that embeds it (yt-dlp `webpage_url`); None when unknown.
+    webpage_url: str | None = None
+    height: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Clip:
+    """A section of a video, in seconds from its start (UC-32 F: "a shorter clip")."""
+
+    start_s: float
+    end_s: float
+
+    @property
+    def length_s(self) -> float:
+        return self.end_s - self.start_s
 
 
 class WebTools(Protocol):
     async def screenshot(self, url: str, *, dest_dir: Path, width: int, height: int, timeout: float) -> Screenshot:
-        """A new browser context per call (clean profile)."""
+        """A new browser context per call (clean profile): a viewport PNG and a full-page PNG."""
         ...
 
-    async def fetch_file(self, url: str, *, dest_dir: Path, max_bytes: int, timeout: float) -> FetchedFile: ...
+    async def fetch_file(self, url: str, *, dest_dir: Path, max_bytes: int, timeout: float) -> FetchedFile:
+        """A direct file, or the main image (`og:image`, else the largest `<img>`) when `url` is a page."""
+        ...
 
-    async def download_video(self, url: str, *, dest_dir: Path, max_bytes: int, timeout: float) -> DownloadedVideo: ...
+    async def download_video(
+        self,
+        url: str,
+        *,
+        dest_dir: Path,
+        max_bytes: int,
+        format_selector: str,
+        max_duration_s: float | None,
+        clip: Clip | None,
+        timeout: float,
+    ) -> DownloadedVideo:
+        """yt-dlp download of the first video at `url`. `max_bytes` caps the download itself (the send cap is the
+        caller's business); a video longer than `max_duration_s` is refused before any byte is fetched."""
+        ...
+
+    async def reencode_video(
+        self, source: Path, *, dest_dir: Path, video_kbps: int, audio_kbps: int, max_height: int, timeout: float
+    ) -> DownloadedVideo:
+        """H.264/AAC MP4 at the given bitrates, scaled down to `max_height` (never up)."""
+        ...

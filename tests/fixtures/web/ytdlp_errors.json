@@ -1,0 +1,26 @@
+{
+  "_comment": "yt-dlp 2026.10.21 DownloadError messages as the CLI prints them (video ids and hosts replaced), each with the ErrorCode adapters/web/translate.from_ytdlp must give it and whether core.retry may retry it.",
+  "cases": [
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies.", "code": "web_bot_check", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: Sign in to confirm your age. This video may be inappropriate for some users. Use --cookies-from-browser or --cookies for the authentication.", "code": "web_login_required", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: Private video. Sign in if you've been granted access to this video. Use --cookies-from-browser or --cookies for the authentication.", "code": "web_login_required", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: Join this channel to get access to members-only content like this video, and other exclusive perks. Use --cookies-from-browser or --cookies for the authentication.", "code": "web_paywalled", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: This video requires payment to watch.", "code": "web_paywalled", "retryable": false},
+    {"message": "ERROR: [vimeo] 000000000: This video is only available for registered users. Use --username and --password, --netrc-cmd, --netrc (vimeo) or --cookies for the authentication.", "code": "web_login_required", "retryable": false},
+    {"message": "ERROR: [instagram] XXXXXXXXXXX: Requested content is not available, rate-limit reached or login required. Use --cookies, --cookies-from-browser, --username and --password, --netrc-cmd, or --netrc (instagram) to provide account credentials.", "code": "web_login_required", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: Video unavailable. The uploader has not made this video available in your country", "code": "web_geo_blocked", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: Video unavailable. This video has been removed by the uploader", "code": "web_content_unavailable", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: This video is unavailable", "code": "web_content_unavailable", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: This live event will begin in 3 hours.", "code": "video_is_live", "retryable": false},
+    {"message": "ERROR: Unsupported URL: https://site.example/page", "code": "video_not_found", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: Requested format is not available. Use --list-formats for a list of available formats", "code": "video_not_found", "retryable": false},
+    {"message": "ERROR: [generic] Unable to download webpage: <urlopen error [Errno 8] nodename nor servname provided, or not known> (caused by TransportError('<urlopen error [Errno 8] nodename nor servname provided, or not known>'))", "code": "web_unreachable", "retryable": false},
+    {"message": "ERROR: unable to download video data: HTTP Error 403: Forbidden", "code": "web_access_denied", "retryable": false},
+    {"message": "ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)", "code": "web_not_found", "retryable": false},
+    {"message": "ERROR: [youtube] XXXXXXXXXXX: Unable to download API page: HTTP Error 429: Too Many Requests (caused by <HTTPError 429: Too Many Requests>)", "code": "rate_limited", "retryable": true},
+    {"message": "ERROR: unable to download video data: HTTP Error 503: Service Unavailable", "code": "provider_unavailable", "retryable": true},
+    {"message": "ERROR: [download] Got error: Read timed out. (read timeout=30.0)", "code": "provider_unavailable", "retryable": true},
+    {"message": "ERROR: Postprocessing: ffprobe and ffmpeg not found. Please install or provide the path using --ffmpeg-location", "code": "not_installed", "retryable": false},
+    {"message": "ERROR: something nobody has seen before", "code": "provider_unavailable", "retryable": false}
+  ]
+}

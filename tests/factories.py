@@ -53,6 +53,8 @@ from yordamchi.dev.turns.service import TurnsState
 from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.uow import Database, Session
+from yordamchi.personal.artefacts import domain as artefacts_domain
+from yordamchi.personal.artefacts.domain import VideoLimits
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.ports.agent import ToolCall
 from yordamchi.ports.git import Commit, GitStatus
@@ -1274,3 +1276,9 @@ def make_media_dir(paths: Paths, name: str, *, files: int = 1) -> Path:
 
 
 # --- wiring (bots) ---
+
+
+# --- artefacts ---
+def make_video_limits(**overrides: int) -> VideoLimits:
+    """The `web.video_*` defaults as one pass reads them, with fields replaced by name."""
+    return replace(artefacts_domain.video_limits(make_default_snapshot(BotName.PERSONAL)), **overrides)

@@ -1212,6 +1212,135 @@ SPEECH_VIDEO_PROVIDER = Setting(
 
 # --- wiring (bots) ---
 
+# --- artefacts ---
+# UC-32, SPEC §3.2.14. Sizes are MB of 2**20 bytes, the unit Telegram's 50 MB bot upload cap is counted in.
+WEB_VIEWPORT_WIDTH_PX = Setting(
+    "web.viewport_width_px",
+    int,
+    1280,
+    check=Range(320, 3840),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Screenshot viewport width; the full-page PNG has the same width.",
+)
+WEB_VIEWPORT_HEIGHT_PX = Setting(
+    "web.viewport_height_px",
+    int,
+    800,
+    check=Range(240, 2160),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Screenshot viewport height (the photo); the full page goes as a file.",
+)
+TIMEOUTS_SCREENSHOT_S = Setting(
+    "timeouts.screenshot_s",
+    float,
+    25.0,
+    check=Range(5, 120),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="A whole screenshot request: browser start, page load and both images (UC-32: within 30 s).",
+)
+WEB_FILE_MAX_MB = Setting(
+    "web.file_max_mb",
+    int,
+    50,
+    check=Range(1, 50),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Largest file fetched and sent; larger ones are refused (Telegram's bot upload cap is 50 MB).",
+)
+TIMEOUTS_FETCH_FILE_S = Setting(
+    "timeouts.fetch_file_s",
+    float,
+    90.0,
+    check=Range(10, 600),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="Fetching one file or a page's main image.",
+)
+WEB_VIDEO_SEND_MAX_MB = Setting(
+    "web.video_send_max_mb",
+    int,
+    49,
+    check=Range(5, 50),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="A downloaded video larger than this is re-encoded before it is sent.",
+)
+WEB_VIDEO_TARGET_MB = Setting(
+    "web.video_target_mb",
+    int,
+    46,
+    check=Range(5, 49),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Size a re-encode aims at (below the send cap: bitrate control is not exact).",
+)
+WEB_VIDEO_DOWNLOAD_MAX_MB = Setting(
+    "web.video_download_max_mb",
+    int,
+    500,
+    check=Range(50, 4000),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Largest video download before re-encoding; a bigger one is stopped.",
+)
+WEB_VIDEO_MAX_HEIGHT_PX = Setting(
+    "web.video_max_height_px",
+    int,
+    720,
+    check=Range(144, 2160),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Preferred highest video resolution when choosing a download format.",
+)
+WEB_VIDEO_LOW_HEIGHT_PX = Setting(
+    "web.video_low_height_px",
+    int,
+    480,
+    check=Range(144, 1080),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Fallback resolution when no format at the preferred one has a known small size.",
+)
+WEB_VIDEO_AUDIO_KBPS = Setting(
+    "web.video_audio_kbps",
+    int,
+    64,
+    check=Range(32, 192),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Audio bitrate of a re-encoded video.",
+)
+WEB_VIDEO_MIN_KBPS = Setting(
+    "web.video_min_kbps",
+    int,
+    200,
+    check=Range(100, 2000),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Lowest video bitrate worth sending; a video that would need less is refused with alternatives.",
+)
+TIMEOUTS_VIDEO_DOWNLOAD_S = Setting(
+    "timeouts.video_download_s",
+    float,
+    300.0,
+    check=Range(30, 1800),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="One video download (extraction, download and merge).",
+)
+TIMEOUTS_VIDEO_ENCODE_S = Setting(
+    "timeouts.video_encode_s",
+    float,
+    420.0,
+    check=Range(30, 1800),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="One re-encode pass to fit the send cap.",
+)
+
 
 # Every Setting bound above, by key (Registry rejects a duplicate key).
 REGISTRY: Final = Registry.from_namespace(globals())
