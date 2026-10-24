@@ -289,6 +289,18 @@ async def test_a_greeting_adds_no_project_status_even_while_work_runs() -> None:
         assert await running(bot, PROJECT)  # a greeting is never an instruction for the running turn
 
 
+async def test_a_bare_okay_with_nothing_open_gets_no_reply_and_no_question() -> None:
+    """Owner, 2026-10-24: "Hop" got "«Hop» — qaysi loyiha uchun?". With nothing open it needs no answer."""
+    async with dev_bot() as bot:
+        await started(bot)
+        before = len(bot.requests("sendMessage"))
+        await bot.say("Hop")
+        await bot.advance(10)
+        await bot.quiet()
+        assert len(bot.requests("sendMessage")) == before
+        assert bot.fakes.assistant.requests == []  # routing was never asked
+
+
 async def test_what_can_you_do_lists_the_bot_s_abilities() -> None:
     async with dev_bot() as bot:
         await started(bot)

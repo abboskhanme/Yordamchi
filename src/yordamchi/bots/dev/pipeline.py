@@ -6,7 +6,8 @@ Each burst takes exactly one of these paths, first match wins:
    "stop", "bas", "hammasini to'xtat", "yo'q, boshqacha qil: …" — which skip the window and every model (≤ 3 s).
    "kut" is none of them: it never stops anything, it holds the burst window for the next part (`shared/burst`);
 2. commands that can never be an answer ("holat?", "/sozlamalar", "loyihalar", "xarajat?", and small talk:
-   "salom", "qandaysan?", "rahmat", "nima qila olasan?": `intents.EARLY`);
+   "salom", "qandaysan?", "rahmat", "nima qila olasan?": `intents.EARLY`); a bare "xo'p" / "ok" comes after
+   binding (step 5) and gets no reply;
 3. `routing.answer_clarification`: the answer to "BonviHR'gami yoki HRMentor'gami?";
 4. `turns.answer_revert`, then `questions.answer_owner`: a wrong-target revert offer, a gate decision, an agent
    question (in that order, so a bare "ha" binds to at most one of them);
@@ -361,6 +362,8 @@ class Pipeline:
             text = S.CHAT_THANKS()
         elif command.intent is Intent.HELP:
             text = S.HELP()
+        elif command.intent is Intent.ACKNOWLEDGE:
+            return True  # nothing was open to answer: "xo'p" needs no reply (the read mark already shows ✓✓)
         else:
             return False
         await self._reply(item, text, kind=Kind.NOTICE)

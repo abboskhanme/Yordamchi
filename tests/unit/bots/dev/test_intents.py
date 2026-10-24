@@ -70,6 +70,10 @@ from yordamchi.bots.dev.intents import EARLY, NOT_BUILT, Command, Intent, comman
         ("yordam", Command(Intent.HELP)),
         ("/yordam", Command(Intent.HELP)),
         ("/help", Command(Intent.HELP)),
+        ("Hop", Command(Intent.ACKNOWLEDGE)),  # the owner's own word, 2026-10-24
+        ("xo'p", Command(Intent.ACKNOWLEDGE)),
+        ("ok 👍", Command(Intent.ACKNOWLEDGE)),
+        ("tushunarli, rahmatsiz", None),  # more than an okay: routing reads it
         # projects (UC-18)
         ("loyihalar", Command(Intent.LIST_PROJECTS)),
         ("/loyihalar", Command(Intent.LIST_PROJECTS)),
@@ -144,6 +148,7 @@ def test_only_commands_that_can_never_be_an_answer_come_before_binding() -> None
     assert Intent.CONTINUE_TURN not in EARLY  # "davom ettir" may answer an agent's question
     assert Intent.CHANGE_SETTING not in EARLY
     assert {Intent.GREETING, Intent.THANKS, Intent.HELP} <= EARLY  # "rahmat" never answers an agent's question
+    assert Intent.ACKNOWLEDGE not in EARLY  # "xo'p" may answer an open question or decision
 
 
 def test_every_later_phase_intent_is_answered_not_yet() -> None:

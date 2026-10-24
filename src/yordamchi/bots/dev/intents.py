@@ -37,6 +37,7 @@ class Intent(StrEnum):
     GREETING = "greeting"  # "salom", "qandaysan?": small talk, answered as such, never with a report
     THANKS = "thanks"
     HELP = "help"  # "nima qila olasan?", `/yordam`
+    ACKNOWLEDGE = "acknowledge"  # "xo'p", "ok", "tushunarli" with nothing open: no reply, the ✓✓ says it was seen
     SHOW_SETTINGS = "show_settings"
     CHANGE_SETTING = "change_setting"  # read by the settings assistant: a change, a revert or a question
     REVERT_SETTING = "revert_setting"
@@ -194,6 +195,12 @@ _HOW_WORD: Final = re.compile(_HOW)
 _THANKS: Final = re.compile(
     r"(?:katta\s+)?(?:ra[hx]mat(?:ingiz|lar)?|tashakkur|thanks?(?:\s+you)?|спасибо|spasibo)[\s,.!?)🙏👍🙂😊]*"
 )
+# A bare "okay" (owner, 2026-10-24: "Hop" got "qaysi loyiha uchun?"). Matched after binding, so "xo'p" still
+# answers an open question or decision; "ha" and "yo'q" stay answers only.
+_ACKNOWLEDGE: Final = re.compile(
+    r"(?:(?:ok(?:ey|ay)?|xo'?p|hop|mayli|tushunarli|tushundim|yaxshi|zo'r|ajoyib|super|понятно|хорошо|ладно|окей)"
+    r"[\s,.!)👍👌🙂]*)+"
+)
 _HELP: Final = re.compile(
     r"(?:sen\s+|siz\s+)?(?:nima(?:lar)?\s+(?:ish(?:lar)?\s+)?qil\s*(?:a\s*)?ola(?:san(?:iz)?|siz)"
     r"|qanday\s+yordam\s+bera\s*ola(?:san(?:iz)?|siz)|imkoniyatlaring(?:\s+(?:qanday|nima(?:lar)?))?|yordam|help"
@@ -259,6 +266,8 @@ def _small_talk_of(folded: str) -> Command | None:
         return Command(Intent.THANKS)
     if _HELP.fullmatch(folded) is not None:
         return Command(Intent.HELP)
+    if _ACKNOWLEDGE.fullmatch(folded) is not None:
+        return Command(Intent.ACKNOWLEDGE)
     return None
 
 
