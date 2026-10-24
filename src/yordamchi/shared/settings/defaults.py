@@ -777,7 +777,7 @@ MODELS_ROUTING = _claude_model("models.routing", "haiku", bots=DEV, doc="Model o
 TIMEOUTS_ROUTING_S = Setting(
     "timeouts.routing_s",
     float,
-    3.8,
+    6.0,  # live haiku asks reach 4.7 s; at 3.8 s two of six owner messages got "qaysi loyiha?" (2026-10-24)
     check=Range(0.5, 15),
     group=Group.TIMEOUTS,
     bots=DEV,

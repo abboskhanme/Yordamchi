@@ -27,7 +27,7 @@
 • `burst.after_media_s` = 15 s — o'zgartirilgan, standart: 10 s · mumkin: 2–60
 
 ## Timeout'lar
-• `timeouts.routing_s` = 3.8 s — standart · mumkin: 0.5–15
+• `timeouts.routing_s` = 6 s — standart · mumkin: 0.5–15
 
 ## Jadvallar
 • `schedule.quiet_hours` = 23:00-07:00 — o'zgartirilgan, standart: bo'sh · mumkin: HH:MM-HH:MM yoki bo'sh (o'chiq)
