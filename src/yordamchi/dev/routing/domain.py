@@ -21,7 +21,10 @@ A closed burst (`TurnInput`) is routed by these signals, in this order:
    (`Wunderkind*`) when one word starts several names, else the routable projects.
 
 `decide` routes when the pick clears `routing.min_confidence` and leads the next candidate by `routing.min_margin`,
-else it asks exactly one question naming ≤ 3 candidates (`question`). `with_follow_up` runs
+else it asks exactly one question naming ≤ 3 candidates (`question`). A message about none of his projects — small
+talk, a general or tech question, advice, translation, arithmetic — is `chat` (owner, 2026-10-24: "e'tibori faqat
+projectlar bo'lmasligi kerak"): no project, answered by `dev/chat`. Only the LLM says so, only for a burst of words,
+and never when a project is named or replied to (`_chats`). `with_follow_up` runs
 `burst.domain.decide_dev_follow_up` first, so a continuation of a running turn is merged, never asked about (UC-02).
 `choose` reads the owner's answer ("2", "ikkinchisi", a name, voice); `wrong_target_of` reads "bu X uchun edi".
 """
@@ -97,6 +100,7 @@ class Intent(StrEnum):
     NEW_PROJECT = "new_project"  # P2 draft
     ANSWER = "answer_clarification"  # the burst answered a clarification (method `binding`)
     WRONG_TARGET = "wrong_target"  # "bu X uchun edi" (UC-10 F)
+    CHAT = "chat"  # about none of his projects: small talk, a general question, advice, translation (`dev/chat`)
 
 
 LLM_INTENTS: Final = (
@@ -106,19 +110,23 @@ LLM_INTENTS: Final = (
     Intent.INVESTIGATE,
     Intent.SERVER_STATUS,
     Intent.NEW_PROJECT,
+    Intent.CHAT,
 )
 # Only an instruction joins a running turn: a report never touches a project session (UC-15), an investigation has
 # its own read-only one.
 STEERABLE: Final = frozenset({Intent.INSTRUCT})
 # Intents that do not name the decided-on route of work (context and corrections skip them).
 NOT_WORK: Final = frozenset({Intent.ANSWER, Intent.WRONG_TARGET})
+# What `chat` may answer: the owner's words, typed or said. A photo, a file or a link needs a project's eyes (the chat
+# answer has no tools and sees no media), so such a burst keeps the project routes.
+CHAT_KINDS: Final = frozenset({UpdateKind.TEXT, UpdateKind.VOICE, UpdateKind.EDITED})
 
 
 class Outcome(StrEnum):
     ROUTE = "route"  # to `project_id`: a new turn, queued behind a running one if needed
     MERGE = "merge"  # into the running turn of `project_id` as steering (`deliveries.mode=next`, UC-02)
     ASK = "ask"  # one clarification naming `candidates`
-    NO_PROJECT = "no_project"  # report_all, server_status, new_project: nothing to route to
+    NO_PROJECT = "no_project"  # report_all, server_status, new_project, chat: nothing to route to
 
 
 class ClarificationKind(StrEnum):
@@ -744,6 +752,7 @@ class RoutePlan:
     ask_reason: str = ""
     pool: tuple[str, ...] = ()  # the LLM must choose among these (several named, a reply against a name, a family)
     media_only: bool = False
+    words_only: bool = False  # every part is text or a voice note (`CHAT_KINDS`): `chat` may answer it
 
     @property
     def lone_context(self) -> str | None:
@@ -796,6 +805,7 @@ def plan_route(
         shadowed=tuple(project for project in recent if known[project].exact_name_only and not known[project].missing),
         allowed=routable,
         media_only=item.is_media_only,
+        words_only=all(part.kind in CHAT_KINDS for part in item.parts),
     )
     return _settle(base)
 
@@ -1018,8 +1028,10 @@ class RouteDecision:
 
 
 def _with_project(intent: Intent) -> Intent:
-    """The intent once a project is fixed: "report on everything" about one project is a report on it."""
-    if intent is Intent.REPORT_ALL:
+    """The intent once a project is fixed: "report on everything" about one project is a report on it, and "chat"
+    about a named or replied-to project (or one the bot asks about) is a question about it: the read-only report
+    path, which never touches its session and investigates only a deep question (UC-15)."""
+    if intent in {Intent.REPORT_ALL, Intent.CHAT}:
         return Intent.REPORT
     return Intent.INSTRUCT if intent is Intent.NEW_PROJECT else intent
 
@@ -1097,9 +1109,24 @@ def _starts_a_project(llm: LlmRoute, cfg: RouteSettings) -> bool:
     return llm.project_id is None and all(other.confidence < MIN_CANDIDATE_CONFIDENCE for other in llm.ranked)
 
 
+def _chats(plan: RoutePlan, llm: LlmRoute, cfg: RouteSettings) -> bool:
+    """The model says the message is about none of his projects, and nothing says otherwise: no project is named or
+    replied to (those are never chat), the model picked none, and the burst is the owner's words only. It must be sure
+    (`min_confidence`), or, with no project active, have no project at all in mind: the prompt asks for confidence 0
+    whenever `project_id` is null, as `_starts_a_project` found for a new project (T26). Unsure, with a project active,
+    it stays an ordinary route: the active project's follow-up, or one question (today's behaviour)."""
+    if llm.intent is not Intent.CHAT or llm.project_id is not None or not plan.words_only:
+        return False
+    if plan.mentions.named or plan.reply_project is not None or plan.pool:
+        return False
+    if confidence_milli(llm.confidence) >= confidence_milli(cfg.min_confidence):
+        return True
+    return not plan.context and all(other.confidence < MIN_CANDIDATE_CONFIDENCE for other in llm.ranked)
+
+
 def _settled(plan: RoutePlan, llm: LlmRoute | None, cfg: RouteSettings, *, intent: Intent) -> RouteDecision | None:
-    """What holds whatever the LLM picked: a look-alike asks; a new project, the named or replied-to project, and a
-    projectless report go through. None: the project is still open."""
+    """What holds whatever the LLM picked: a look-alike asks; a new project, the named or replied-to project, a
+    projectless report and chat go through. None: the project is still open."""
     fresh = llm.needs_fresh if llm is not None else False
     if plan.ask_first:
         return _ask(plan, (), intent=intent, method=Method.EXPLICIT, reason=plan.ask_reason, fresh=fresh)
@@ -1113,6 +1140,8 @@ def _settled(plan: RoutePlan, llm: LlmRoute | None, cfg: RouteSettings, *, inten
     if llm is not None and llm.project_id is None and llm.intent in {Intent.REPORT_ALL, Intent.SERVER_STATUS}:
         # Read-only and answered from the digest: no project, and no question even when unsure.
         return RouteDecision(Outcome.NO_PROJECT, Method.LLM, llm.intent, None, llm.confidence, (), fresh, "projectless")
+    if llm is not None and _chats(plan, llm, cfg):
+        return RouteDecision(Outcome.NO_PROJECT, Method.LLM, Intent.CHAT, None, llm.confidence, (), False, "chat")
     return None
 
 

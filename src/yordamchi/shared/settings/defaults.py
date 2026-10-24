@@ -799,12 +799,12 @@ TIMEOUTS_SETTINGS_S = Setting(
 )
 # Keys other tasks asked for (docs/PENDING_WIRING.md, T12 assistant pool), declared here by T21. Their readers are
 # the assistant pool wiring (T34) and the routing ask (T20).
-ASSISTANT_KINDS: Final = ("routing", "report", "settings", "qa")
+ASSISTANT_KINDS: Final = ("routing", "report", "settings", "qa", "chat")
 WARM_CLIENT_COUNTS: Final = ("0", "1", "2")  # cold on demand · live client · live client + hot spare
 ASSISTANT_WARM_CLIENTS = Setting(
     "assistant.warm_clients",
     dict[str, str],
-    {"routing": "2", "report": "1", "settings": "0"},
+    {"routing": "2", "report": "1", "settings": "0", "chat": "1"},
     check=DictOf(ASSISTANT_KINDS, WARM_CLIENT_COUNTS),
     group=Group.LIMITS,
     bots=BOTH,
@@ -1639,6 +1639,36 @@ QA_WEB_SEARCH_ROTATE_AT = Setting(
     group=Group.LIMITS,
     bots=PERSONAL,
     doc="A conversation with this many web searches starts anew (seeded with its summary), below the cap.",
+)
+
+
+# --- chat ---
+# Owner, 2026-10-24: "guruhda ham … men bilan sodda yordamchi bot kabi gaplashishi kerak". Routing's `chat` intent (a
+# message about none of his projects) is answered by the warm `chat` Assistant (dev/chat): no tools, no project data.
+MODELS_CHAT = _claude_model(
+    "models.chat", "sonnet", bots=DEV, doc="Model that answers the owner's general questions in the dev group."
+)
+MODELS_CHAT_EFFORT = _effort("models.chat_effort", "low", bots=DEV, doc="Effort of the dev group's chat answers.")
+TIMEOUTS_CHAT_S = Setting(
+    "timeouts.chat_s",
+    float,
+    30.0,
+    check=Range(5, 120),
+    group=Group.TIMEOUTS,
+    bots=DEV,
+    doc="One chat answer in the dev group; past it the owner gets one short line instead.",
+)
+PERSONA_DEV_CHAT = Setting(
+    "persona.dev_chat",
+    str,
+    # Model-facing English; it travels in every ask's instructions block (SPEC §5.4), so a change applies next time.
+    "A friendly, simple and helpful assistant who talks with the owner like a person, not like a report: warm, "
+    "natural and plain, never formal; a little light humour when it fits. Lead with the answer and keep it as short "
+    "as the question allows.",
+    check=MaxLen(1000),
+    group=Group.PERSONA,
+    bots=DEV,
+    doc="Persona of the dev bot's chat answers (general questions, small talk): a prompt slot.",
 )
 
 

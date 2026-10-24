@@ -1,0 +1,22 @@
+{
+  "case": "explicit_typo",
+  "duration_ms": 2287,
+  "latency_ms": 2287,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.85,
+        "project_id": "HRMentor"
+      }
+    ],
+    "confidence": 0.85,
+    "intent": "investigate",
+    "is_new_project": false,
+    "needs_fresh": true,
+    "project_id": "HRMentor"
+  },
+  "text": "{\"intent\":\"investigate\",\"project_id\":\"HRMentor\",\"candidates\":[{\"project_id\":\"HRMentor\",\"confidence\":0.85}],\"confidence\":0.85,\"needs_fresh\":true,\"is_new_project\":false}"
+}

@@ -1,0 +1,18 @@
+{
+  "case": "uz_voice_rest_advice",
+  "cost_usd_micros": 8419,
+  "duration_ms": 8902,
+  "latency_ms": 8903,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Eng ishonchli yo'l: ish bilan dam olish o'rtasida aniq chegara qo'yish va ekrandan haqiqiy tanaffus qilish. Dasturchi uchun bu eng qiyini 😄\n\nKichik narsalar, lekin ishlaydi:\n- **Har 1–2 soatda 5–10 daqiqa** turib yur, ko'zni ekrandan uzib, uzoqqa qara.\n- **Tushlikdan keyin qisqa sayr** yoki quyosh nuri: kechqurungi horg'inlikni ancha kamaytiradi.\n- **Kofeinni tushdan keyin kamaytir** (soat 15–16 dan keyin ichmasang yaxshi).\n- **Kechqurun ish tugashining aniq vaqtini belgila** va shundan keyin ish chatlari va kodga qaramaslikka harakat qil.\n- **Uxlashdan 1 soat oldin telefonni qo'y**, xona salqin va qorong'i bo'lsin.\n- **Har kuni bir vaqtda yot va tur**, hafta oxirida ham. Uyqu sifati shunda eng ko'p yaxshilanadi.\n- Yengil mashq yoki 20 daqiqalik yurish ham miyani \"o'chirib\" beradi.\n\nAgar shunday qilsang ham ahvol yaxshilanmasa, uzoq vaqt davom etsa, shifokorga ko'rinib, temir va vitamin D kabilarni tekshirtirgan ma'qul.",
+  "usage": {
+    "cache_read_tokens": 8632,
+    "cache_write_tokens": 546,
+    "context_tokens": 9716,
+    "input_tokens": 1,
+    "output_tokens": 537
+  }
+}

@@ -129,7 +129,7 @@ log = get_log(__name__)
 
 PROVIDER: Final = "claude"
 QA_KIND: Final = "qa"
-DEV_KINDS: Final[frozenset[AssistantKind]] = frozenset({"routing", "report", "settings"})
+DEV_KINDS: Final[frozenset[AssistantKind]] = frozenset({"routing", "report", "settings", "chat"})
 SUPPORTED_KINDS: Final[frozenset[AssistantKind]] = DEV_KINDS | {QA_KIND}
 # The personal session (SPEC §5.3 personal column; S5).
 QA_BUILTIN_TOOLS: Final = ("WebSearch", "WebFetch")

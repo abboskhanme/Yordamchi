@@ -55,6 +55,7 @@ from yordamchi.core.config import DevConfig
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName, Paths
 from yordamchi.core.text import BotText, join
+from yordamchi.dev.chat import domain as chat_domain
 from yordamchi.dev.deps import DevDeps
 from yordamchi.dev.digest import domain as digest
 from yordamchi.dev.digest.domain import CommitLine, Digest, Freshness, GitState, ProjectState, ResultLine
@@ -570,6 +571,21 @@ def test_not_yet(pytestconfig: pytest.Config) -> None:
         assert not command.built, phrase
         cases.append((f"«{phrase}»", S.NOT_YET(phase=command.phase)))  # bots/dev/pipeline.py answers with this
     golden(pytestconfig, "not_yet.txt", cases)
+
+
+# --- chat: a message about none of his projects (owner, 2026-10-24) -------------------------------------------------
+def test_a_chat_answer_and_the_line_when_none_came(pytestconfig: pytest.Config) -> None:
+    model = (
+        "[chat]\n**Decorator** — funksiyani o'rab, unga yangi ish qo'shadigan funksiya:\n"
+        "```python\n@cache\ndef f(): ...\n```"
+    )
+    answer = chat_domain.answer_text(model, scrub)
+    assert answer is not None
+    cases: list[Case] = [
+        ("an answer, as queued (the copied [chat] marker dropped)", answer),
+        ("no answer came: a timeout, Claude unavailable, an empty reply", S.CHAT_FAILED()),
+    ]
+    golden(pytestconfig, "chat.txt", cases)
 
 
 # --- startup refusal (SPEC §2.5 steps 3–8, NFR-SEC-04) --------------------------------------------------------------

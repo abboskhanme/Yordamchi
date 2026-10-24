@@ -1,0 +1,26 @@
+{
+  "case": "ambiguous_imzo_import_prefix",
+  "duration_ms": 2087,
+  "latency_ms": 2088,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.45,
+        "project_id": "BonviImport"
+      },
+      {
+        "confidence": 0.45,
+        "project_id": "BonviImzo"
+      }
+    ],
+    "confidence": 0.45,
+    "intent": "investigate",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": null
+  },
+  "text": "{\"intent\":\"investigate\",\"project_id\":null,\"candidates\":[{\"project_id\":\"BonviImport\",\"confidence\":0.45},{\"project_id\":\"BonviImzo\",\"confidence\":0.45}],\"confidence\":0.45,\"needs_fresh\":false,\"is_new_project\":false}"
+}

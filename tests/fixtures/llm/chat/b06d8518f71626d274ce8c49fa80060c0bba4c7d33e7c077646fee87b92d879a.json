@@ -1,0 +1,18 @@
+{
+  "case": "uz_how_is_it_going",
+  "cost_usd_micros": 4117,
+  "duration_ms": 2431,
+  "latency_ms": 2431,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Alhamdulillah, yaxshi, o'zim shu yerda, tayyorman 😄 Sen-chi, kun qanday o'tyapti? Biror ish bo'lsa, ayt, birga qilamiz.",
+  "usage": {
+    "cache_read_tokens": 1122,
+    "cache_write_tokens": 803,
+    "context_tokens": 2005,
+    "input_tokens": 1,
+    "output_tokens": 79
+  }
+}

@@ -1166,6 +1166,12 @@ ERR_PERSONAL_TOOLS_MISMATCH = PERSONAL_TOOLS_MISMATCH
 ERR_QA_NOTHING_MORE = Msg("Oxirgi javob allaqachon to'liq edi — qo'shimcha matn yo'q.")
 
 
+# --- chat ---
+# Routing's `chat` intent: a general question or small talk in the dev group, answered by the chat Assistant (dev/chat).
+# When that answer does not come (a timeout, Claude unavailable, an empty reply), one short line, never a report.
+CHAT_FAILED = Msg("Uzr, hozir javob bera olmadim. Birozdan keyin qayta so'rang.")
+
+
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(
     {code: entry for code in ErrorCode if isinstance(entry := globals().get(f"ERR_{code.name}"), Msg)}

@@ -1,0 +1,17 @@
+{
+  "case": "chat_email_regex_question",
+  "duration_ms": 1460,
+  "latency_ms": 1461,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [],
+    "confidence": 0.95,
+    "intent": "chat",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": null
+  },
+  "text": "{\"intent\":\"chat\",\"project_id\":null,\"candidates\":[],\"confidence\":0.95,\"needs_fresh\":false,\"is_new_project\":false}"
+}

@@ -34,6 +34,7 @@ from yordamchi.bots.dev.control_socket import ControlSocket
 from yordamchi.bots.dev.pipeline import Pipeline
 from yordamchi.core import aio, timefmt
 from yordamchi.core.log import get_log
+from yordamchi.dev.chat import service as chat
 from yordamchi.dev.deps import DevDeps
 from yordamchi.dev.digest import service as digest
 from yordamchi.dev.digest.service import DigestState
@@ -216,8 +217,8 @@ class DevApp:
             )
 
     async def warm(self) -> None:
-        """Warm the assistant kinds `assistant.warm_clients` keeps (routing, report; settings is cold by default), at
-        start and again after any settings change (a new snapshot version: models, prompts, the counts)."""
+        """Warm the assistant kinds `assistant.warm_clients` keeps (routing, report, chat; settings is cold by default),
+        at start and again after any settings change (a new snapshot version: models, prompts, the counts)."""
         snap = await settings.snapshot(self.deps)
         if snap.version == self.warmed_version:
             return
@@ -227,6 +228,8 @@ class DevApp:
             await routing.warm_routing(self.deps)
         if counts.get("report", "0") != "0":
             await digest.warm_report(self.deps)
+        if counts.get("chat", "0") != "0":
+            await chat.warm_chat(self.deps)
 
     async def _publish_secrets(self) -> None:
         """The masking set and `run/secret-hashes.json` (without the file every push is blocked). A missing or

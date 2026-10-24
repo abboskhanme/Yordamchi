@@ -264,6 +264,30 @@ async def test_routing_options_carry_the_schema(tmp_path: Path) -> None:
     await assistant.close(timeout=TIMEOUT)
 
 
+async def test_the_chat_kind_is_a_dev_kind_with_no_tools_and_its_own_session(tmp_path: Path) -> None:
+    """The dev group's plain answers (`dev/chat`): the report kind's column exactly (no tools, no MCP, no claude.ai
+    connectors, no schema), in its own warm client and session directory."""
+    factory = Factory(_asks("assistant_report", 2))  # an answer with no tools in `init`, as every chat ask is
+    assistant = _assistant(tmp_path, factory)
+    request = _report(kind="chat", model="sonnet", prompt="Python'da decorator nima?")
+    reply = await assistant.ask(request, timeout=TIMEOUT)
+    options = factory.options[0]
+
+    assert reply.text.endswith("[UZ]")
+    assert options.cwd == str(tmp_path / "sessions" / "chat")
+    assert options.model == "sonnet"
+    assert options.tools == []
+    assert options.allowed_tools == []
+    assert options.mcp_servers == {}
+    assert options.strict_mcp_config is True
+    assert options.permission_mode == "dontAsk"
+    assert options.output_format is None
+    assert options.include_partial_messages is False
+    assert options.env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"
+    assert set(ALWAYS_DISALLOWED) <= set(options.disallowed_tools)
+    await assistant.close(timeout=TIMEOUT)
+
+
 # --- answers -------------------------------------------------------------------------------------------------------
 async def test_a_report_ask_returns_the_text_cost_and_usage(tmp_path: Path) -> None:
     factory = Factory(_asks("assistant_report", 2))

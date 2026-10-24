@@ -1,0 +1,18 @@
+{
+  "case": "uz_regex",
+  "cost_usd_micros": 7731,
+  "duration_ms": 5860,
+  "latency_ms": 5861,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Oddiy va ko'p hollarda yetarli variant:\n\n```\n^[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+$\n```\n\nQismlari:\n- `^` va `$` — satr boshidan oxirigacha tekshiradi\n- `[\\w.+-]+` — `@` dan oldingi qism (harf, raqam, nuqta, plyus, tire)\n- `@` — o'zi\n- `[\\w-]+` — domen nomi\n- `(\\.[\\w-]+)+` — bir yoki bir nechta qism: `.com`, `.co.uk` va hokazo\n\nPython'da:\n\n```python\nimport re\n\npattern = r\"^[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+$\"\nprint(bool(re.match(pattern, \"ali@example.com\")))  # True\n```\n\nOgohlantirish: email'ning to'liq standarti juda murakkab, regex hammasini aniq tutolmaydi. Amalda regex bilan oddiy shaklni tekshirasan, haqiqiylikni esa tasdiqlash xati yuborib bilasan.",
+  "usage": {
+    "cache_read_tokens": 5282,
+    "cache_write_tokens": 850,
+    "context_tokens": 6513,
+    "input_tokens": 1,
+    "output_tokens": 380
+  }
+}

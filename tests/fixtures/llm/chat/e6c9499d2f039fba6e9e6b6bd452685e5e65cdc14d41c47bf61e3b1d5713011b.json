@@ -1,0 +1,18 @@
+{
+  "case": "uz_sql_joins",
+  "cost_usd_micros": 6916,
+  "duration_ms": 3682,
+  "latency_ms": 3684,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Farqi shu: **INNER JOIN** faqat ikkala jadvalda ham mos keladigan qatorlarni qaytaradi, **LEFT JOIN** esa chap jadvalning hamma qatorini qaytaradi, o'ngda mos topilmasa o'sha joylar `NULL` bo'ladi.\n\nMisol: `users` va `orders` jadvallari bor.\n\n```sql\n-- faqat buyurtma bergan userlar\nSELECT u.name, o.id\nFROM users u\nINNER JOIN orders o ON o.user_id = u.id;\n\n-- hamma userlar, buyurtmasi yo'qlariniki NULL\nSELECT u.name, o.id\nFROM users u\nLEFT JOIN orders o ON o.user_id = u.id;\n```\n\nFoydali hiyla: buyurtma bermagan userlarni topish uchun LEFT JOIN qilib, oxiriga `WHERE o.id IS NULL` qo'shasan.",
+  "usage": {
+    "cache_read_tokens": 3467,
+    "cache_write_tokens": 802,
+    "context_tokens": 4606,
+    "input_tokens": 1,
+    "output_tokens": 336
+  }
+}

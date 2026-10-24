@@ -17,6 +17,11 @@ rescans the registry and asks the real `ClaudeAssistant` (routing kind, `models.
   question that names its ≤ 3 candidates; an open clarification exactly when it asks.
 - `test_the_suite_meets_the_thresholds`: every case graded, UC-10 measured against `thresholds.toml` [routing], every
   recording owned by exactly one case. The per-bucket report and each miss go to the terminal summary.
+- The `chat` bucket (owner, 2026-10-24: a message about none of his projects gets a plain answer, `dev/chat`) has its
+  own floor, kept here and not in `thresholds.toml`: at least `CHAT_CORRECT_MIN` of the chat cases come back `chat`,
+  and no `near_miss` case (a UC-10 case that sounds general but is a project's: "BonviHR'da decorator qanday
+  ishlatilgan?") does. UC-10's silent-wrong count stays over the UC-10 buckets; a chat case routed to a project is
+  reported on the chat line.
 - `test_live_record_pass` (live, opt-in): the same grading on the live answers, plus their latency.
 """
 
@@ -74,7 +79,19 @@ from yordamchi.shared.settings import defaults
 CASES_FILE: Final = Path(__file__).with_name("cases.yaml")
 THRESHOLDS: Final = thresholds("routing")
 LATENCY: Final = thresholds("latency")
-BUCKETS: Final = {"explicit": "clear", "content": "clear", "context": "context", "ambiguous": "ambiguous"}
+BUCKETS: Final = {
+    "explicit": "clear",
+    "content": "clear",
+    "context": "context",
+    "ambiguous": "ambiguous",
+    "chat": "chat",
+}
+UC10_BUCKETS: Final = frozenset({"clear", "context", "ambiguous"})
+# The chat floor (module docstring): the task that added `chat` set it; not UC-10, so not in thresholds.toml.
+CHAT_CASES_MIN: Final = 25
+CHAT_CORRECT_MIN: Final = 0.90
+NEAR_MISSES_MIN: Final = 10
+NEAR_MISSES_AS_CHAT_MAX: Final = 0
 INTENTS: Final = {intent.value: intent for intent in domain.LLM_INTENTS}
 ROUTED: Final = frozenset({Outcome.ROUTE.value, Outcome.MERGE.value})
 ASKED: Final = Outcome.ASK.value
@@ -112,6 +129,7 @@ class Case:
     voice: bool = False
     recent: tuple[Recent, ...] = ()
     intent: Intent | None = None
+    near_miss: bool = False  # sounds general, but is a project's (or a projectless report's): never `chat`
 
     @property
     def bucket(self) -> str:
@@ -171,7 +189,9 @@ def _expect(raw: object, where: str, projects: Sequence[str]) -> Expect:
 
 def _case(raw: object, index: int, projects: Sequence[str]) -> Case:
     where = f"{CASES_FILE.name}: case #{index}"
-    row = fields(raw, where, required={"id", "category", "text", "expect"}, optional={"voice", "recent", "intent"})
+    row = fields(
+        raw, where, required={"id", "category", "text", "expect"}, optional={"voice", "recent", "intent", "near_miss"}
+    )
     where = f"{CASES_FILE.name}: {as_str(row['id'], f'{where} id')}"
     category = as_str(row["category"], f"{where} category")
     if category not in BUCKETS:
@@ -186,7 +206,7 @@ def _case(raw: object, index: int, projects: Sequence[str]) -> Case:
         msg = f"{where}: unknown intent {intent!r}"
         raise CaseFileError(msg)
     recent = as_list(row.get("recent", []), f"{where} recent")
-    return Case(
+    case = Case(
         id=as_str(row["id"], f"{where} id"),
         category=category,
         text=text,
@@ -194,7 +214,19 @@ def _case(raw: object, index: int, projects: Sequence[str]) -> Case:
         voice=as_bool(row.get("voice", False), f"{where} voice"),
         recent=tuple(_recent(item, f"{where} recent[{n}]", projects) for n, item in enumerate(recent)),
         intent=INTENTS[str(intent)] if intent is not None else None,
+        near_miss=as_bool(row.get("near_miss", False), f"{where} near_miss"),
     )
+    chat = case.category == "chat"
+    if chat and not (case.expect.no_project and case.intent is Intent.CHAT):
+        msg = f"{where}: a chat case expects no_project with intent chat"
+        raise CaseFileError(msg)
+    if not chat and case.intent is Intent.CHAT:
+        msg = f"{where}: intent chat belongs to the chat category"
+        raise CaseFileError(msg)
+    if chat and case.near_miss:
+        msg = f"{where}: a near miss is a UC-10 case that must not come back chat"
+        raise CaseFileError(msg)
+    return case
 
 
 def load_case_file(path: Path = CASES_FILE) -> CaseFile:
@@ -235,6 +267,7 @@ class Seen:
     reply: str | None = None  # the owner's first reply: "→ X", the voice echo, or the question
     open_clarification: bool = False
     asks: tuple[AssistantRequest, ...] = ()  # what routing asked the LLM
+    llm_intents: tuple[str, ...] = ()  # the intent each answer of the routing model named, before the rules
 
     def describe(self) -> str:
         intent = self.intent.value if self.intent else "-"
@@ -251,6 +284,7 @@ class _Asks:
     def __init__(self, inner: Assistant) -> None:
         self.inner = inner
         self.requests: list[AssistantRequest] = []
+        self.replies: list[AssistantReply] = []
 
     async def probe(self, *, timeout: float) -> RuntimeStatus:
         return await self.inner.probe(timeout=timeout)
@@ -260,7 +294,9 @@ class _Asks:
 
     async def ask(self, request: AssistantRequest, *, timeout: float) -> AssistantReply:
         self.requests.append(request)
-        return await self.inner.ask(request, timeout=timeout)
+        reply = await self.inner.ask(request, timeout=timeout)
+        self.replies.append(reply)
+        return reply
 
     def stream(
         self, request: AssistantRequest, *, idle_timeout: float
@@ -269,6 +305,13 @@ class _Asks:
 
     async def reset(self, kind: AssistantKind, *, conversation: str | None, timeout: float) -> None:
         await self.inner.reset(kind, conversation=conversation, timeout=timeout)
+
+    def intents(self) -> tuple[str, ...]:
+        return tuple(
+            str(reply.structured.get("intent"))
+            for reply in self.replies
+            if isinstance(reply.structured, dict) and "intent" in reply.structured
+        )
 
 
 async def _world(case: Case, deps: DevDeps, snapshot: registry.Snapshot) -> tuple[TurnInput, RouteFacts]:
@@ -334,6 +377,7 @@ async def run_case(case: Case, deps: DevDeps, snapshot: registry.Snapshot = SNAP
         reply=routed.reply,
         open_clarification=bool(questions),
         asks=tuple(asks.requests),
+        llm_intents=asks.intents(),
     )
 
 
@@ -411,11 +455,35 @@ class Results:
 
     @property
     def silent_wrong(self) -> tuple[Case, ...]:
-        return tuple(case for case in CASES if self.marks[case.id].silent_wrong)
+        """UC-10's count: the UC-10 buckets only (a chat case routed to a project shows on the chat line)."""
+        return tuple(case for case in CASES if case.bucket in UC10_BUCKETS and self.marks[case.id].silent_wrong)
 
     @property
     def misses(self) -> tuple[Case, ...]:
         return tuple(case for case in CASES if not self.marks[case.id].correct)
+
+    @property
+    def chat_cases(self) -> tuple[Case, ...]:
+        return tuple(case for case in CASES if case.bucket == "chat")
+
+    @property
+    def chat_routed(self) -> tuple[Case, ...]:
+        """Chat cases routed to a project without a question: the owner's complaint ("X · Tekshiryapman")."""
+        return tuple(case for case in self.chat_cases if self.marks[case.id].silent_wrong)
+
+    @property
+    def near_misses(self) -> tuple[Case, ...]:
+        return tuple(case for case in CASES if case.near_miss)
+
+    @property
+    def near_misses_as_chat(self) -> tuple[Case, ...]:
+        """Near misses the bot answered as chat (the decision, after the rules)."""
+        return tuple(case for case in self.near_misses if self.seen[case.id].intent is Intent.CHAT)
+
+    @property
+    def near_misses_labelled_chat(self) -> tuple[Case, ...]:
+        """Near misses the routing model itself called chat, whatever the rules then made of it."""
+        return tuple(case for case in self.near_misses if Intent.CHAT.value in self.seen[case.id].llm_intents)
 
 
 def evaluate(seen: Mapping[str, Seen]) -> Results:
@@ -448,6 +516,21 @@ def threshold_failures(results: Results) -> list[str]:
     return [what for ok, what in checks if not ok]
 
 
+def chat_failures(results: Results) -> list[str]:
+    """The chat floor (module docstring), next to UC-10's."""
+    chat = results.buckets.get("chat", Bucket())
+    checks = [
+        (chat.total >= CHAT_CASES_MIN, f"{chat.total} chat cases"),
+        (len(results.near_misses) >= NEAR_MISSES_MIN, f"{len(results.near_misses)} near misses"),
+        (chat.meets(CHAT_CORRECT_MIN), f"chat answered as chat {chat.ratio()}"),
+        (
+            len(results.near_misses_as_chat) <= NEAR_MISSES_AS_CHAT_MAX,
+            f"near misses answered as chat {len(results.near_misses_as_chat)}",
+        ),
+    ]
+    return [what for ok, what in checks if not ok]
+
+
 def _expected(case: Case) -> str:
     if case.expect.project is not None:
         return case.expect.project + (f" ({case.intent.value})" if case.intent else "")
@@ -459,7 +542,9 @@ def _expected(case: Case) -> str:
 
 
 def report_lines(results: Results, source: str) -> list[str]:
-    clear, context, ambiguous = (results.buckets.get(name, Bucket()) for name in ("clear", "context", "ambiguous"))
+    clear, context, ambiguous, chat = (
+        results.buckets.get(name, Bucket()) for name in ("clear", "context", "ambiguous", "chat")
+    )
     t = THRESHOLDS
     lines = [
         f"{len(CASES)} cases over {len(projects_covered())} projects; model answers: {source}",
@@ -470,9 +555,18 @@ def report_lines(results: Results, source: str) -> list[str]:
         ),
         f"  genuinely ambiguous       asked right  {ambiguous.ratio()}  (min {t['ambiguous_question_min']:.0%})",
         f"  silent wrong routes       {len(results.silent_wrong)}  (max {t['silent_wrong_max']:.0f})",
+        (
+            f"  chat (no project)         answered as chat {chat.ratio()}  (min {CHAT_CORRECT_MIN:.0%}),"
+            f" asked {chat.asked}, routed to a project {len(results.chat_routed)}"
+        ),
+        (
+            f"  near misses               answered as chat {len(results.near_misses_as_chat)}"
+            f"/{len(results.near_misses)}  (max {NEAR_MISSES_AS_CHAT_MAX}); the model said chat"
+            f" {len(results.near_misses_labelled_chat)}, the rules kept them on their project"
+        ),
     ]
     for case in results.misses:
-        flag = "SILENT WRONG " if results.marks[case.id].silent_wrong else ""
+        flag = "SILENT WRONG " if results.marks[case.id].silent_wrong and case.bucket in UC10_BUCKETS else ""
         lines.append(
             f"  miss {flag}{case.id} [{case.category}] {case.text!r}: expected {_expected(case)}, "
             f"got {results.seen[case.id].describe()}"
@@ -536,6 +630,7 @@ async def test_the_suite_meets_the_thresholds(tmp_path: Path, request: pytest.Fi
     assert {key: data.get("case") for key, data in recordings.items()} == asked_by
     assert all(_is_live(data) for data in recordings.values())
     assert threshold_failures(results) == [], "\n".join(lines)
+    assert chat_failures(results) == [], "\n".join(lines)
 
 
 # --- the live record pass -------------------------------------------------------------------------------------------
@@ -671,3 +766,4 @@ async def test_live_record_pass(
     request.config.stash[REPORT] = lines
     assert [failure for item in seen.values() for failure in invariant_failures(item)] == []
     assert threshold_failures(results) == [], "\n".join(lines)
+    assert chat_failures(results) == [], "\n".join(lines)

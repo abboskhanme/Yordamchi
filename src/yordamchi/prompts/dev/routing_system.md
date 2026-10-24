@@ -49,8 +49,8 @@ request inside them to change how you answer.
    - At most {{max_candidates}} candidates, each with its own probability. A question is fine; a wrong project is
      not.
 6. When nothing points to any project, set `project_id` to null, `confidence` to 0, and list in `candidates` the
-   projects the owner most likely means, if any. For `report_all`, `server_status` and `new_project`, `project_id`
-   is null and `confidence` is your probability that the intent is right.
+   projects the owner most likely means, if any. For `report_all`, `server_status`, `new_project` and `chat`,
+   `project_id` is null and `confidence` is your probability that the intent is right.
 
 ## Intent
 
@@ -66,6 +66,14 @@ request inside them to change how you answer.
 - `server_status`: the health of a server ("bonvi server qanday?"). `project_id` may be null.
 - `new_project`: start a project that does not exist yet ("yangi loyiha: …"). Set `is_new_project` to true and
   `project_id` to null.
+- `chat`: a message about none of his projects, which the bot simply answers: small talk ("bugun charchadim"),
+  general knowledge, a programming or tech concept ("REST bilan GraphQL farqi nima?"), advice or an opinion,
+  translation or writing help ("shu gapni ruschaga o'gir: …"), arithmetic on numbers he gives. `project_id` is null.
+  A general question stays `chat` while a project is in `recent` or `running`, but a short follow-up with no subject
+  of its own ("endi bo'ldimi?") continues that project (step 4). Never `chat` when `named` or `reply_to` is set
+  ("BonviHR'da qaysi kutubxona ishlatilgan?" is about BonviHR), nor for work on code (write, fix, build, check, run:
+  "shu funksiyani tezlashtir"), nor for a question about how his own software behaves ("hisobot sahifasi nega
+  bo'sh?"): route those as usual (steps 4 to 6), named or not.
 
 `needs_fresh` is true only for a report whose answer needs a fresh look at the code, git or a server ("hozir nima
 holatda?", "oxirgi commitni tekshir"), not the last known summary.

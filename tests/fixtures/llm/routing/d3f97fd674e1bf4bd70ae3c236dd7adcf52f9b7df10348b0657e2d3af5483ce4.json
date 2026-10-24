@@ -1,0 +1,26 @@
+{
+  "case": "near_context_regex_fix",
+  "duration_ms": 3128,
+  "latency_ms": 3129,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.5,
+        "project_id": "HRMentor"
+      },
+      {
+        "confidence": 0.35,
+        "project_id": "BonviHR"
+      }
+    ],
+    "confidence": 0.5,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "HRMentor"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"HRMentor\",\"candidates\":[{\"project_id\":\"HRMentor\",\"confidence\":0.5},{\"project_id\":\"BonviHR\",\"confidence\":0.35}],\"confidence\":0.5,\"needs_fresh\":false,\"is_new_project\":false}"
+}

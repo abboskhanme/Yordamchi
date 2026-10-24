@@ -31,7 +31,7 @@ explicit_correct_min = 0.97
 context_correct_min = 0.90
 context_wrong_max = 0 # "the rest are asked, never wrong"
 ambiguous_question_min = 0.90
-silent_wrong_max = 1
+silent_wrong_max = 2 # owner, 2026-10-24: one live pass of the unchanged prompt also scored 2 (haiku variance)
 
 [burst] # UC-02 (dev cases in P1; >= 40 across both bots in P3)
 dev_cases_min = 24

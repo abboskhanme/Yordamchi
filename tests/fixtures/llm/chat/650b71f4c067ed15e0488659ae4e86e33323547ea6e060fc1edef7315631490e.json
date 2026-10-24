@@ -1,0 +1,18 @@
+{
+  "case": "uz_no_claimed_work",
+  "cost_usd_micros": 11920,
+  "duration_ms": 7452,
+  "latency_ms": 7453,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Mana oddiy, bitta faylli landing sahifa. `index.html` deb saqlab, brauzerda ochsangiz bo'ldi:\n\n```html\n<!DOCTYPE html>\n<html lang=\"uz\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Mahsulot nomi</title>\n  <style>\n    * { box-sizing: border-box; margin: 0; font-family: system-ui, sans-serif; }\n    body { color: #222; line-height: 1.5; }\n    section { padding: 64px 20px; max-width: 800px; margin: auto; text-align: center; }\n    .hero { background: #4f46e5; color: #fff; max-width: none; }\n    .hero h1 { font-size: 2.2rem; margin-bottom: 12px; }\n    .btn { display: inline-block; margin-top: 20px; padding: 12px 28px;\n           background: #fff; color: #4f46e5; border-radius: 8px;\n           text-decoration: none; font-weight: 600; }\n    .features { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }\n    .card { padding: 20px; border: 1px solid #eee; border-radius: 12px; }\n    footer { padding: 24px; text-align: center; color: #888; }\n  </style>\n</head>\n<body>\n  <section class=\"hero\">\n    <h1>Sarlavha shu yerda</h1>\n    <p>Mahsulotingiz haqida bir jumla.</p>\n    <a class=\"btn\" href=\"#contact\">Bog'lanish</a>\n  </section>\n\n  <section>\n    <h2>Afzalliklar</h2>\n    <div class=\"features\">\n      <div class=\"card\"><h3>Tez</h3><p>Qisqa izoh.</p></div>\n      <div class=\"card\"><h3>Oson</h3><p>Qisqa izoh.</p></div>\n      <div class=\"card\"><h3>Ishonchli</h3><p>Qisqa izoh.</p></div>\n    </div>\n  </section>\n\n  <section id=\"contact\">\n    <h2>Bog'lanish</h2>\n    <p>Telegram: @username</p>\n  </section>\n\n  <footer>© 2026 Kompaniya nomi</footer>\n</body>\n</html>\n```\n\nMatn, rang va nomlarni o'zingizniki bilan almashtiring. Nima haqida sahifa ekanini aytsangiz, matnlarini ham yozib beraman.",
+  "usage": {
+    "cache_read_tokens": 4643,
+    "cache_write_tokens": 401,
+    "context_tokens": 6030,
+    "input_tokens": 1,
+    "output_tokens": 985
+  }
+}

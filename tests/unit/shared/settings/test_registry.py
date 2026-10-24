@@ -151,6 +151,13 @@ SPEC_KEYS.extend(
         "qa.web_search_rotate_at",
     ]
 )
+# Owner, 2026-10-24 ("guruhda ham … sodda yordamchi bot kabi gaplashishi kerak"): routing's `chat` intent is answered
+# by the warm `chat` Assistant (SPEC §3.2.6). SPEC §5.3 gives every dev kind its `models.<kind>`, effort and
+# `timeouts.<kind>_s`; CONVENTIONS §5 makes its persona a settings slot, as `persona.personal` is for the personal bot.
+SPEC_KEYS.append("models.chat")  # the model of the chat answers (sonnet: plain Uzbek reads better than on haiku)
+SPEC_KEYS.append("models.chat_effort")  # effort is a launch option of the warm client (SPEC §5.4)
+SPEC_KEYS.append("timeouts.chat_s")  # A4: every external await is bounded; past it the owner gets one short line
+SPEC_KEYS.append("persona.dev_chat")  # SPEC §5.4: persona never in the frozen prompt, always in the per-ask block
 
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")

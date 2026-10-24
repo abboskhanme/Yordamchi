@@ -1,0 +1,18 @@
+{
+  "case": "uz_voice_multiply",
+  "cost_usd_micros": 3583,
+  "duration_ms": 2025,
+  "latency_ms": 2026,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "125 × 8 = **1000**\n\n125 ning sakkiztasi — chiroyli yumaloq son 😄",
+  "usage": {
+    "cache_read_tokens": 905,
+    "cache_write_tokens": 772,
+    "context_tokens": 1719,
+    "input_tokens": 2,
+    "output_tokens": 40
+  }
+}

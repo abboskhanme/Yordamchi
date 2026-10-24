@@ -1,0 +1,18 @@
+{
+  "case": "ru_how_are_you",
+  "cost_usd_micros": 2466,
+  "duration_ms": 1762,
+  "latency_ms": 1763,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Да, всё нормально, спасибо! 😊 Сижу на связи, жду задач. А у тебя как день, не замотался?",
+  "usage": {
+    "cache_read_tokens": 1760,
+    "cache_write_tokens": 457,
+    "context_tokens": 2264,
+    "input_tokens": 1,
+    "output_tokens": 46
+  }
+}

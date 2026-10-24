@@ -1,0 +1,18 @@
+{
+  "case": "uz_ai_and_programmers",
+  "cost_usd_micros": 10402,
+  "duration_ms": 10273,
+  "latency_ms": 10273,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Menimcha, dasturchilarni to'liq almashtirmaydi, lekin ishning o'zini ancha o'zgartiradi. Aniq bilmayman, kelajakni hech kim aniq aytolmaydi, bu mening fikrim.\n\nNima o'zgaryapti:\n- **Oddiy, takroriy kod** (shablon, CRUD, testlar, tarjima) AI bilan ancha tez yoziladi.\n- **Dasturchi ko'proq \"muharrir\" bo'lib boryapti**: nima kerakligini aniqlaydi, AI yozganini tekshiradi, arxitektura va muhim qarorlarni o'zi qabul qiladi.\n\nNima qoladi:\n- Talabni tushunish: mijoz ko'pincha nima kerakligini o'zi ham bilmaydi.\n- Murakkab tizimni loyihalash, xatoni topish, javobgarlik olish.\n- Biznes va odamlar bilan til topishish.\n\nEng katta xavf boshlang'ich darajadagi oddiy ishlarga tegadi, ya'ni kam tajribali dasturchilar uchun yo'l biroz qiyinlashishi mumkin. AI'dan foydalanishni o'rgangan dasturchi esa foydalanmaydiganidan tezroq ishlaydi, shuning uchun asosiy raqobat \"AI va odam\" emas, \"AI bilan ishlaydigan va ishlamaydigan dasturchi\" o'rtasida bo'ladi.\n\nSen allaqachon ko'p loyiha qilib yurgan odamsan, bu o'zgarish senga ko'proq qo'l keladi 😄",
+  "usage": {
+    "cache_read_tokens": 9013,
+    "cache_write_tokens": 922,
+    "context_tokens": 10517,
+    "input_tokens": 1,
+    "output_tokens": 581
+  }
+}

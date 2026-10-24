@@ -1,0 +1,17 @@
+{
+  "case": "chat_translate_to_russian_after_a_result",
+  "duration_ms": 2235,
+  "latency_ms": 2235,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [],
+    "confidence": 0.93,
+    "intent": "chat",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": null
+  },
+  "text": "{\"intent\":\"chat\",\"project_id\":null,\"candidates\":[],\"confidence\":0.93,\"needs_fresh\":false,\"is_new_project\":false}"
+}

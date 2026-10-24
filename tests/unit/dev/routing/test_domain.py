@@ -696,6 +696,100 @@ def test_a_question_names_at_most_three_candidates_most_likely_first() -> None:
     assert decision.confidence == 0.4
 
 
+# --- chat: a message about none of his projects (owner, 2026-10-24) -------------------------------------------------
+def _chat(confidence: float = 0.9, project: str | None = None, **others: float) -> LlmRoute:
+    route = domain.parse_llm_route(routing_reply(project, confidence, intent="chat", candidates=others), REGISTRY)
+    assert route is not None
+    return route
+
+
+def test_chat_is_one_more_llm_intent_and_has_no_project() -> None:
+    assert Intent.CHAT in domain.LLM_INTENTS
+    assert "`chat`" in domain.prompt_slots()["intents"]
+    decision = _decide("Python'da decorator nima?", _chat())
+    assert (decision.outcome, decision.intent, decision.project_id) == (Outcome.NO_PROJECT, Intent.CHAT, None)
+    assert (decision.method, decision.reason, decision.candidates) == (Method.LLM, "chat", ())
+
+
+def test_chat_stays_chat_while_a_project_is_active_or_running() -> None:
+    """The owner's complaint: with BonviHR active, a general question became "BonviHR · Tekshiryapman"."""
+    assert _decide("Python'da decorator nima?", _chat(), spoken=("BonviHR",)).intent is Intent.CHAT
+    item = _item("dollar kursi qancha bo'lishi mumkin?")
+    running = RouteFacts(running=(make_running_turn("BonviHR", last_part_at=NOW - timedelta(minutes=2)),))
+    decision = domain.decide(_plan(item, facts=running), _chat(), CFG)
+    assert (decision.outcome, decision.intent) == (Outcome.NO_PROJECT, Intent.CHAT)
+    joined = _follow(decision, item, "BonviHR", last_s=-1.0)
+    assert joined == decision  # chat never steers the running turn
+
+
+def test_a_named_project_is_never_chat_but_a_question_about_it() -> None:
+    decision = _decide("BonviHR'da decorator qanday ishlatilgan?", _chat())
+    assert (decision.outcome, decision.project_id, decision.intent) == (Outcome.ROUTE, "BonviHR", Intent.REPORT)
+    assert decision.method is Method.EXPLICIT
+
+
+def test_a_reply_to_a_project_message_is_never_chat() -> None:
+    reply = make_part(1, text="bu qanday ishlaydi?", reply_to_message_id=900)
+    plan = _plan(make_turn_input(reply), facts=RouteFacts(reply_projects={900: "HRMentor"}))
+    decision = domain.decide(plan, _chat(), CFG)
+    assert (decision.outcome, decision.project_id, decision.intent) == (Outcome.ROUTE, "HRMentor", Intent.REPORT)
+    assert decision.method is Method.REPLY
+
+
+def test_chat_naming_a_project_of_its_own_is_an_ordinary_route() -> None:
+    decision = _decide("nomzodlar ro'yxati qanday chiqadi?", _chat(0.9, "BonviHR"))
+    assert (decision.outcome, decision.project_id, decision.intent) == (Outcome.ROUTE, "BonviHR", Intent.REPORT)
+
+
+def test_an_unsure_chat_with_a_project_active_keeps_today_s_behaviour() -> None:
+    """Ambiguous: the active project when the model's likeliest candidate is it, else one question."""
+    context = _decide("login sahifasi nega sekin?", _chat(0.5, BonviHR=0.4), spoken=("BonviHR",))
+    assert (context.outcome, context.project_id, context.method) == (Outcome.ROUTE, "BonviHR", Method.CONTEXT)
+    assert context.intent is Intent.REPORT  # read-only: the model leaned to "not work"
+    asked = _decide("hozir ishlayaptimi?", _chat(0.3), spoken=("BonviHR",))
+    assert asked.outcome is Outcome.ASK
+    assert asked.intent is Intent.REPORT
+
+
+def test_chat_at_confidence_zero_is_chat_only_with_nothing_active_and_no_project_in_mind() -> None:
+    """The prompt says confidence 0 for a null pick (T26 saw it for `new_project`)."""
+    assert _decide("1250 ning 12 foizi qancha?", _chat(0.0)).intent is Intent.CHAT
+    assert _decide("1250 ning 12 foizi qancha?", _chat(0.0, TezTel=0.3)).outcome is Outcome.ASK
+    assert _decide("1250 ning 12 foizi qancha?", _chat(0.0), spoken=("TezTel",)).outcome is Outcome.ASK
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        (make_part(1, kind=UpdateKind.PHOTO, caption="bu nima?"),),
+        (make_part(1, text="buni tushuntir"), make_part(2, at_s=1, kind=UpdateKind.DOCUMENT)),
+        (make_part(1, kind=UpdateKind.LINK, text="https://example.com/a"),),
+    ],
+    ids=["photo", "file", "link"],
+)
+def test_chat_answers_words_only_and_media_keeps_the_project_routes(parts: tuple[BurstPart, ...]) -> None:
+    plan = _plan(make_turn_input(*parts))
+    assert plan.words_only is False
+    assert domain.decide(plan, _chat(), CFG).intent is not Intent.CHAT
+
+
+def test_a_voice_note_and_forwarded_text_are_words() -> None:
+    voice = make_voice_part(1, at_s=0, transcript="pitonda dekorator degani nima")
+    assert _plan(make_turn_input(voice)).words_only is True
+    assert domain.decide(_plan(make_turn_input(voice)), _chat(), CFG).intent is Intent.CHAT
+
+
+def test_a_family_word_or_two_named_projects_keep_chat_out() -> None:
+    assert _decide("Wunderkind so'zi nimani anglatadi?", _chat()).intent is not Intent.CHAT
+    assert _decide("BonviHR va HRMentor farqi nima?", _chat()).intent is not Intent.CHAT
+
+
+def test_a_chat_route_gets_no_routed_line() -> None:
+    item = _item("qandaysan, ishlar qalay?")
+    decision = domain.decide(_plan(item), _chat(), CFG)
+    assert domain.first_reply(decision, item, redact.scrubbed) is None
+
+
 # --- UC-02: a follow-up of a running turn ---------------------------------------------------------------------------
 def _follow(decision: RouteDecision, item: TurnInput, *running: str, last_s: float = -60.0) -> RouteDecision:
     turns = [make_running_turn(project, last_part_at=NOW + timedelta(seconds=last_s)) for project in running]

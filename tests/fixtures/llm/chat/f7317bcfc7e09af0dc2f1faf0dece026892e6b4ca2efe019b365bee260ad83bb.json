@@ -1,0 +1,18 @@
+{
+  "case": "ru_translate_to_russian",
+  "cost_usd_micros": 2750,
+  "duration_ms": 1653,
+  "latency_ms": 1654,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "**«Всё готово, увидимся завтра.»**\n\nQisqaroq, do'stona variant: «Всё готово, до завтра!»",
+  "usage": {
+    "cache_read_tokens": 2414,
+    "cache_write_tokens": 504,
+    "context_tokens": 2968,
+    "input_tokens": 1,
+    "output_tokens": 49
+  }
+}

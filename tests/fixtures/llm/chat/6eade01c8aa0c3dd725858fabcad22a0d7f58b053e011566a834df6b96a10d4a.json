@@ -1,0 +1,18 @@
+{
+  "case": "uz_voice_decorator",
+  "cost_usd_micros": 7449,
+  "duration_ms": 5186,
+  "latency_ms": 5187,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Yana so'rading, demak oldingi javob tushunarsiz bo'ldi shekilli. Oddiyroq qilib aytaman 😄\n\n**Dekorator** — funksiyaga \"sovg'a o'rami\" o'xshash narsa. Funksiyaning o'zini tegmasdan, ustiga qo'shimcha ish qo'shasan.\n\nMisol: har safar funksiya ishlaganda \"boshlandi\" va \"tugadi\" deb yozmoqchisan.\n\n```python\ndef log(func):\n    def wrapper():\n        print(\"boshlandi\")\n        func()\n        print(\"tugadi\")\n    return wrapper\n\n@log\ndef salom():\n    print(\"Salom!\")\n\nsalom()\n```\n\nNatija:\n- boshlandi\n- Salom!\n- tugadi\n\n`@log` degani shunchaki `salom = log(salom)` degani. Ya'ni `salom` endi o'rab qo'yilgan versiyasi bo'lib qoladi.\n\nFoydasi: bir xil qo'shimcha ishni (log, vaqt o'lchash, ruxsat tekshirish) o'nta funksiyaga bitta `@` bilan qo'shasan, har birini qayta yozmaysan.",
+  "usage": {
+    "cache_read_tokens": 2867,
+    "cache_write_tokens": 765,
+    "context_tokens": 4043,
+    "input_tokens": 1,
+    "output_tokens": 410
+  }
+}

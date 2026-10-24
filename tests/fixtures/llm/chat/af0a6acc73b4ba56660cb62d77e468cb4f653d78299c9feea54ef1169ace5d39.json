@@ -1,0 +1,18 @@
+{
+  "case": "ru_voice_percent",
+  "cost_usd_micros": 2655,
+  "duration_ms": 1521,
+  "latency_ms": 1522,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "**60**\n\n300 × 20 / 100 = 60 (или просто 300 ÷ 5, ведь 20% это одна пятая).",
+  "usage": {
+    "cache_read_tokens": 1789,
+    "cache_write_tokens": 501,
+    "context_tokens": 2338,
+    "input_tokens": 1,
+    "output_tokens": 47
+  }
+}

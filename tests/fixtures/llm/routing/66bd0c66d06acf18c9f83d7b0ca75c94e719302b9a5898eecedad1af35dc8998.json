@@ -1,0 +1,30 @@
+{
+  "case": "context_running_voice",
+  "duration_ms": 3500,
+  "latency_ms": 3500,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.4,
+        "project_id": "BrokerApp"
+      },
+      {
+        "confidence": 0.3,
+        "project_id": "AgentsRoom"
+      },
+      {
+        "confidence": 0.15,
+        "project_id": "GasStation"
+      }
+    ],
+    "confidence": 0,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": null
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":null,\"candidates\":[{\"project_id\":\"BrokerApp\",\"confidence\":0.4},{\"project_id\":\"AgentsRoom\",\"confidence\":0.3},{\"project_id\":\"GasStation\",\"confidence\":0.15}],\"confidence\":0,\"needs_fresh\":false,\"is_new_project\":false}"
+}

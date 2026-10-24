@@ -3,6 +3,10 @@
 This checks what holds without any model: the file's format, the registry it is written against (the owner's real
 folders), and that the deterministic layer — names, context, and the fallback when the LLM is unavailable — never
 routes a case to the wrong project without asking (UC-10 AC "silent wrong routes ≤ 1"; here 0).
+
+A `chat` case (owner, 2026-10-24: about none of his projects) needs the model to be told apart: without it, SPEC
+§3.2.6's fallback still applies ("LLM timeout → the context project, else ask"), so a chat case may go to its one
+active project that way, and only that way.
 """
 
 import tomllib
@@ -26,14 +30,14 @@ from tests.factories import (
 )
 from tests.fakes.clock import DEFAULT_START
 from yordamchi.dev.routing import domain
-from yordamchi.dev.routing.domain import ActivityKind, Outcome, RouteDecision, RouteFacts
+from yordamchi.dev.routing.domain import ActivityKind, Intent, Method, Outcome, RouteDecision, RouteFacts
 
 EVAL: Final = Path(__file__).resolve().parents[3] / "eval"
 SEED: Final = yaml.safe_load((EVAL / "routing" / "cases.yaml").read_text(encoding="utf-8"))
 THRESHOLDS: Final = tomllib.loads((EVAL / "thresholds.toml").read_text(encoding="utf-8"))["routing"]
 CASES: Final[list[dict[str, object]]] = SEED["cases"]
-CATEGORIES: Final = {"explicit", "content", "context", "ambiguous"}
-CASE_KEYS: Final = {"id", "category", "text", "voice", "recent", "expect", "intent"}
+CATEGORIES: Final = {"explicit", "content", "context", "ambiguous", "chat"}
+CASE_KEYS: Final = {"id", "category", "text", "voice", "recent", "expect", "intent", "near_miss"}
 NOW: Final = DEFAULT_START
 CFG: Final = domain.route_settings(make_default_snapshot())
 REGISTRY: Final = make_project_views(*SEED["projects"], aliases=SEED["aliases"])
@@ -96,6 +100,11 @@ def test_each_case_is_well_formed_and_never_a_reply(case: dict[str, object]) -> 
     assert set(expect) <= {"project", "ask", "asks", "no_project"}
     if "intent" in case:
         assert case["intent"] in {intent.value for intent in domain.LLM_INTENTS}
+    assert (case["category"] == "chat") is (case.get("intent") == Intent.CHAT.value)
+    if case["category"] == "chat":
+        assert expect == {"no_project": True}
+        assert "near_miss" not in case
+    assert case.get("near_miss", True) is True  # only ever set to true
     assert "reply" not in str(case).lower()  # UC-10: the eval has no replies
 
 
@@ -112,7 +121,13 @@ def test_without_the_llm_no_case_is_routed_to_the_wrong_project(case: dict[str, 
     expect = case["expect"]
     assert isinstance(expect, dict)
     routed = decision.outcome in {Outcome.ROUTE, Outcome.MERGE}
-    if routed:
+    if routed and case["category"] == "chat":
+        recent = case.get("recent") or []
+        assert isinstance(recent, list)
+        assert (decision.method, decision.reason) == (Method.CONTEXT, "no_llm"), "a chat case routed by its words"
+        active = [entry["project"] for entry in recent]
+        assert active == [decision.project_id], "only to the one active project, SPEC §3.2.6's no-LLM fallback"
+    elif routed:
         assert "project" in expect, f"routed {decision.project_id} where a question or no project was expected"
         assert decision.project_id == expected[0]
     if case["category"] == "explicit" and mentions.named == (expected[0],):

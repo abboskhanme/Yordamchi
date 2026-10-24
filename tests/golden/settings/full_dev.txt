@@ -36,7 +36,7 @@
 • `caps.google_monthly_usd` = 40 USD — standart · mumkin: 0–10000
 
 ## Cheklovlar (matn, fayl, xotira)
-• `assistant.warm_clients` = routing → 2, report → 1, settings → 0 — standart · mumkin: routing, report, settings, qa → 0 | 1 | 2
+• `assistant.warm_clients` = routing → 2, report → 1, settings → 0, chat → 1 — standart · mumkin: routing, report, settings, qa, chat → 0 | 1 | 2
 
 ## Serverlar
 • `servers.hosts` = bonvi-srv — o'zgartirilgan, standart: bo'sh · mumkin: host nomlari (masalan: server, bonvi-srv)

@@ -1,0 +1,18 @@
+{
+  "case": "en_process_thread",
+  "cost_usd_micros": 6512,
+  "duration_ms": 3496,
+  "latency_ms": 3497,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "A **process** is a running program with its own private memory. A **thread** is a unit of work inside a process, and all threads in the same process share that process's memory.\n\nThink of a process as a house and threads as the people living in it. Different houses don't share rooms, but people in the same house share the kitchen (and sometimes fight over it 😄).\n\n- **Process**: isolated, so if one crashes, others usually survive. Starting one is heavier, and talking between processes needs special tools (pipes, sockets, queues).\n- **Thread**: lightweight and quick to start, and sharing data is easy. The risk is that two threads touching the same data at once cause bugs (race conditions), so you need locks.\n\nIn Python, because of the **GIL**, threads don't run Python code truly in parallel. So threads are good for waiting on I/O (network, files), and for heavy CPU work you use separate processes (`multiprocessing`).",
+  "usage": {
+    "cache_read_tokens": 6560,
+    "cache_write_tokens": 736,
+    "context_tokens": 7588,
+    "input_tokens": 1,
+    "output_tokens": 291
+  }
+}

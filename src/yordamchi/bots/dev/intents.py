@@ -31,7 +31,7 @@ from typing import Final
 
 
 class Intent(StrEnum):
-    """SPEC §6 intent names (the routed ones — instruct, report, investigate — live in `dev/routing`)."""
+    """SPEC §6 intent names (the routed ones — instruct, report, investigate, chat — live in `dev/routing`)."""
 
     SHOW_HEALTH = "show_health"
     GREETING = "greeting"  # "salom", "qandaysan?": small talk, answered as such, never with a report

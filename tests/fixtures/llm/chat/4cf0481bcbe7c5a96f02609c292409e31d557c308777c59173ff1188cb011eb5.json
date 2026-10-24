@@ -1,0 +1,18 @@
+{
+  "case": "uz_time_zones",
+  "cost_usd_micros": 4456,
+  "duration_ms": 2172,
+  "latency_ms": 2172,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Dubayda soat **14:00** bo'ladi.\n\nToshkent UTC+5, Dubay UTC+4, ya'ni Dubay bir soat orqada. Ikkalasida ham yozgi vaqtga o'tish yo'q, shuning uchun farq yil bo'yi o'zgarmaydi.",
+  "usage": {
+    "cache_read_tokens": 1149,
+    "cache_write_tokens": 805,
+    "context_tokens": 2067,
+    "input_tokens": 1,
+    "output_tokens": 112
+  }
+}

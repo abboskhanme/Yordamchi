@@ -1,0 +1,18 @@
+{
+  "case": "en_translate",
+  "cost_usd_micros": 3293,
+  "duration_ms": 2100,
+  "latency_ms": 2101,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "**\"We'll move tomorrow's meeting to 10 o'clock.\"**\n\nAgar 10:00 aniq bo'lsa, \"We're moving tomorrow's meeting to 10 AM\" deb ham aytish mumkin, bu biroz tabiiyroq eshitiladi.",
+  "usage": {
+    "cache_read_tokens": 2125,
+    "cache_write_tokens": 454,
+    "context_tokens": 2678,
+    "input_tokens": 1232,
+    "output_tokens": 417
+  }
+}

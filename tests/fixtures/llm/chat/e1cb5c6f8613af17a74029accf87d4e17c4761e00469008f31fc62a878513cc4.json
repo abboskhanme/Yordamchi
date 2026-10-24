@@ -1,0 +1,18 @@
+{
+  "case": "uz_translate_from_russian",
+  "cost_usd_micros": 3235,
+  "duration_ms": 2048,
+  "latency_ms": 2049,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "**Uchrashuv juma kuniga ko'chirildi.**\n\nВариант попроще, как в разговоре: «Uchrashuv juma kuniga qoldi».",
+  "usage": {
+    "cache_read_tokens": 2753,
+    "cache_write_tokens": 432,
+    "context_tokens": 3309,
+    "input_tokens": 1,
+    "output_tokens": 123
+  }
+}

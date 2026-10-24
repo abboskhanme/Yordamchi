@@ -8,6 +8,8 @@
 - An investigation routed to a project says "Tekshiryapman" at once; "xarajat?" answers the cost report; "X yangi
   sessiya" starts the next turn in a fresh session.
 - "yozmoqda…" shows for quick answers until they are sent, never for long work (unless `ack.typing_for_work`).
+- A message about none of his projects ("Python'da decorator nima?") gets a plain answer from `dev/chat`: no turn, no
+  report, no "Tekshiryapman"; a named project still decides.
 
 Same harness as `test_dev_bot.py`: every loop of the real app on `FakeClock` time, the real Telegram adapter on the
 recording session.
@@ -19,6 +21,7 @@ from tests.factories import make_default_snapshot, make_owner_origin
 from tests.fakes.agent import Pause, ToolStep, done_result
 from tests.integration.dev_bot_harness import DevBot, dev_bot, register_projects, visible
 from yordamchi.core import strings as S
+from yordamchi.core.errors import CallTimedOut
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName
 from yordamchi.dev.turns import store as turns_store
@@ -332,3 +335,69 @@ async def test_typing_for_work_switched_on_shows_typing_while_the_turn_works() -
         await bot.fakes.agents.release(bot.fakes.agents.sends[-1][0])  # the work goes on: one more step
         await bot.advance(10)
         assert [index for index in typing_requests(bot) if index >= progress], "typing renewed while it works"
+
+
+# --- chat: not only about projects (owner, 2026-10-24) ---------------------------------------------------------------
+# "nimadir so'rasam faqat projectni ichidan qidirishga harakat qilyapti": a general question became "X · Tekshiryapman".
+CHAT_ANSWER = "**Decorator** — boshqa funksiyani o'rab, unga qo'shimcha ish qo'shadigan funksiya. Masalan, `@cache`."
+
+
+async def test_a_general_question_gets_a_plain_answer_with_no_turn_and_no_report() -> None:
+    async with dev_bot() as bot:
+        await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT)
+        await started(bot)
+        bot.fakes.agents.script_turn(Pause())
+        await bot.say("BonviHR'da login sahifasini tuzat")
+        await bot.within(20, lambda: bool(bot.fakes.agents.sends), what="the BonviHR turn")
+        await bot.quiet()
+        before = len(bot.requests())
+
+        bot.fakes.assistant.reply_with("routing", route_reply("chat", None, 0.95))
+        bot.fakes.assistant.reply_with("chat", CHAT_ANSWER)
+        question = await bot.say("Python'da decorator nima?")
+        took = await bot.within(10, lambda: bool(bot.posted("Decorator")), what="the chat answer")
+
+        assert took <= DEFAULTS[defaults.BURST_AFTER_COMPLETE_TEXT_S] + 3.0
+        [answer] = [r for r in bot.requests("sendMessage") if "Decorator" in visible(r)]
+        assert str(5000 + question) in str(answer.params.get("reply_parameters"))  # an answer to his question
+        assert not bot.posted("Tekshiryapman")
+        assert not bot.posted("Ma'lumot")
+        assert not bot.posted("→ BonviHR · ")
+        assert PROJECT not in visible(answer)
+        kinds = [request.kind for request in bot.fakes.assistant.requests]
+        assert kinds[-2:] == ["routing", "chat"]
+        assert "report" not in kinds
+        assert len(bot.fakes.agents.sends) == 1  # no new turn, and nothing steered into the running one
+        assert await running(bot, PROJECT)
+        assert [index for index in typing_requests(bot) if before <= index < first_index(bot, "Decorator")]
+
+
+async def test_a_chat_answer_that_times_out_gets_one_short_line() -> None:
+    async with dev_bot() as bot:
+        await started(bot)
+        bot.fakes.assistant.reply_with("routing", route_reply("chat", None, 0.9))
+        bot.fakes.assistant.reply_with("chat", CallTimedOut(operation="assistant_chat"))
+        await bot.say("dollar kursi qancha bo'lishi mumkin?")
+        await bot.within(10, lambda: bool(bot.posted(S.CHAT_FAILED())), what="the short line")
+        await bot.advance(5)
+        assert len(bot.posted(S.CHAT_FAILED())) == 1
+        assert not bot.posted("Bugun o'zgargan")  # never a project report instead
+        assert not bot.posted("Ma'lumot")
+        assert not bot.posted("Ichki xato")  # handled, never the guarded() incident line
+        assert not bot.posted("vaqtida tugamadi")  # nor the generic timeout error
+        assert bot.fakes.agents.sends == []
+
+
+async def test_a_question_that_names_a_project_still_goes_to_the_project() -> None:
+    """Even when the routing model says `chat`, a named project decides: the question is about BonviHR."""
+    async with dev_bot() as bot:
+        await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT)
+        await started(bot)
+        bot.fakes.assistant.reply_with("routing", route_reply("chat", None, 0.9))
+        bot.fakes.assistant.reply_with("report", "Decorator'lar `auth.py` da kirishni tekshirish uchun ishlatilgan.")
+        await bot.say("BonviHR'da decorator qanday ishlatilgan?")
+        await bot.within(10, lambda: bool(bot.posted("BonviHR")), what="the BonviHR answer")
+        kinds = [request.kind for request in bot.fakes.assistant.requests]
+        assert "chat" not in kinds
+        assert kinds[0] == "routing"
+        assert any(text.startswith(PROJECT) for text in bot.texts())

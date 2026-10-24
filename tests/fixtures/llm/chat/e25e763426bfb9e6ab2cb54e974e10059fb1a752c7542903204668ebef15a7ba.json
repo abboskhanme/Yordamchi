@@ -1,0 +1,18 @@
+{
+  "case": "uz_dollar_rate",
+  "cost_usd_micros": 6050,
+  "duration_ms": 4179,
+  "latency_ms": 4180,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Bugungi aniq kursni ko'ra olmayman, jonli ma'lumotga ulanmaganman. Eslab qolganimcha, O'zbekistonda dollar kursi so'mga nisbatan taxminan **12 000–13 000 so'm** atrofida yurgan edi, lekin bu eskirgan bo'lishi mumkin.\n\nAniq kursni **Markaziy bank (CBU)** saytidan yoki bank ilovalaridan ko'r. Bozordagi (obmen) kurs rasmiy kursdan biroz farq qilishi mumkin.\n\nAgar biror summani so'mga yoki dollarga aylantirish kerak bo'lsa, kursni ayt, hisoblab beraman.",
+  "usage": {
+    "cache_read_tokens": 7639,
+    "cache_write_tokens": 686,
+    "context_tokens": 8580,
+    "input_tokens": 1,
+    "output_tokens": 254
+  }
+}

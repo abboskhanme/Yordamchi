@@ -1,0 +1,26 @@
+{
+  "case": "near_context_login_slow",
+  "duration_ms": 4249,
+  "latency_ms": 4250,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.4,
+        "project_id": "BonviHR"
+      },
+      {
+        "confidence": 0.2,
+        "project_id": "NUR-Project"
+      }
+    ],
+    "confidence": 0,
+    "intent": "investigate",
+    "is_new_project": false,
+    "needs_fresh": true,
+    "project_id": null
+  },
+  "text": "{\"intent\":\"investigate\",\"project_id\":null,\"candidates\":[{\"project_id\":\"BonviHR\",\"confidence\":0.4},{\"project_id\":\"NUR-Project\",\"confidence\":0.2}],\"confidence\":0,\"needs_fresh\":true,\"is_new_project\":false}"
+}

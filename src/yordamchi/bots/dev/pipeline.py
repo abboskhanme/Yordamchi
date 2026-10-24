@@ -15,7 +15,8 @@ Each burst takes exactly one of these paths, first match wins:
    ("sozlama: …", "javoblaringni …", "ovozingni …"; one that names a project is work for it) and "X yangi sessiya";
 6. `routing.correct_route`: "bu HRMentor uchun edi";
 7. `turns.route_turn`: the work goes to a project (an investigation with "Tekshiryapman" first), or the report
-   intents to `digest.answer_report` (≤ 4 s, never through the turn scheduler), or one routing question is asked.
+   intents to `digest.answer_report` (≤ 4 s, never through the turn scheduler), or a message about none of his
+   projects (`chat`: "Python'da decorator nima?") to `dev/chat`'s plain answer, or one routing question is asked.
    Words naming a watched server go to `dev/servers` instead: its status (a background job) or a read-only server
    investigation (T31).
 
@@ -39,6 +40,7 @@ from yordamchi.core import aio
 from yordamchi.core import strings as S
 from yordamchi.core.log import get_log
 from yordamchi.core.text import BotText
+from yordamchi.dev.chat import service as chat
 from yordamchi.dev.deps import DevDeps
 from yordamchi.dev.digest import domain as digest_domain
 from yordamchi.dev.digest import service as digest
@@ -478,6 +480,8 @@ class Pipeline:
             await self._ask(item, routed)
         elif decision.intent is Routed.SERVER_STATUS:
             self._server_status(item, text, ref=f"route-{routed.route_id}")
+        elif decision.intent is Routed.CHAT:
+            self._chat(item)
         elif decision.intent in digest_domain.REPORT_INTENTS:
             question = digest_domain.question_of(item, decision, route_id=routed.route_id)
             await self._answer_report(item, question)
@@ -502,6 +506,8 @@ class Pipeline:
         decision, ref = routed.decision, f"route-{routed.route_id}"
         if decision.outcome is Outcome.ASK:
             await self._ask(item, routed)
+        elif decision.intent is Routed.CHAT:  # a server named in passing ("bonvi-srv nima degani?")
+            self._chat(item)
         elif decision.intent is Routed.INVESTIGATE and decision.project_id is not None:
             await servers.investigate_server(
                 self.deps,
@@ -525,6 +531,13 @@ class Pipeline:
             await turns.submit_turn(self.deps, self.turns, request)
         elif decision.intent in _ROUTED_LATER:
             await self._reply(item, S.NOT_YET(phase=intents.LATER_PHASE), kind=Kind.NOTICE)
+
+    def _chat(self, item: TurnInput) -> None:
+        """Routing's `chat` (owner, 2026-10-24: talk like a plain assistant, not only about projects): `dev/chat`
+        answers with no project, no turn and no report. A background job, as a server check is: the answer takes
+        seconds, and a "to'xta" behind it must not wait. The typing hint stays up until the answer is sent."""
+        answer = chat.answer_chat(self.deps, item)
+        aio.spawn(f"chat_{item.burst_id}", jobs.run(self.deps, self.health, answer, job="chat", chat_id=item.chat_id))
 
     def _server_status(self, item: TurnInput, text: str, *, ref: str) -> None:
         """A background job: a fresh check can take up to `timeouts.server_check_s`, and the router must not wait

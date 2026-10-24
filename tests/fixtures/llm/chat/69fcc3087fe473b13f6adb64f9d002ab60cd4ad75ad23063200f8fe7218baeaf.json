@@ -1,0 +1,18 @@
+{
+  "case": "uz_apology_letter",
+  "cost_usd_micros": 3515,
+  "duration_ms": 2956,
+  "latency_ms": 2957,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Assalomu alaykum!\n\nBuyurtmangiz 2 kunga kechikishi haqida xabar berishga majburmiz. Bu noqulaylik uchun chin dildan uzr so'raymiz. Buyurtmani imkon qadar tezroq tayyorlab, yetkazishga harakat qilamiz.\n\nSabringiz va tushunganingiz uchun rahmat!\n\nHurmat bilan,\n[Ismingiz]",
+  "usage": {
+    "cache_read_tokens": 3536,
+    "cache_write_tokens": 400,
+    "context_tokens": 4093,
+    "input_tokens": 1,
+    "output_tokens": 156
+  }
+}

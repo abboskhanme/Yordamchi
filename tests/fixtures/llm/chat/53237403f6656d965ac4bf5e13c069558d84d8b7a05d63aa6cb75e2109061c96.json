@@ -1,0 +1,18 @@
+{
+  "case": "ru_docker",
+  "cost_usd_micros": 7230,
+  "duration_ms": 3424,
+  "latency_ms": 3425,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "**Docker** — это способ упаковать приложение вместе со всем, что ему нужно для работы (библиотеки, настройки, версия Python и т.д.), в одну «коробку» — **контейнер**. Эта коробка запускается одинаково на любой машине.\n\nТак пропадает отговорка «у меня на компьютере работает» 😄\n\nКак это устроено:\n- **Image (образ)** — шаблон, рецепт коробки. Собирается один раз.\n- **Container (контейнер)** — запущенная копия образа. Можно запустить хоть десять.\n- **Dockerfile** — текстовый файл с инструкциями, как собрать образ.\n\n```dockerfile\nFROM python:3.12\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD [\"python\", \"main.py\"]\n```\n\n```bash\ndocker build -t myapp .\ndocker run myapp\n```\n\nОт виртуальной машины отличается тем, что контейнер не тащит с собой целую операционную систему, поэтому он лёгкий и стартует за секунды.",
+  "usage": {
+    "cache_read_tokens": 5967,
+    "cache_write_tokens": 758,
+    "context_tokens": 7086,
+    "input_tokens": 1,
+    "output_tokens": 360
+  }
+}

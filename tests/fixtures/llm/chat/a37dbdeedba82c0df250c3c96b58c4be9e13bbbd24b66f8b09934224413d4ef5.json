@@ -1,0 +1,18 @@
+{
+  "case": "uz_decorator",
+  "cost_usd_micros": 5986,
+  "duration_ms": 7474,
+  "latency_ms": 7475,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "**Decorator** — bu funksiyani o'zgartirmasdan, uning atrofiga qo'shimcha xatti-harakat \"o'rab\" beradigan funksiya. Ya'ni funksiyani qabul qiladi va yangi funksiya qaytaradi.\n\n```python\nimport time\n\ndef timer(func):\n    def wrapper(*args, **kwargs):\n        start = time.time()\n        result = func(*args, **kwargs)\n        print(f\"{time.time() - start:.2f} soniya\")\n        return result\n    return wrapper\n\n@timer\ndef hisobla():\n    sum(range(10_000_000))\n```\n\n`@timer` yozuvi `hisobla = timer(hisobla)` bilan bir xil. Endi `hisobla()` chaqirsang, u ishlaydi va qancha vaqt ketganini ham chiqaradi.\n\nOdatda log yozish, vaqtni o'lchash, ruxsatni tekshirish, keshlash uchun ishlatiladi. Yana `functools.wraps` bilan o'rasang, asl funksiyaning nomi va docstring'i saqlanib qoladi.",
+  "usage": {
+    "cache_read_tokens": 2555,
+    "cache_write_tokens": 477,
+    "context_tokens": 3415,
+    "input_tokens": 1,
+    "output_tokens": 382
+  }
+}

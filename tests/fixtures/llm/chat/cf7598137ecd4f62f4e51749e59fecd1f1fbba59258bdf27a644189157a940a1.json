@@ -1,0 +1,18 @@
+{
+  "case": "uz_percent",
+  "cost_usd_micros": 4547,
+  "duration_ms": 2002,
+  "latency_ms": 2003,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "**150**\n\nHisobi: 1250 × 12 / 100 = 150.",
+  "usage": {
+    "cache_read_tokens": 10571,
+    "cache_write_tokens": 802,
+    "context_tokens": 11402,
+    "input_tokens": 1,
+    "output_tokens": 28
+  }
+}

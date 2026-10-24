@@ -1,0 +1,18 @@
+{
+  "case": "uz_git_rebase",
+  "cost_usd_micros": 7305,
+  "duration_ms": 5369,
+  "latency_ms": 5370,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Farqi shu: **merge** ikki branchni birlashtirib, yangi \"merge commit\" yaratadi va tarixni o'zgartirmaydi. **rebase** esa sening commitlaringni boshqa branchning oxiriga ko'chirib qo'yadi, natijada tarix to'g'ri, bitta chiziqdek chiqadi.\n\n```bash\n# merge: tarix saqlanadi, merge commit qo'shiladi\ngit checkout feature\ngit merge main\n\n# rebase: commitlar main'ning ustiga qayta yoziladi\ngit checkout feature\ngit rebase main\n```\n\n- **merge**: xavfsiz, tarix haqiqiy ko'rinishda qoladi, lekin log ba'zan chalkash bo'ladi.\n- **rebase**: log toza va chiziqli, lekin commitlar qayta yoziladi (hash'lari o'zgaradi).\n\nOltin qoida: **boshqalar ishlatayotgan (push qilingan, umumiy) branchni rebase qilma**. O'zingning lokal feature branching uchun rebase qulay, umumiy branchga qo'shishda esa merge xavfsizroq.",
+  "usage": {
+    "cache_read_tokens": 4104,
+    "cache_write_tokens": 718,
+    "context_tokens": 5225,
+    "input_tokens": 1,
+    "output_tokens": 402
+  }
+}

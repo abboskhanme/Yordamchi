@@ -1,0 +1,18 @@
+{
+  "case": "en_small_talk",
+  "cost_usd_micros": 2309,
+  "duration_ms": 1903,
+  "latency_ms": 1904,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Pretty good, thanks! 😊 Just hanging around, ready when you are. How's your day going, anything fun on the go?",
+  "usage": {
+    "cache_read_tokens": 2052,
+    "cache_write_tokens": 418,
+    "context_tokens": 2514,
+    "input_tokens": 1,
+    "output_tokens": 43
+  }
+}

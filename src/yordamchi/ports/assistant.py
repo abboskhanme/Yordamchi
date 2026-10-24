@@ -1,8 +1,9 @@
 """Assistant: a warm question-answer session with an allowlisted toolset (CONVENTIONS §4; SPEC §5.3).
 
-Dev kinds `routing`, `report` and `settings`, and the personal `qa`. The production adapter keeps one live client and
-one hot spare per kind and rotates them (after 20 asks, on a context-size threshold, or when `settings_version`
-grows). The Gemini/OpenRouter fallback answers are labelled "zaxira model" by the caller.
+Dev kinds `routing`, `report`, `settings` and `chat` (the dev group's general answers), and the personal `qa`. The
+production adapter keeps one live client and one hot spare per kind and rotates them (after 20 asks, on a
+context-size threshold, or when `settings_version` grows). The Gemini/OpenRouter fallback answers are labelled
+"zaxira model" by the caller.
 
 Prompts (SPEC §5.4, revised after spike S4): `system_prompt` is frozen per warm client, so it holds only the fixed
 parts. The owner-editable block (persona, tone, language, limits) travels with **every** ask in `instructions`; a
@@ -31,7 +32,7 @@ from typing import Final, Literal, Protocol
 from yordamchi.core.json_value import JsonValue
 from yordamchi.ports.agent import RuntimeStatus
 
-type AssistantKind = Literal["routing", "report", "settings", "qa"]
+type AssistantKind = Literal["routing", "report", "settings", "chat", "qa"]
 
 TOOL_NAME: Final = re.compile(r"[a-z][a-z0-9_]{0,47}")
 SERVER_NAME: Final = re.compile(r"yordamchi_[a-z][a-z0-9_]{0,30}")

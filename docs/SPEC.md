@@ -419,6 +419,18 @@ turn, and at park time, into `digests.handoff_note` (≤ 4,000 chars).
      a name, "birinchisi" or a number resolves it.
    - LLM timeout → the context project (activity ≤ 15 min) if there is exactly one, else ask.
    - Every decision → `route_decisions`.
+7. **Chat** (owner, 2026-10-24: "guruhda ham … men bilan sodda yordamchi bot kabi gaplashishi kerak"). The LLM intent
+   `chat` is a message about none of his projects: small talk, general knowledge, a programming or tech concept,
+   advice, translation or writing help, arithmetic. It routes nowhere (`no_project`): `dev/chat` answers it with the
+   warm `chat` Assistant (`models.chat = "sonnet"`, `models.chat_effort = "low"`, `timeouts.chat_s = 30`, persona
+   `persona.dev_chat` and `lang.reply` in the per-ask block, §5.4), no tools, no project data, as a priority-0 reply
+   to his message; on a timeout or failure, `S.CHAT_FAILED`. Never a turn, a report or "Tekshiryapman".
+   - Only the LLM says chat, only for a burst of words (text, voice; no photo, file or link), and never when a
+     project is named or replied to: that is a question about the project (`report_project`).
+   - It must be sure (`routing.min_confidence`), or, with no project active, have no project in mind at all. Unsure
+     with a project active → the ordinary route (the active project's follow-up as a report, or one question).
+   - Eval: the `chat` bucket and its near misses in `tests/eval/routing` (≥ 90 % chat, 0 near misses as chat), and
+     the answers in `tests/eval/chat`; see `docs/AI_CHAT.md`.
 
 **Wrong target** ("bu X uchun edi"):
 - stop the wrong turn (≤ 3 s);
@@ -1048,6 +1060,7 @@ never called; the check script asserts the command list is empty.
 | `server_status` / `investigate` | "bonvi server qanday?" / "X'dagi xatoni tekshir"; a lone error screenshot | — | dev | 15, 02 | P1 |
 | `show_health` | "holat?" | `/holat` | both | 06 | P1 |
 | `greeting` / `thanks` / `help` | "salom", "qandaysan?" / "rahmat" / "nima qila olasan?" (a whole message of these words only; answered from the catalog, no model) | `/yordam`, `/help` | dev | — | P1 |
+| `chat` (routing LLM intent, §3.2.6 step 7) | "Python'da decorator nima?", "bu gapni inglizchaga tarjima qil: …", "1250 ning 12 foizi qancha?" (about none of his projects; a plain answer, no project) | — | dev | 10 | P1 |
 | `show_settings` / `change_setting` / `revert_setting` | "sozlamalaring qanday?" / "javoblaring qisqaroq bo'lsin" / "oldingi holatiga qaytar" | `/sozlamalar` | both | 09, 34 | P1 |
 | `add_term` | "bu so'zni to'g'ri yoz: Wunderkind" | — | both | 05 | P1 |
 | `alias_project` / `archive_project` / `describe_project` | "BonviHR'ni 'hr' deb ham tani" / "X'ni arxivla" / "X tavsifi: …" | — | dev | 18, 09 | P1 |

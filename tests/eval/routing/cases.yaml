@@ -1,6 +1,8 @@
 # Routing eval cases, dev bot (UC-10; SPEC §3.2.6). Seeded by T20 with 48 owner-style messages over the owner's real
 # folder names (a read-only listing of ~/Documents/Projects, 2026-10-24); T26 grew the set past 120 (80 explicit or
 # content-clear, 20 context follow-ups, 20 genuinely ambiguous, >= 15 projects: tests/eval/thresholds.toml [routing]).
+# The `chat` category (owner, 2026-10-24: a message about none of his projects gets a plain answer) and the
+# `near_miss` cases that must never come back chat have their own floor in the runner (not in thresholds.toml).
 # No case uses a Telegram reply (UC-10 AC). The runner is test_routing_eval.py; the registry it routes over, with the
 # descriptions the real scan builds, is registry.json; the model answers it replays are tests/fixtures/llm/routing/.
 #
@@ -15,6 +17,7 @@
 #   cases[]
 #     id           unique snake_case
 #     category     explicit | content | context | ambiguous   (the UC-10 subsets; "content" = content-clear)
+#                  | chat   (about none of his projects: no_project with intent chat; not a UC-10 subset)
 #     text         what the owner wrote, or said (`voice: true`: the text is the transcript)
 #     recent       optional: [{project, minutes_ago, kind: spoken | reported | running}], the activity before it
 #     expect       exactly one of:
@@ -22,8 +25,9 @@
 #                    ask: [X, Y]              one question that names at least these
 #                    asks: true               one question naming at least two candidates, any: the message points
 #                                             at no specific set (many projects have a login page)
-#                    no_project: true         a projectless intent (report_all, server_status, new_project)
+#                    no_project: true         a projectless intent (report_all, server_status, new_project, chat)
 #     intent       optional: the expected intent, graded with the route; without it only the route is graded
+#     near_miss    optional: true for a UC-10 case that sounds general but is a project's; never answered as chat
 #
 # tests/unit/dev/routing/test_eval_seed.py checks the format, and that the deterministic layer alone (names, context,
 # the LLM unavailable) never routes a case to the wrong project without asking.
@@ -697,3 +701,235 @@ cases:
     category: ambiguous
     text: "BonviCall архивидан eski konfigni ko'chir"
     expect: {ask: [BonviCall, BonviCall Clone Archive]}
+
+  # --- near misses (owner, 2026-10-24): they sound general, but each is a project's (or a projectless report) --------
+  # Graded in their UC-10 category as any case is; the chat floor also wants none of them answered as chat.
+  - id: near_named_decorator
+    category: explicit
+    text: "BonviHR'da decorator qanday ishlatilgan?"
+    expect: {project: BonviHR}
+    near_miss: true
+  - id: near_named_python_version
+    category: explicit
+    text: "Yordamchi'da Python'ning qaysi versiyasi ishlatilgan?"
+    expect: {project: Yordamchi}
+    near_miss: true
+  - id: near_named_translate_messages
+    category: explicit
+    text: "BonviHR'dagi xato xabarlarini inglizchaga tarjima qil"
+    expect: {project: BonviHR}
+    near_miss: true
+  - id: near_named_dollar_rate
+    category: explicit
+    text: "TezTel'da dollar kursini yangila"
+    expect: {project: TezTel}
+    near_miss: true
+  - id: near_named_how_rag_works
+    category: explicit
+    text: "HRMentor'da RAG qanday ishlaydi?"
+    expect: {project: HRMentor}
+    near_miss: true
+  - id: near_context_login_slow
+    category: context
+    text: "login sahifasi nega sekin?"
+    recent: [{project: BonviHR, minutes_ago: 3, kind: spoken}]
+    expect: {project: BonviHR}
+    near_miss: true
+  - id: near_context_regex_fix
+    category: context
+    text: "email regex'ini tuzat, + belgisini qabul qilmayapti"
+    recent: [{project: HRMentor, minutes_ago: 2, kind: spoken}]
+    expect: {project: HRMentor}
+    near_miss: true
+  - id: near_context_docstring
+    category: context
+    text: "shu funksiyaga docstring yozib ber"
+    recent: [{project: WunderkindLMS, minutes_ago: 4, kind: spoken}]
+    expect: {project: WunderkindLMS}
+    near_miss: true
+  - id: near_context_deployed
+    category: context
+    text: "deploy bo'ldimi?"
+    recent: [{project: BonviGo, minutes_ago: 5, kind: running}]
+    expect: {project: BonviGo}
+    near_miss: true
+  # The owner's own "Hozir ishlayaptimi?": right after a project reported, "is it working now?" is about that project.
+  # With nothing active either reading (the bot, or some project) is fair, so that form has no case.
+  - id: near_context_working_now
+    category: context
+    text: "Hozir ishlayaptimi?"
+    recent: [{project: BonviGo, minutes_ago: 4, kind: reported}]
+    expect: {project: BonviGo}
+    near_miss: true
+  - id: near_new_project
+    category: content
+    text: "yangi loyiha: oshxona uchun navbat boti"
+    expect: {no_project: true}
+    intent: new_project
+    near_miss: true
+  - id: near_server_status
+    category: content
+    text: "serverda nima bo'lyapti?"
+    expect: {no_project: true}
+    intent: server_status
+    near_miss: true
+  - id: near_report_all
+    category: content
+    text: "bugun qaysi loyihalarda ish bo'ldi?"
+    expect: {no_project: true}
+    intent: report_all
+    near_miss: true
+
+  # --- chat (owner, 2026-10-24): about none of his projects; answered plainly, no project, no report ----------------
+  # "Qandeysan?" and "qandaysan, ishlar qalay?" never reach routing in the bot (pre-parse answers them, SPEC §6.1);
+  # routing must still read them right. A general question stays chat while a project is active.
+  - {id: chat_owner_how_are_you, category: chat, text: "Qandeysan?", expect: {no_project: true}, intent: chat}
+  - id: chat_how_and_how_is_it_going
+    category: chat
+    text: "qandaysan, ishlar qalay?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_decorator
+    category: chat
+    text: "Python'da decorator nima?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_decorator_while_a_project_is_active
+    category: chat
+    text: "Python'da decorator nima?"
+    recent: [{project: BonviHR, minutes_ago: 3, kind: spoken}]
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_dollar_rate
+    category: chat
+    text: "dollar kursi qancha bo'lishi mumkin?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_dollar_rate_while_work_runs
+    category: chat
+    text: "dollar kursi qancha bo'lishi mumkin?"
+    recent: [{project: BonviGo, minutes_ago: 2, kind: running}]
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_translate_to_english
+    category: chat
+    text: "bu gapni inglizchaga tarjima qil: ertaga uchrashuvni soat 10 ga ko'chiramiz"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_translate_to_russian_after_a_result
+    category: chat
+    text: "bu jumlani rus tiliga tarjima qilib ber: hammasi tayyor, ertaga ko'rishamiz"
+    recent: [{project: HRMentor, minutes_ago: 2, kind: reported}]
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_sql_joins
+    category: chat
+    text: "SQL'da LEFT JOIN bilan INNER JOIN farqi nima?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_async_while_yordamchi_is_active
+    category: chat
+    text: "async/await qanday ishlaydi, oddiy qilib tushuntir"
+    recent: [{project: Yordamchi, minutes_ago: 5, kind: spoken}]
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_git_rebase_or_merge
+    category: chat
+    text: "git rebase bilan merge'ning farqi nimada?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_email_regex_question
+    category: chat
+    text: "email uchun regex qanday yoziladi?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_kubernetes_mixed
+    category: chat
+    text: "kubernetes'da pod va deployment farqi nima, short qilib ayt"
+    expect: {no_project: true}
+    intent: chat
+  - {id: chat_percent, category: chat, text: "1250 ning 12 foizi qancha?", expect: {no_project: true}, intent: chat}
+  - id: chat_time_zones
+    category: chat
+    text: "Toshkentda soat 15:00 bo'lsa, Dubayda soat nechchi bo'ladi?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_history
+    category: chat
+    text: "Amir Temur qaysi yili tug'ilgan?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_birthday_wishes
+    category: chat
+    text: "do'stimga tug'ilgan kun tabrigi yozib ber, qisqa"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_apology_letter
+    category: chat
+    text: "mijozga uzr so'rab qisqa xat yozib ber, buyurtma 2 kun kechikadi"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_ai_and_programmers
+    category: chat
+    text: "AI kelajakda dasturchilarni almashtiradimi?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_ru_advice_rust
+    category: chat
+    text: "Как думаешь, стоит ли учить Rust в этом году?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_ru_how_are_you
+    category: chat
+    text: "Как у тебя дела, всё нормально?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_ru_translate
+    category: chat
+    text: "переведи на узбекский: встреча переносится на пятницу"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_ru_docker
+    category: chat
+    text: "объясни простыми словами, что такое Docker"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_en_process_thread
+    category: chat
+    text: "What's the difference between a process and a thread?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_en_database_opinion
+    category: chat
+    text: "for a small team, would you pick Postgres or MySQL?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_en_small_talk
+    category: chat
+    text: "hey, how's your day going?"
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_voice_decorator
+    category: chat
+    text: "pitonda dekorator degani nima o'zi"
+    voice: true
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_voice_rest_advice
+    category: chat
+    text: "kechqurun juda charchab qolyapman qanday qilib yaxshiroq dam olsam bo'ladi"
+    voice: true
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_voice_arithmetic
+    category: chat
+    text: "yuz yigirma besh ko'paytirish sakkiz qancha bo'ladi"
+    voice: true
+    expect: {no_project: true}
+    intent: chat
+  - id: chat_voice_ru_percent
+    category: chat
+    text: "слушай а сколько будет двадцать процентов от трёхсот"
+    voice: true
+    expect: {no_project: true}
+    intent: chat

@@ -1,0 +1,18 @@
+{
+  "case": "uz_birthday_wishes",
+  "cost_usd_micros": 3355,
+  "duration_ms": 3328,
+  "latency_ms": 3329,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "Tug'ilgan kuning bilan, do'stim! 🎉 Sog'lik, omad va baxt hamisha yoningda bo'lsin. Yoshing kattalashgani sari aqling ham kirib borsin, lekin ko'ngling bolaligicha qolsin 😄\n\nYana ham qisqaroq kerak bo'lsa: «Tug'ilgan kun muborak, do'stim! Hamma orzularing ushalsin! 🎂»",
+  "usage": {
+    "cache_read_tokens": 3185,
+    "cache_write_tokens": 351,
+    "context_tokens": 3700,
+    "input_tokens": 1,
+    "output_tokens": 163
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "case": "en_database_opinion",
+  "cost_usd_micros": 6437,
+  "duration_ms": 3710,
+  "latency_ms": 3716,
+  "model": "sonnet",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.chat=sonnet, effort low",
+  "structured": null,
+  "text": "I'd pick **Postgres**. It's the safer default for a small team: strict about data, great SQL support, and it handles most things you'll need without extra tools.\n\nWhy:\n- **Features**: JSONB, full-text search, arrays, CTEs and window functions all work well, so you rarely need a second database.\n- **Extensions**: PostGIS for geo data, `pgvector` for embeddings, and more.\n- **Fewer surprises**: it's stricter with types and constraints, so bad data gets caught early.\n\nMySQL is still a fine choice if your team already knows it well, your hosting or tooling is built around it (WordPress, many PHP stacks), or you have a simple read-heavy app. It's fast and very widely supported.\n\nIf you're starting fresh and have no strong reason either way, Postgres. Team familiarity beats all of this though: the one your team knows is the one that will cause fewer 3 a.m. problems 😄",
+  "usage": {
+    "cache_read_tokens": 7131,
+    "cache_write_tokens": 673,
+    "context_tokens": 8108,
+    "input_tokens": 1,
+    "output_tokens": 303
+  }
+}

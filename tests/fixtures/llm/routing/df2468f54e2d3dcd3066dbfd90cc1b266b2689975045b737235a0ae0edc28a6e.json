@@ -1,0 +1,22 @@
+{
+  "case": "explicit_target_suffix_over_a_bare_name",
+  "duration_ms": 2039,
+  "latency_ms": 2040,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.9,
+        "project_id": "BonviHR"
+      }
+    ],
+    "confidence": 0.9,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "BonviHR"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"BonviHR\",\"candidates\":[{\"project_id\":\"BonviHR\",\"confidence\":0.9}],\"confidence\":0.9,\"needs_fresh\":false,\"is_new_project\":false}"
+}

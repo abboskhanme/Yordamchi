@@ -1,0 +1,9 @@
+=== an answer, as queued (the copied [chat] marker dropped) ===
+**Decorator** — funksiyani o'rab, unga yangi ish qo'shadigan funksiya:
+```python
+@cache
+def f(): ...
+```
+
+=== no answer came: a timeout, Claude unavailable, an empty reply ===
+Uzr, hozir javob bera olmadim. Birozdan keyin qayta so'rang.
