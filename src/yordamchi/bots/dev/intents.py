@@ -248,7 +248,8 @@ _NAMED: Final[tuple[tuple[re.Pattern[str], Intent], ...]] = (
 
 def _small_talk_of(folded: str) -> Command | None:
     if _SMALL_TALK.fullmatch(folded) is not None:
-        opening = GREETING_HOW if _HOW_WORD.search(folded) else GREETING_SALAM if "assalom" in folded else GREETING_HELLO
+        greeting = GREETING_SALAM if "assalom" in folded else GREETING_HELLO
+        opening = GREETING_HOW if _HOW_WORD.search(folded) else greeting
         return Command(Intent.GREETING, argument=opening)
     if _THANKS.fullmatch(folded) is not None:
         return Command(Intent.THANKS)

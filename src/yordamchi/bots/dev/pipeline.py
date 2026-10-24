@@ -316,16 +316,12 @@ class Pipeline:
         return True
 
     async def _plain_command(self, item: TurnInput, command: Command, project: str | None) -> None:
+        if await self._talk(item, command):
+            return
         deps, intent = self.deps, command.intent
         if intent is Intent.SHOW_HEALTH:
             text = await health.show_health(deps, self.health, work=partial(turns.work_status, deps))
             await self._reply(item, text)
-        elif intent is Intent.GREETING:
-            await self._reply(item, await self._greeting(command.argument), kind=Kind.NOTICE)
-        elif intent is Intent.THANKS:
-            await self._reply(item, S.CHAT_THANKS(), kind=Kind.NOTICE)
-        elif intent is Intent.HELP:
-            await self._reply(item, S.HELP(), kind=Kind.NOTICE)
         elif intent is Intent.LIST_PROJECTS:
             await self._reply(item, await projects.show_projects(deps))
         elif intent is Intent.SHOW_COST:  # "xarajat?" (UC-07): queued as a reply to the question itself
@@ -354,6 +350,19 @@ class Pipeline:
                 return
             act = turns.continue_turn if intent is Intent.CONTINUE_TURN else turns.retry_delivery
             await self._reply(item, await act(deps, self.turns, target), kind=Kind.NOTICE, project=target)
+
+    async def _talk(self, item: TurnInput, command: Command) -> bool:
+        """Small talk — "salom", "qandaysan?", "rahmat", "nima qila olasan?" — answered from the catalog, no model."""
+        if command.intent is Intent.GREETING:
+            text = await self._greeting(command.argument)
+        elif command.intent is Intent.THANKS:
+            text = S.CHAT_THANKS()
+        elif command.intent is Intent.HELP:
+            text = S.HELP()
+        else:
+            return False
+        await self._reply(item, text, kind=Kind.NOTICE)
+        return True
 
     async def _greeting(self, opening: str) -> BotText:
         """A greeting answered as one, with the one fact worth knowing: what is working right now."""
