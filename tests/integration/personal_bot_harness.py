@@ -38,6 +38,7 @@ from tests.factories import (
 )
 from tests.fakes.clock import FakeClock
 from tests.fakes.telegram_session import RecordingSession, WireRequest
+from tests.integration.dev_bot_harness import visible
 from yordamchi.adapters.telegram.messenger import TelegramMessenger
 from yordamchi.bots.personal import runtime
 from yordamchi.bots.personal.runtime import PersonalApp
@@ -45,6 +46,7 @@ from yordamchi.core.paths import BotName, Paths
 from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.uow import Database
 from yordamchi.personal.deps import PersonalDeps
+from yordamchi.shared.outbox.domain import plain_text
 
 STEP_S = 0.25  # virtual time per step: the outbox sender's idle poll
 SETTLE_S = 0.01  # real time per step for the threads and tasks to catch up
@@ -111,12 +113,15 @@ class PersonalBot:
         return [r for r in self.session.requests if not methods or r.api_method in methods]
 
     def texts(self) -> list[str]:
-        """Every text posted, in order (captions of files included)."""
+        """Every text posted, in order (captions of files included), as the owner reads it: an HTML text without its
+        tags (the outbox renders catalog markup since the formatting pass)."""
         sent = self.requests("sendMessage", "editMessageText", "sendPhoto", "sendDocument", "sendVideo")
-        return [str(r.params.get("text") or r.params.get("caption") or "") for r in sent]
+        return [visible(r) if r.params.get("text") else str(r.params.get("caption") or "") for r in sent]
 
     def posted(self, needle: str) -> list[str]:
-        return [text for text in self.texts() if needle in text]
+        """The texts that hold `needle`, read the same way (a catalog line's markers stripped)."""
+        wanted = plain_text(needle)
+        return [text for text in self.texts() if wanted in text]
 
     def methods(self) -> list[str]:
         return [r.api_method for r in self.session.requests]
