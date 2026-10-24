@@ -876,23 +876,31 @@ never produce a second final result.
 | hooks | PreToolUse(guard FULL / PLAN_ONLY / SELF_UPDATE), UserPromptSubmit(context, timeout 10), PostToolUse(progress, files), PostToolUseFailure(runaway) | PreToolUse(guard READ_ONLY), UserPromptSubmit | — | PreToolUse(allowlist), UserPromptSubmit | as coding |
 | `can_use_tool` | questions + fall-through | deny all | — | deny all | as coding |
 | limits | `max_turns=turns.max_steps`, Yordamchi wall clock | `max_turns=60`, wall 3 min | `timeouts.<kind>_s` | — | wall 5 min |
-| start check | §2.5 credential check on the project `.claude/settings*.json` (`env`, `apiKeyHelper`) | same | — | `init` tools + MCP == allowlist ∪ {`EndConversation`, `ToolSearch`, `WaitForMcpServers`} (C2); mismatch → refuse, `S.PERSONAL_TOOLS_MISMATCH` | — |
+| start check | §2.5 credential check on the project `.claude/settings*.json` (`env`, `apiKeyHelper`) | same | — | allowlist ⊆ `init` tools + MCP ⊆ allowlist ∪ {`EndConversation`, `ToolSearch`, `WaitForMcpServers`} (C2, revised after S5: none of the three appeared); otherwise refuse, `S.PERSONAL_TOOLS_MISMATCH` | — |
 
 - Always: `cli_path="~/.local/bin/claude"` (the symlink, so CLI auto-updates take effect on the next spawn).
 - Never: `--bare`, `ANTHROPIC_*`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, `cleanupPeriodDays`.
-- `--restricted` goes into `extra_args` for the personal session only if spike S5 shows that WebSearch,
-  WebFetch and SDK MCP still work.
+- `--restricted` goes into `extra_args` for the personal session (spike S5 passed: WebSearch, WebFetch and
+  SDK MCP work under it).
+- Dev sessions: `disallowed_tools` includes `SendMessage` and `ListAgents` (every SDK session opens a
+  cross-session socket; peer-origin input is untrusted; docs/SPIKES.md).
 - Warm Assistant pools: one live client and one hot spare per kind. A client is rotated after 20 asks, on a
   context-size threshold, or on a settings version change.
 
-### 5.4 Prompt and persona changes on warm or resumed sessions (UC-09 AC, R-34)
-- The system prompt snapshot stays on (STACK §2.1), so `append` is frozen per session id.
-- Every send therefore precomputes `prompts/<bot>/turn_context.md`, and the `UserPromptSubmit` hook returns
-  it as `additionalContext`. It contains:
-  - always: the NFR-SEC-11 authorization, the result contract (§5.5) and the language rule;
-  - when `snap.version_for(kind) > session.prompt_version_seen`, also the full current instruction block,
-    headed "Updated instructions from the owner (they replace earlier ones):". `prompt_version_seen` is
-    updated in the delivery's `delivered` uow.
+### 5.4 Prompt and persona changes on warm or resumed sessions (UC-09 AC, R-34; revised after spike S4)
+- The system prompt snapshot stays on (STACK §2.1), so `append` is frozen per session id. S4 showed that a
+  later instruction contradicting the frozen prompt is followed unreliably (haiku 3/6, sonnet 2/3), while a
+  neutral frozen prompt plus the current instructions on every turn was followed 10/10 (docs/SPIKES.md).
+- Therefore the frozen part (`prompts/<bot>/<kind>_system.md` or the `append` text) holds **only fixed
+  parts**: role, the result contract (§5.5), the NFR-SEC-11 authorization, and the line "the latest
+  owner-instructions block in this conversation is authoritative and replaces earlier ones". It holds **no**
+  persona, tone, language or other owner-editable instruction.
+- Every send precomputes `prompts/<bot>/turn_context.md`, and the `UserPromptSubmit` hook returns it as
+  `additionalContext` on **every turn** (not only after a change). It always contains the full current
+  owner-editable instruction block (persona, tone, language, length limits, project notes), headed
+  "Current instructions from the owner:". `prompt_version_seen` is still recorded in the delivery's
+  `delivered` uow, for audit and the UC-09 "applies from the next message" test.
+- No session rotation is needed for prompt changes.
 - Model change → `set_model()` before the next send. Effort is a launch option, so an effort change closes
   an idle session and resumes it with the new effort before the next delivery. Assistant pools rebuild
   their spare at once.

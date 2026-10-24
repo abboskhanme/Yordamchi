@@ -56,8 +56,15 @@ def test_clean_env_refuses_to_pass_a_credential(name: str) -> None:
 
 
 def test_scrub_environ_removes_claude_code_variables_only() -> None:
-    env = {"CLAUDECODE": "1", "CLAUDE_CODE_SSE_PORT": "1234", "CLAUDE_HOME": "keep", "HOME": "/h"}
-    assert proc.scrub_environ(env) == ("CLAUDECODE", "CLAUDE_CODE_SSE_PORT")
+    env = {
+        "CLAUDECODE": "1",
+        "CLAUDE_CODE_SSE_PORT": "1234",
+        "CLAUDE_PID": "42",
+        "CLAUDE_EFFORT": "high",
+        "CLAUDE_HOME": "keep",
+        "HOME": "/h",
+    }
+    assert proc.scrub_environ(env) == ("CLAUDECODE", "CLAUDE_CODE_SSE_PORT", "CLAUDE_EFFORT", "CLAUDE_PID")
     assert env == {"CLAUDE_HOME": "keep", "HOME": "/h"}
 
 

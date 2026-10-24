@@ -161,3 +161,13 @@ question. Correct any line and it changes.
 - [2026-10-24] T09 Telegram benign refusals → "not modified" counts as a successful edit; a delete that is not allowed returns False; leaving a chat the bot has already left counts as left; replies use `allow_sending_without_reply`; pins are silent → none of these is an owner-facing failure.
 - [2026-10-24] T09 Telegram size limits → in MiB: inbound ≤ 20, outbound ≤ 50, photos ≤ 10, checked before transfer → Bot API limits, NFR-CAP-04.
 - [2026-10-24] T09 token safety → vendor exceptions are never chained, and descriptions are never logged → aiohttp errors carry the token in the URL (STACK §4.3).
+
+## Spikes S1–S6 (2026-10-24; evidence in docs/SPIKES.md)
+- [2026-10-24] S1 follow-up merge → send `priority: "next"` explicitly (it merges into the running turn and gives one result); redirect = `interrupt()` + a new turn; `"now"` is never used → `"now"` backgrounds the running Bash and later starts a turn on its own.
+- [2026-10-24] S2 interrupt → `interrupt()` kills the Bash child in ≤ 0.06 s (SIGKILL escalation at ~1.5 s); the backstop process-group kill runs at ~2 s and targets the tool's group, never the CLI's → the CLI shares the bot's process group.
+- [2026-10-24] S3 hooks under `bypassPermissions` → a hook deny holds; `PreToolUse` fires in subagents; `AskUserQuestion` reaches `can_use_tool` → T11 as designed; subagents ask through gate-deny + message.
+- [2026-10-24] S4 persona on resumed sessions → SPEC §5.4 revised: the frozen prompt holds only fixed parts; owner-editable instructions go into `additionalContext` on every turn; no rotation → 10/10 compliance vs 3/6 with the old design.
+- [2026-10-24] S5 `--restricted` → used for the personal session; the C2 tool check is `allowlist ⊆ init ⊆ allowlist ∪ harness` → strict equality would refuse a correct session.
+- [2026-10-24] S6 Mac attach → SDK sessions have `entrypoint: "sdk-py"` in `~/.claude/sessions/*.json`, the owner's have `"cli"`; T54 uses `entrypoint` + pid ancestry; the process scan stays primary.
+- [2026-10-24] Child env scrub → also `CLAUDE_PID` and `CLAUDE_EFFORT` (core/proc.py) → both leak from a parent Claude session into the child CLI.
+- [2026-10-24] Dev sessions disallow `SendMessage`/`ListAgents` → every SDK session opens a cross-session socket; peer input is untrusted.

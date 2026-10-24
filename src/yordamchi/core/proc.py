@@ -45,7 +45,8 @@ REFUSED_ENV_VARS: Final = frozenset(
 REFUSED_ENV_PREFIX: Final = "ANTHROPIC_"
 REFUSED_SETTINGS_KEYS: Final = ("apiKeyHelper",)
 
-SCRUBBED_ENV_VARS: Final = frozenset({"CLAUDECODE"})
+# CLAUDE_PID / CLAUDE_EFFORT leak from a parent Claude session into the child CLI (docs/SPIKES.md, T10 item 6).
+SCRUBBED_ENV_VARS: Final = frozenset({"CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT"})
 SCRUBBED_ENV_PREFIX: Final = "CLAUDE_CODE_"
 # Yordamchi's own variables (env-file path, data-dir override) never reach a child unless passed as `extra`.
 PRIVATE_ENV_PREFIX: Final = "YORDAMCHI_"
@@ -112,7 +113,7 @@ def check_credentials(settings_files: Iterable[Path], *, environ: Mapping[str, s
 
 
 def scrub_environ(environ: MutableMapping[str, str] | None = None) -> tuple[str, ...]:
-    """Remove `CLAUDECODE` and `CLAUDE_CODE_*` (SPEC §2.5 step 2). Returns the removed names."""
+    """Remove the nested-session variables (`SCRUBBED_ENV_VARS`, `CLAUDE_CODE_*`; SPEC §2.5 step 2); returns them."""
     env = os.environ if environ is None else environ
     removed = tuple(sorted(name for name in env if is_scrubbed_env(name)))
     for name in removed:

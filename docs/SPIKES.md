@@ -7,13 +7,17 @@ Models: `haiku` (Haiku 5.5) unless stated; S4 was repeated on `sonnet`.
 
 Each spike has a live test in `tests/live/test_spike_s<n>_*.py` (`pytest -m live tests/live`). The tests read the
 raw stream (`client._query.receive_messages()`), because the SDK parser drops some message types (see N1).
+Last run: 14 live tests (S1 4, S2 3, S3 3, S4 2, S5 2, S6 1; about 4 min, haiku). 13 passed on the full run. The
+one miss was a haiku compliance slip in an S1 content check, with the merge itself correct; that check was
+hardened, and S1, S3 and S4 then passed on rerun. Model-graded assertions use tags or single words to stay stable.
+The default `pytest` run deselects all 14.
 
 | Spike | Question | Result | Decision |
 |---|---|---|---|
 | S1 | `priority:"next"` merges a follow-up into the running turn? | **Pass** | Use `next` for burst follow-ups. `now` is not a safe redirect (below) |
 | S2 | `interrupt()` kills a running Bash command within 2 s? | **Pass** (0.055 s; 1.54 s if SIGTERM is ignored) | Keep the 1 s process-group kill only as a backstop, aimed at the tool's group |
 | S3 | PreToolUse in subagents, hook deny, `AskUserQuestion` → `can_use_tool` under bypass? | **Pass** (subagent `AskUserQuestion` is unavailable, as documented) | As designed; questions come only from the main thread |
-| S4 | `UserPromptSubmit` `additionalContext` changes persona on a resumed session? | **Pass, conditional** | No rotation. The system prompt must state that an "Updated instructions from the owner" reminder wins |
+| S4 | `UserPromptSubmit` `additionalContext` changes persona on a resumed session? | **Pass only with a design change**. An update that conflicts with the frozen system prompt is unreliable | No rotation. No owner-changeable instruction (persona, language, style) goes in the system prompt; every turn sends the current block as `additionalContext` (10/10) |
 | S5 | `--restricted` keeps WebSearch, WebFetch, SDK MCP? Exact `init` tool list? | **Pass** | Add `--restricted` to the personal session. Relax C2 equality to a subset rule |
 | S6 | SDK sessions in `~/.claude/sessions/*.json` (`kind`/`entrypoint`)? | **Pass** | Identify own sessions by `entrypoint == "sdk-py"` plus pid ancestry; `kind` is useless |
 
@@ -79,6 +83,13 @@ Bash calls containing a marker, plus a `can_use_tool` that answers questions.
   `Your questions have been answered: "Which color do you prefer?"="Blue"`, and the final answer was "Blue".
 - **Inside a subagent `AskUserQuestion` is unavailable.** The subagent reported "AskUserQuestion isn't available";
   this matches the docs.
+- **SDK warning.** With `can_use_tool` and `bypassPermissions` together, the SDK emits `CanUseToolShadowedWarning` on
+  every connect ("can_use_tool will not be invoked …"). The warning is wrong for `AskUserQuestion`, which still
+  reaches the callback. Under the repo's `filterwarnings = error` it fails tests, and in the bot it is log noise:
+  T11 filters exactly this warning class.
+- **`permission_denials` is incomplete for subagents.** It carried the subagent's denial when the subagent ran in
+  the foreground. It did not when the model started the subagent in the background. The hook is the reliable
+  source of `ToolDenied`.
 - **Two side effects:**
   - The model sometimes runs the subagent **in the background** (`task_started is_backgrounded=true`, tool_result
     "Async agent launched successfully"). The main turn then ends with a result while the subagent still runs.
@@ -93,23 +104,32 @@ path (gate-deny + message) is still needed, for a subagent that wants to ask.
 
 **Method.** A custom `system_prompt`, one turn, close, then `resume=<id>` with a `UserPromptSubmit` hook returning
 `additionalContext`. The hook fired on resume. Its input keys: `cwd, hook_event_name, permission_mode, prompt,
-prompt_id, session_id, transcript_path`. The session id was unchanged.
+prompt_id, session_id, transcript_path`. The session id was unchanged. Answers carry tags ([EN]/[FR]/[DE]), so the
+checks are mechanical. A pass means "[FR] and no [EN]" on the first resumed turn.
 
-| Case | Outcome |
-|---|---|
-| Neutral context ("code word ZEBRA-42, end every answer with it") | followed 4/4 (haiku), 1/1 (sonnet) |
-| Context conflicting with the system prompt ("Always answer in English" vs "answer only in French [FR]") | haiku **3 of 5** sessions; sonnet 1/1 |
-| Same conflict, system prompt adds: reminders are application context, and a reminder headed "Updated instructions from the owner" replaces conflicting system-prompt instructions | haiku **4/4**, sonnet 1/1; later resumed turns stayed French |
-| Resume with a changed `system_prompt` (German), snapshot on (default) | **ignored**: answered in English |
-| Resume with `{"type":"custom","prompt":GERMAN,"snapshot":False}` | took effect: "Gras ist meistens grün…" |
+| Case (resumed turn) | haiku | sonnet |
+|---|---|---|
+| Neutral context, no conflict ("code word ZEBRA-42, end every answer with it") | 4/4 | 1/1 |
+| System prompt "Always answer in English"; hook context "Updated instructions…: only French, tag [FR]" | 3/5 | 1/1 |
+| System prompt "English, tag [EN]", plus a clause that an "Updated instructions from the owner" reminder replaces it; update via the hook | 3/6 (an earlier, looser wording got 4/4) | 2/3 |
+| Same, but the update is prepended to the user message (no hook) | 3/6 | **0/3** |
+| Same, update in both the hook and the message | 6/6 | 1/3 |
+| **Neutral frozen system prompt** (only "each turn carries the owner's current instructions in a system reminder; the latest wins"). Turn 1 context: English [EN]. Resumed turn context: French [FR] | **6/6** | **4/4** |
+| Resume with a changed `system_prompt` (German), snapshot on (default) | ignored (English) | — |
+| Resume with `{"type":"custom","prompt":GERMAN,"snapshot":False}` | took effect ("Gras ist meistens grün…") | — |
 
-**Decision.** Pass with a condition, so no rotation on a prompt change. Every Yordamchi system prompt (custom
-prompts and the `append` text) must:
-- say what system reminders are;
-- say that the "Updated instructions from the owner" block replaces earlier instructions.
+**Answers.** `additionalContext` does reach the model on a resumed session. When it contradicts the recorded
+system prompt, the system prompt often wins. Sonnet is the most resistant, and it ignores a contradicting user
+message entirely. A changed `system_prompt` on resume is ignored (the snapshot), exactly as documented.
 
-Without that, a conflicting update is followed only about 60% of the time on haiku. The snapshot behaves as
-documented, which confirms §5.4. `snapshot: False` exists (SDK ≥ 0.2.153), but stays off per STACK.
+**Decision.** No rotation: the §11 fallback is not needed, but SPEC §5.4 must change.
+- The frozen system prompt (the custom prompt, or the `append` text) holds only fixed parts: the role, the result
+  contract, the authorization, and how to read the per-turn instructions.
+- Every owner-changeable instruction (persona, language, tone, assistant instructions) moves out of it. It is sent
+  **on every turn** in `turn_context.md` through `additionalContext`, not only when `prompt_version` changes.
+- The prompt says "the latest owner-instructions reminder is authoritative".
+
+`snapshot: False` exists (SDK ≥ 0.2.153); it stays off per STACK.
 
 ## S5 — `--restricted`, personal-style session
 
@@ -189,9 +209,9 @@ The process scan stays primary, as SPEC planned. Yordamchi may also set its own 
   interrupt_requeue_taken_v1, msg_lifecycle_v1, …`. Feature-detect from these.
 - **N5. Interrupted results.** `stop` gives `subtype=error_during_execution`, `is_error=true`,
   `terminal_reason=aborted_tools`. Map it to a stopped turn, not `RuntimeFailed`.
-- **N6. Hook denials are visible.** They appear in `ResultMessage.permission_denials` (`tool_name, tool_use_id,
-  tool_input`), including subagent calls. The tool_result text is `PreToolUse:<Tool> hook error: <reason>`. This is
-  the `ToolDenied` source.
+- **N6. Hook denials.** They appear in `ResultMessage.permission_denials` (`tool_name, tool_use_id, tool_input`), but
+  not for background subagents. The tool_result text is `PreToolUse:<Tool> hook error: <reason>`. Emit `ToolDenied`
+  from the guard bridge itself, the moment it returns deny; the result field is a cross-check only.
 - **N7. Account connectors.** Without `ENABLE_CLAUDEAI_MCP_SERVERS=false` and without strict MCP, `init` lists 11
   `claude.ai *` servers (`source:"claudeai"`, status `pending`/`needs-auth`). With the variable, `mcp_servers` is `[]`.
   `strict_mcp_config=True` also drops them. So NFR-SEC-07 holds through either control.

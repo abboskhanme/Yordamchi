@@ -6,7 +6,7 @@ Source: `docs/SPEC.md` (approved 2026-10-23). `plan-manager` · 2026-10-23. Path
 scratch repo). (2) Orchestrator: start spikes T03–T06 now (no deps), and T07 once T01 lands. Tell the T01 agent that its
 done criterion includes the pre-carved shared-file blocks and every §4.3 P1 default (rule R2).
 
-**Status:** done 3 (T01, T02, T09) · in progress 7 (T03–T08, T13) · blocked on owner 3 (T38, T39, T43) · todo: the rest.
+**Status:** done 7 (T01–T06, T09) · in progress 4 (T07, T08, T13, T23) · blocked on owner 3 (T38, T39, T43) · todo: the rest.
 
 **Critical path (P1):** T01 → T02 → T08 → T17 → T20 → T24 → {T29 T30 T31 T32} → T34 → T36 → T42 → T43 → T44 → T47.
 Joins it: T03 → T10 → T24 (spikes gate the executor) and T07 → T18 → T24 (gate). Day-one owner items on it:
@@ -116,10 +116,10 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T03 | S1 `priority:"next"` merge + S2 `interrupt()` kills Bash ≤ 2 s | build-integration | — | yes | `tests/live/test_spike_s1_next.py`, `test_spike_s2_interrupt.py` | — | UC-02 (steer), UC-03 (shell killed) | decision recorded for T10/T24 | in progress (2026-10-24) |
-| T04 | S3 subagent PreToolUse + `AskUserQuestion` reach `can_use_tool` under bypass | build-integration | — | yes | `tests/live/test_spike_s3_hooks.py` | — | NFR-SEC-06, UC-12 | decision recorded for T11/T29 | in progress (2026-10-24) |
-| T05 | S4 `UserPromptSubmit` `additionalContext` on a resumed session | build-integration | — | yes | `tests/live/test_spike_s4_resume.py` | — | UC-09 (persona on warm/resumed) | decision recorded for T12/T24 | in progress (2026-10-24) |
-| T06 | S5 `--restricted` with WebSearch/WebFetch/SDK MCP + S6 SDK sessions in `~/.claude/sessions/` | build-integration | — | yes | `tests/live/test_spike_s5_restricted.py`, `test_spike_s6_sessions.py` | — | NFR-SEC-08 (P3 input), UC-16 (P2 input) | decisions recorded for P3 T77 / P2 T54 | in progress (2026-10-24) |
+| T03 | S1 `priority:"next"` merge + S2 `interrupt()` kills Bash ≤ 2 s | build-integration | — | yes | `tests/live/test_spike_s1_next.py`, `test_spike_s2_interrupt.py` | — | UC-02 (steer), UC-03 (shell killed) | decision recorded for T10/T24 | **DONE** 2026-10-24 (docs/SPIKES.md) |
+| T04 | S3 subagent PreToolUse + `AskUserQuestion` reach `can_use_tool` under bypass | build-integration | — | yes | `tests/live/test_spike_s3_hooks.py` | — | NFR-SEC-06, UC-12 | decision recorded for T11/T29 | **DONE** 2026-10-24 (docs/SPIKES.md) |
+| T05 | S4 `UserPromptSubmit` `additionalContext` on a resumed session | build-integration | — | yes | `tests/live/test_spike_s4_resume.py` | — | UC-09 (persona on warm/resumed) | decision recorded for T12/T24 | **DONE** 2026-10-24 (docs/SPIKES.md) |
+| T06 | S5 `--restricted` with WebSearch/WebFetch/SDK MCP + S6 SDK sessions in `~/.claude/sessions/` | build-integration | — | yes | `tests/live/test_spike_s5_restricted.py`, `test_spike_s6_sessions.py` | — | NFR-SEC-08 (P3 input), UC-16 (P2 input) | decisions recorded for P3 T77 / P2 T54 | **DONE** 2026-10-24 (docs/SPIKES.md) |
 | T07 | U5a gate domain: §5.7 classifier, approval binding, grants, READ_ONLY policy | build-backend | T01 | yes | `dev/gate/domain.py`, `tests/unit/dev/gate/test_domain.py` | — | UC-13, NFR-SEC-06, NFR-SEC-11 (commit/push/branch/private repo free), UC-15 (investigation write denied) | every class and exemption has a case; pure (C6, A1) | in progress (2026-10-24) |
 
 ## Phase 3 — Foundations [sequential; the reference feature]
