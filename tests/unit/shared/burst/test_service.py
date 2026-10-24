@@ -4,6 +4,7 @@ hand-off and retention (SPEC §3.2.1 step 4, §4.2, §4.4)."""
 
 import asyncio
 import tomllib
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Final
@@ -360,6 +361,29 @@ async def test_a_restart_reattaches_received_updates_in_update_id_order(dev_deps
     [first] = events.closed  # 1 and 2 were one burst, which had closed before 3 arrived
     assert (_ids(first), first.close_reason) == ([1, 2], CloseReason.QUIET)
     assert [row.status for row in await _bursts(dev_deps)] == [BurstStatus.CLOSED, BurstStatus.OPEN]
+
+
+async def test_messages_held_while_the_mac_slept_stay_apart_by_when_the_owner_sent_them(
+    dev_deps: DevDeps, fakes: Fakes
+) -> None:
+    """T36 BUG-1: Telegram hands over what it held in one batch; the owner's send times keep his messages apart."""
+    asleep = fakes.clock.now()
+    backlog = (
+        make_update(1, text="BonviHR'da login sahifasini tuzat", sent_at=asleep + timedelta(minutes=6)),
+        make_update(2, text="HRMentor'da shu xato chiqyapti:", sent_at=asleep + timedelta(minutes=9)),
+        replace(make_media_update(3), sent_at=asleep + timedelta(minutes=9, seconds=4)),  # its screenshot
+        make_update(4, text="Markaz'da testlarini yoz", sent_at=asleep + timedelta(minutes=12)),
+    )
+    await fakes.clock.advance(20 * 60)  # the Mac wakes
+    for update in backlog:
+        await inbox.accept_update(dev_deps, origin_of(update), update)
+    closed = (await service.attach_received_updates(dev_deps)).closed
+    assert [(_ids(item), item.close_reason) for item in closed] == [
+        ([1], CloseReason.QUIET),
+        ([2, 3], CloseReason.QUIET),
+    ]
+    [last] = (await _wait(dev_deps, fakes, WS.after_text_s)).closed
+    assert (_ids(last), last.close_reason) == ([4], CloseReason.QUIET)
 
 
 async def test_a_restart_lists_voice_parts_whose_transcript_never_came(dev_deps: DevDeps) -> None:

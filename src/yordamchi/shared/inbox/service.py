@@ -99,7 +99,7 @@ async def _record(
     by_value = {} if vault_error is not None else dict(zip((secret.value for secret in to_store), stored, strict=True))
     status = domain.initial_status(update, vault_failed=vault_error is not None)
     content = domain.redacted_content(update, scan, by_value)
-    payload = domain.payload_json(content, redact.scrubbed)
+    payload = domain.payload_json(content, redact.scrubbed, sent_at=update.sent_at)
     await store.set_update_payload(s, row_id, payload=payload, status=status.value)
     plan = domain.plan_ack(update, scan, status=status, stored=stored, vault_error=vault_error)
     await _enqueue_ack(s, update, plan, reaction=reaction, read_mark=read_mark, max_parts=max_parts, at=at)
@@ -213,6 +213,7 @@ def _stored_update(row: InboundUpdate) -> StoredUpdate:
         synthetic=row.synthetic,
         received_at=row.received_at,
         content=domain.content_from_json(row.payload_json),
+        sent_at=domain.sent_at_of(row.payload_json),
     )
 
 

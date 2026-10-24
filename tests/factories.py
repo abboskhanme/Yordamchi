@@ -218,8 +218,10 @@ def make_update(
     attachment: Attachment | None = None,
     synthetic: bool = False,
     forward: ForwardSource | None = None,
+    sent_at: datetime | None = None,
 ) -> IncomingUpdate:
-    """An owner message in the bot's own chat, as a handler would build it (`forward`: he forwarded it)."""
+    """An owner message in the bot's own chat, as a handler would build it (`forward`: he forwarded it; `sent_at`:
+    Telegram's date, None as for a synthetic update)."""
     return IncomingUpdate(
         bot=bot,
         update_id=update_id,
@@ -232,6 +234,7 @@ def make_update(
         attachment=attachment,
         synthetic=synthetic,
         forward=forward,
+        sent_at=sent_at,
     )
 
 
@@ -619,9 +622,11 @@ def make_part(
     synthetic: bool = False,
     start: datetime = DEFAULT_START,
     forward: ForwardSource | None = None,
+    sent_s: float | None = None,
 ) -> BurstPart:
     """A part received `at_s` seconds after `start`, built the way the burst builds it (`part_from_update`): a voice
-    note starts out waiting for its transcript. Without `kind`, a text if `text` is given, else a photo."""
+    note starts out waiting for its transcript. Without `kind`, a text if `text` is given, else a photo. `sent_s`: when
+    the owner sent it (Telegram's date), seconds after `start`; None: not known, as for a synthetic update."""
     part_kind = kind or (UpdateKind.TEXT if text is not None else UpdateKind.PHOTO)
     stored = StoredUpdate(
         update_id=update_id,
@@ -637,6 +642,7 @@ def make_part(
         content=Content(
             text=text, caption=caption, attachment=_attachment(update_id, part_kind, duration_s), forward=forward
         ),
+        sent_at=None if sent_s is None else start + timedelta(seconds=sent_s),
     )
     return burst_domain.part_from_update(stored)
 

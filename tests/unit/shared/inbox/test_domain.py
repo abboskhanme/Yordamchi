@@ -10,6 +10,7 @@ from tests.factories import CLAUDE_LOGIN_TOKEN, FAKE_KEYS, make_update, origin_o
 from yordamchi.core import redact
 from yordamchi.core import strings as S
 from yordamchi.core.errors import VaultKeyMissing
+from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName
 from yordamchi.shared.inbox import domain
 from yordamchi.shared.inbox.domain import Attachment, Content, SecretScan, UpdateKind, UpdateStatus
@@ -129,6 +130,25 @@ def test_a_nulled_or_malformed_payload_reads_as_empty_content() -> None:
     assert domain.content_from_json(["not", "an", "object"]) == Content()
     odd = domain.content_from_json({"text": 5, "attachment": {"mime": "x"}, "secret_ids": ["a", 2]})
     assert odd == Content(text=None, attachment=None, secret_ids=(2,))
+
+
+def test_the_send_time_is_kept_in_the_payload_as_it_is_and_only_when_known() -> None:
+    content = Content(text="salom")
+    payload = domain.payload_json(content, str.upper, sent_at=NOW)
+    assert payload["sent_at"] == NOW.isoformat()  # an instant, not content: never scrubbed
+    assert (domain.sent_at_of(payload), domain.content_from_json(payload)) == (NOW, Content(text="SALOM"))
+    synthetic = domain.payload_json(content, str)
+    assert "sent_at" not in synthetic  # the payload keeps the shape it always had
+    assert domain.sent_at_of(synthetic) is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [None, ["sent_at"], {"sent_at": 1761292800}, {"sent_at": "kecha"}, {"sent_at": "2026-10-23T09:00:00"}],
+    ids=["nulled", "not-an-object", "a-number", "not-an-instant", "naive"],
+)
+def test_an_unreadable_send_time_reads_as_unknown(raw: JsonValue) -> None:
+    assert domain.sent_at_of(raw) is None
 
 
 # --- the ack --------------------------------------------------------------------------------------------------------

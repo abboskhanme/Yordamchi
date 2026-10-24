@@ -139,6 +139,10 @@ class IncomingUpdate:
     reply_to_message_id: int | None = None
     synthetic: bool = False  # the supervisor's self-test: there is no Telegram message to touch
     forward: ForwardSource | None = None  # `forward_of(message)`: set when the owner forwarded someone else's message
+    # When the owner sent it, by Telegram (UTC, whole seconds): `date`, or `edit_date` for an edit. None for a
+    # synthetic update. Telegram hands over what it held while the bot was away in one batch, so the receipt time
+    # alone cannot tell messages sent minutes apart (the burst places by this one, SPEC §4.4).
+    sent_at: datetime | None = None
 
     @property
     def forwarded(self) -> bool:
@@ -176,6 +180,7 @@ class StoredUpdate:
     synthetic: bool
     received_at: datetime
     content: Content
+    sent_at: datetime | None = None  # `IncomingUpdate.sent_at`, kept in `payload_json`; None if it had none
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,8 +304,13 @@ def redacted_content(update: IncomingUpdate, scan: SecretScan, stored: Mapping[s
 
 
 # --- payload_json -------------------------------------------------------------------------------------------------
-def payload_json(content: Content, scrub: Callable[[str], str]) -> JsonObject:
-    """The stored form of `content`; every string passes `scrub` (SPEC §4.1 ✱: redacted before the write)."""
+def payload_json(content: Content, scrub: Callable[[str], str], *, sent_at: datetime | None = None) -> JsonObject:
+    """The stored form of `content`; every string passes `scrub` (SPEC §4.1 ✱: redacted before the write).
+
+    `sent_at` (intake passes `IncomingUpdate.sent_at`) is stored beside the content as an ISO instant: an instant is
+    not content, so it is not scrubbed, as `received_at` is not. It lives here rather than in a column because only
+    a `received` row needs it, and retention never nulls the payload of one (`sent_at_of` reads it back).
+    """
     attachment: JsonValue = None
     if content.attachment is not None:
         attachment = {
@@ -320,7 +330,10 @@ def payload_json(content: Content, scrub: Callable[[str], str]) -> JsonObject:
     }
     if content.forward is not None:  # only when set: the owner's own messages keep the shape they always had
         payload["forward"] = content.forward.value
-    return {key: json_value.map_strings(value, scrub) for key, value in payload.items()}
+    stored = {key: json_value.map_strings(value, scrub) for key, value in payload.items()}
+    if sent_at is not None:  # likewise: a synthetic update's payload has no send time
+        stored["sent_at"] = sent_at.isoformat()
+    return stored
 
 
 def _str(raw: JsonValue) -> str | None:
@@ -354,6 +367,19 @@ def content_from_json(raw: JsonValue) -> Content:
         secret_ids=secret_ids,
         forward=_forward(raw.get("forward")),
     )
+
+
+def sent_at_of(raw: JsonValue) -> datetime | None:
+    """The send time `payload_json` holds, UTC-aware. None when there is none (a synthetic update, a row stored before
+    send times were kept, a nulled payload) or it cannot be read: the burst then places by the receipt time."""
+    text = _str(raw.get("sent_at")) if isinstance(raw, dict) else None
+    if text is None:
+        return None
+    try:
+        value = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return value if value.tzinfo is not None else None
 
 
 def _forward(raw: JsonValue) -> ForwardSource | None:

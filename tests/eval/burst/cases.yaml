@@ -4,6 +4,8 @@
 #
 # A case replays owner parts on virtual time with the default BURST settings (SPEC §4.3):
 #   parts[]      t             seconds after the first part was received; parts are listed in arrival order
+#                sent_t        optional: when the owner sent it (Telegram's date), on the same scale; below `t`
+#                              when Telegram held it while the bot was away; omitted = unknown (receipt decides)
 #                kind          inbox UpdateKind: text | photo | video | document | audio | voice | link | edited | other
 #                text/caption  the message text, or a file's caption
 #                media_group   album id (Telegram media_group_id)
@@ -838,3 +840,54 @@ cases:
     expect:
       bursts:
         - {parts: [0, 1], closes_t: 7.0, reason: quiet, kinds: [link, text]}
+
+  # --- T36 BUG-1: what Telegram held while the Mac slept arrives in one batch; send times keep it apart ---
+  - id: backlog_texts_for_three_projects_minutes_apart
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, sent_t: -720, kind: text, text: "BonviHR'da login sahifasini tuzat"}
+      - {t: 0, sent_t: -540, kind: text, text: "HRMentor'da hisobot sahifasini qo'sh"}
+      - {t: 0, sent_t: -360, kind: text, text: "Markaz'da testlarini yoz"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 0.0, reason: quiet}
+        - {parts: [1], closes_t: 0.0, reason: quiet}
+        - {parts: [2], closes_t: 2.0, reason: quiet}
+
+  - id: backlog_announced_screenshot_4s_later
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, sent_t: -600, kind: text, text: "BonviHR'da shu xato chiqyapti:"}
+      - {t: 0, sent_t: -596, kind: photo}
+    expect:
+      bursts:
+        - {parts: [0, 1], closes_t: 10.0, reason: quiet}
+
+  - id: backlog_album_with_an_item_dated_3s_later
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, sent_t: -300, kind: photo, media_group: b1, caption: "Bu uchta xatoni tuzat."}
+      - {t: 0, sent_t: -300, kind: photo, media_group: b1}
+      - {t: 0, sent_t: -297, kind: photo, media_group: b1}
+    expect:
+      bursts:
+        - {parts: [0, 1, 2], closes_t: 1.5, reason: quiet}
+
+  - id: backlog_kut_then_a_photo_a_minute_later
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, sent_t: -300, kind: text, text: "kut"}
+      - {t: 0, sent_t: -240, kind: photo}
+    expect:
+      bursts:
+        - {parts: [1], closes_t: 10.0, reason: quiet}
+
+  - id: backlog_then_a_live_text_for_another_project
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, sent_t: -600, kind: text, text: "BonviHR'da login sahifasini tuzat"}
+      - {t: 1, sent_t: 1, kind: text, text: "HRMentor'da testlarini yoz"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 1.0, reason: quiet}
+        - {parts: [1], closes_t: 3.0, reason: quiet}

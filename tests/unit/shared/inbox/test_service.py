@@ -400,6 +400,18 @@ async def test_received_updates_are_read_in_update_id_order_and_attached_once(de
     assert (by_id[21].status, by_id[21].burst_id, by_id[24].status) == ("attached", first_burst, "ignored")
 
 
+async def test_the_owners_send_time_is_stored_and_read_back_with_the_update(dev_deps: DevDeps, fakes: Fakes) -> None:
+    sent = fakes.clock.now() - timedelta(minutes=12)  # Telegram held it while the Mac slept
+    await _accept(dev_deps, make_update(31, sent_at=sent))
+    await _accept(dev_deps, make_update(32, text="selftest", synthetic=True))
+    by_id = {row.update_id: row for row in await _rows(dev_deps)}
+    assert isinstance(by_id[31].payload_json, dict)
+    assert by_id[31].payload_json["sent_at"] == sent.isoformat()
+    assert by_id[31].received_at == fakes.clock.now()
+    waiting = {item.update_id: item for item in await service.list_received_updates(dev_deps, limit=10)}
+    assert (waiting[31].sent_at, waiting[32].sent_at) == (sent, None)
+
+
 async def test_the_queue_survives_a_restart(dev_deps: DevDeps) -> None:
     await _accept(dev_deps, make_update(25))
     await dev_deps.db.dispose()  # the next open is a new process's engine on the same file

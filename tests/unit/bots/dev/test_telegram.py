@@ -1,7 +1,7 @@
 """`bots/dev/telegram.py`: an admitted aiogram message → the `IncomingUpdate` the inbox takes (kind, text, caption,
 the largest photo, album, reply, forward origin), and `runtime`'s small pure helpers."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -95,6 +95,17 @@ def test_an_edit_is_an_edit_and_a_sticker_is_other() -> None:
     sticker = {"file_id": "st", "file_unique_id": "st", "type": "regular", "width": 1, "height": 1}
     sticker |= {"is_animated": False, "is_video": False}
     assert telegram.incoming_of(ORIGIN, _message(sticker=sticker)).kind is UpdateKind.OTHER
+
+
+def test_a_message_carries_when_the_owner_sent_it_and_an_edit_when_he_edited_it() -> None:
+    sent = datetime.fromtimestamp(TELEGRAM_DATE, tz=UTC)
+    update = telegram.incoming_of(ORIGIN, _message(text="BonviHR'da login sahifasini tuzat"))
+    assert update.sent_at == sent
+    assert update.sent_at is not None
+    assert update.sent_at.tzinfo is UTC  # UTC-aware, as every instant here
+    edited = _message(text="tuzatildi", edit_date=TELEGRAM_DATE + 300)
+    assert telegram.incoming_of(ORIGIN, edited, edited=True).sent_at == sent + timedelta(seconds=300)
+    assert telegram.incoming_of(ORIGIN, _message(text="tuzatildi"), edited=True).sent_at == sent  # no edit_date
 
 
 def test_a_forwarded_message_says_where_it_came_from_and_the_owners_own_does_not() -> None:

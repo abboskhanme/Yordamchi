@@ -8,10 +8,8 @@ wake the bot must resume within 60 s, tell "Mac uxlagan edi HH:MM–HH:MM, N ta 
 from datetime import timedelta
 from typing import Final
 
-import pytest
-
 from tests.fakes.agent import ScriptItem, ToolStep, done_result
-from tests.fault.harness import delivered_to, delivery_counts, drain, outbox_ledger, tokens_in, world
+from tests.fault.harness import Script, delivered_to, delivery_counts, drain, outbox_ledger, tokens_in, world
 from yordamchi.core import strings as S
 from yordamchi.core import timefmt
 from yordamchi.ports.agent import AgentInput
@@ -26,8 +24,21 @@ def finishes(message: AgentInput) -> tuple[ScriptItem, ...]:
     return ToolStep("Read", {"file_path": "README.md"}), done_result(f"Natija: {names} bajarildi.")
 
 
+def reports_all_it_was_told() -> Script:
+    """One project's agent whose result names every message it got, as the CLI's last result does once follow-ups
+    were steered into its turn: the backlog's messages, sent minutes apart, are separate bursts (T36 BUG-1), and the
+    later ones join the turn the first one started."""
+    told: list[str] = []
+
+    def script(message: AgentInput) -> tuple[ScriptItem, ...]:
+        told.extend(tokens_in(message.text))
+        return ToolStep("Read", {"file_path": "README.md"}), done_result(f"Natija: {' '.join(told)} bajarildi.")
+
+    return script
+
+
 async def test_a_mac_that_slept_says_so_and_works_through_the_backlog() -> None:
-    async with world("BonviHR", script=finishes) as here:
+    async with world("BonviHR", script=reports_all_it_was_told()) as here:
         bot = await here.start()
         await here.advance(40.0)
         last_tick = bot.app.health.last_tick_at  # the bot's last sign of life before the lid closed
@@ -65,15 +76,8 @@ async def test_a_mac_that_slept_says_so_and_works_through_the_backlog() -> None:
         assert here.telegram.violations == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "T36 BUG-1 after a sleep: the backlog arrives in one getUpdates batch and shared/burst/domain.place() windows "
-        "it by receipt time, so instructions for three projects written minutes apart become one burst and one "
-        "routing question instead of three turns (see test_network.py::test_messages_held_while_offline_stay_apart)."
-    ),
-)
 async def test_a_backlog_for_three_projects_after_a_sleep_goes_to_each_project() -> None:
+    """T36 BUG-1 after a sleep: the backlog arrives in one batch, and each instruction still goes to its project."""
     async with world("BonviHR", "HRMentor", "Markaz", script=finishes) as here:
         await here.start()
         await here.advance(40.0)

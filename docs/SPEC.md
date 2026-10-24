@@ -685,7 +685,7 @@ heartbeat within 60 s → it switches back.
 ### 4.2 Tables
 | Table (feature) | Columns | Keys / indexes | Retention |
 |---|---|---|---|
-| `inbound_updates` (inbox) | `bot` S16, `update_id`, `chat_id`, `user_id`?, `message_id`?, `kind` (text\|voice\|audio\|photo\|video\|document\|link\|edited\|member\|other), `media_group_id`?, `reply_to_message_id`?, `payload_json`✱, `synthetic` bool=false, `status` (received\|attached\|ignored\|failed), `burst_id`?, `received_at` | **UNIQUE(bot, update_id)**; IX(bot, status, update_id) | payload nulled 7 d; row 30 d |
+| `inbound_updates` (inbox) | `bot` S16, `update_id`, `chat_id`, `user_id`?, `message_id`?, `kind` (text\|voice\|audio\|photo\|video\|document\|link\|edited\|member\|other), `media_group_id`?, `reply_to_message_id`?, `payload_json`✱ (+ `sent_at`, Telegram's send time, §4.4), `synthetic` bool=false, `status` (received\|attached\|ignored\|failed), `burst_id`?, `received_at` | **UNIQUE(bot, update_id)**; IX(bot, status, update_id) | payload nulled 7 d; row 30 d |
 | `poll_offsets` (inbox) | `bot` PK, `next_offset`, `updated_at` | — | — |
 | `bursts` (burst) | `bot`, `chat_id`, `status` (open\|holding\|closed\|routed\|merged\|cancelled), `opened_at`, `last_part_at`, `closes_at`, `closed_at`?, `close_reason`?, `input_json`✱?, `route_id`? | IX(bot, status) | 30 d |
 | `transcripts` (voice) | `inbound_update_id` UNIQUE, `status` (pending\|done\|failed), `text`✱?, `provider`, `provider_path`, `model`, `audio_ms`, `latency_ms`, `error_code`?, `created_at`, `done_at`? | — | text 7 d; row 30 d |
@@ -764,6 +764,12 @@ touches a row in a non-terminal state.
 - A voice part being transcribed → HOLD, then +`after_voice_s` after its transcript.
 - "kut" → HOLD up to `hold_max_s`.
 - The hard cap is `max_total_s` from the first part (a "kut" hold is exempt).
+- Placement also reads the owner's clock (T36 BUG-1): what Telegram held while the Mac slept, or the network or the
+  bot was down, arrives in one `getUpdates` batch. A part joins only if its send time (`message.date`, an edit's
+  `edit_date`, whole seconds, so 1 s is allowed) is inside the window the same rules give on the parts' send times;
+  otherwise the burst closes for that reason and the part opens a new one. Receipt time still arms the timer and
+  decides alone for a part without a date (synthetic). Album items and an edit of a part still assembling stay;
+  a burst waiting for a transcript is never closed this way.
 - An interrupt word closes the window at once and is never merged.
 - Burst end → one `TurnInput`. A lone image or file proceeds with a sensible interpretation; on the dev bot,
   a lone error screenshot → `investigate` (read-only diagnosis) of the inferred project.

@@ -242,8 +242,10 @@ async def attach_received_updates(deps: SharedDeps, *, batch: int = ATTACH_BATCH
     """Attach every `received` inbox update, oldest `update_id` first: the live path and the restart path (SPEC §2.7).
 
     Placement is decided by each update's `received_at`, so an update that arrived after its chat's burst would have
-    closed opens a new burst even if the timer never fired (a restart, a slow pass). Returns the bursts that closed on
-    the way (interrupts, and the bursts they cut short) and the voice parts whose transcript must be started.
+    closed opens a new burst even if the timer never fired (a restart, a slow pass); and by when the owner sent it,
+    so a backlog Telegram held while the bot was away, which arrives in one batch, stays apart (`domain.place`).
+    Returns the bursts that closed on the way (interrupts, the bursts they cut short, the bursts a later-sent part
+    ended) and the voice parts whose transcript must be started.
     """
     snap = await settings.snapshot(deps)
     ws, hold_reaction = domain.window_settings(snap), snap[defaults.UI_HOLD_REACTION]

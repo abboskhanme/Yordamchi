@@ -2,7 +2,8 @@
 
 Each case replays through the real intake and the real burst service, on a real SQLite file in `tmp_path` and on
 virtual time (FakeClock), the way the burst loop (`burst.service.run_bursts`) runs it:
-- a part is accepted by `inbox.accept_update` at its `t`, then a burst pass attaches it;
+- a part is accepted by `inbox.accept_update` at its `t`, sent by the owner at its `sent_t` (Telegram's date, if
+  given), then a burst pass attaches it;
 - a voice part's STT result comes back through `burst.service.record_transcript` at its `transcript_t`;
 - between events the clock moves to the earliest `closes_at`, where the timer pass (`close_due_bursts`) runs.
 At one instant, parts arrive first (in `update_id` order), then transcripts, then the timer pass runs, all in one
@@ -100,6 +101,7 @@ MAX_PASSES: Final = 1_000  # a guard against a replay that never settles, not a 
 class Part:
     t: float
     kind: UpdateKind
+    sent_t: float | None = None
     text: str | None = None
     caption: str | None = None
     media_group: str | None = None
@@ -151,6 +153,7 @@ def _part(raw: object, where: str) -> Part:
         where,
         required={"t", "kind"},
         optional={
+            "sent_t",
             "text",
             "caption",
             "media_group",
@@ -169,6 +172,7 @@ def _part(raw: object, where: str) -> Part:
     part = Part(
         t=as_float(data["t"], f"{where} t"),
         kind=kind,
+        sent_t=_optional_float(data.get("sent_t"), f"{where} sent_t"),
         text=as_optional_str(data.get("text"), f"{where} text"),
         caption=as_optional_str(data.get("caption"), f"{where} caption"),
         media_group=as_optional_str(data.get("media_group"), f"{where} media_group"),
@@ -179,6 +183,9 @@ def _part(raw: object, where: str) -> Part:
         message_id=_optional_int(data.get("message_id"), f"{where} message_id"),
         reply_to=_optional_int(data.get("reply_to"), f"{where} reply_to"),
     )
+    if part.sent_t is not None and part.sent_t > part.t:
+        msg = f"{where}: the owner sends a message before the bot receives it (sent_t <= t)"
+        raise CaseFileError(msg)
     is_voice = kind is UpdateKind.VOICE
     if is_voice != (part.duration_s is not None):
         msg = f"{where}: duration_s is required on a voice part and only there"
@@ -289,8 +296,8 @@ class Replay:
         return round((moment - self.start).total_seconds(), 3)
 
 
-def _update(index: int, part: Part) -> IncomingUpdate:
-    """Part `index` as the handler builds it: update ids 1, 2, … in arrival order."""
+def _update(index: int, part: Part, start: datetime) -> IncomingUpdate:
+    """Part `index` as the handler builds it: update ids 1, 2, … in arrival order; `sent_t` counts from `start`."""
     update_id = index + 1
     attachment = None
     if part.kind in _MIME:
@@ -305,7 +312,10 @@ def _update(index: int, part: Part) -> IncomingUpdate:
         caption=part.caption,
         attachment=attachment,
     )
-    return dataclasses.replace(update, media_group_id=part.media_group, reply_to_message_id=part.reply_to)
+    sent_at = None if part.sent_t is None else start + timedelta(seconds=part.sent_t)
+    return dataclasses.replace(
+        update, media_group_id=part.media_group, reply_to_message_id=part.reply_to, sent_at=sent_at
+    )
 
 
 def _events(case: Case) -> deque[_Event]:
@@ -323,10 +333,10 @@ async def _advance_to(clock: FakeClock, moment: datetime) -> None:
     assert clock.now() >= moment
 
 
-async def _apply(case: Case, event: _Event, deps: DevDeps) -> BurstEvents:
+async def _apply(case: Case, event: _Event, deps: DevDeps, start: datetime) -> BurstEvents:
     part = case.parts[event.index]
     if event.order == 0:
-        update = _update(event.index, part)
+        update = _update(event.index, part, start)
         await inbox.accept_update(deps, origin_of(update), update)
         return await service.attach_received_updates(deps)
     assert part.transcript is not None
@@ -368,7 +378,7 @@ async def replay(case: Case, deps: DevDeps, clock: FakeClock) -> Replay:
             instant = queue[0].at
             events = BurstEvents()
             while queue and queue[0].at == instant:
-                events += await _apply(case, queue.popleft(), deps)
+                events += await _apply(case, queue.popleft(), deps, start)
             events += await service.close_due_bursts(deps)
         else:
             assert due is not None

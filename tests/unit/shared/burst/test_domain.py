@@ -368,6 +368,107 @@ def test_the_self_test_stands_alone_and_leaves_the_owners_burst_alone() -> None:
     assert placement == domain.Placement(Into.ALONE, selftest, close_alone=CloseReason.SYNTHETIC)
 
 
+# --- send times: what Telegram held while the bot was away (T36 BUG-1) ---------------------------------------------
+# The Mac slept, or the network or the bot was down: Telegram hands every held update over in one `getUpdates` batch,
+# so they are all received in the same second, BACKLOG_S after the owner sent the first one.
+BACKLOG_S = 1200.0
+
+
+def test_texts_sent_3_minutes_apart_but_received_in_the_same_second_are_two_bursts() -> None:
+    first = make_part(1, at_s=BACKLOG_S, sent_s=0, text="BonviHR'da login sahifasini tuzat")
+    second = make_part(2, at_s=BACKLOG_S + 0.01, sent_s=180, text="HRMentor'da hisobot sahifasini qo'sh")
+    assert domain.window([first], WS).admits(second.at)  # by receipt alone it would join
+    assert domain.place(second, [first], WS) == domain.Placement(Into.NEW, second, close_current=CloseReason.QUIET)
+
+
+def test_a_text_and_its_screenshot_sent_4_s_apart_are_one_burst() -> None:
+    announced = make_part(1, at_s=BACKLOG_S, sent_s=0, text="BonviHR'da shu xato chiqyapti:")
+    screenshot = make_part(2, at_s=BACKLOG_S + 0.01, sent_s=4)
+    assert domain.place(screenshot, [announced], WS) == domain.Placement(Into.CURRENT, screenshot)
+    screenshot_first = make_part(1, at_s=BACKLOG_S, sent_s=0)
+    explained = make_part(2, at_s=BACKLOG_S + 0.01, sent_s=4, text="shu xatoni tuzat")
+    assert domain.place(explained, [screenshot_first], WS).into is Into.CURRENT
+
+
+def test_an_album_is_one_burst_even_when_its_items_are_dated_seconds_apart() -> None:
+    album = (
+        make_part(1, at_s=BACKLOG_S, sent_s=0, caption="Bu uchta xatoni tuzat.", media_group_id="g1"),
+        make_part(2, at_s=BACKLOG_S + 0.01, sent_s=0, media_group_id="g1"),
+    )
+    assert domain.place(album[1], album[:1], WS).into is Into.CURRENT
+    slow_upload = make_part(3, at_s=BACKLOG_S + 0.02, sent_s=3, media_group_id="g1")  # past the 1.5 s album gap
+    assert domain.place(slow_upload, album, WS).into is Into.CURRENT
+    next_album = make_part(4, at_s=BACKLOG_S + 0.03, sent_s=180, media_group_id="g2")
+    assert domain.place(next_album, (*album, slow_upload), WS).into is Into.NEW
+
+
+def test_a_part_without_a_telegram_date_is_placed_by_its_receipt_time() -> None:
+    """A synthetic update has no send time; nor has a part stored before send times were kept."""
+    assert make_part(9, text="selftest", synthetic=True).sent_at is None
+    dated = [make_part(1, at_s=BACKLOG_S, sent_s=0, text="login sahifasini tuzat")]
+    undated = make_part(2, at_s=BACKLOG_S + 1, text="registratsiyani ham")
+    assert domain.place(undated, dated, WS).into is Into.CURRENT
+    late = make_part(2, at_s=BACKLOG_S + WS.after_text_s + 0.5, text="registratsiyani ham")
+    assert domain.place(late, dated, WS) == domain.Placement(Into.NEW, late, close_current=CloseReason.QUIET)
+    # A dated part after an undated one: two clocks are never compared, so receipt decides.
+    after_undated = make_part(3, at_s=BACKLOG_S + 1.5, sent_s=600, text="testlarini ham yoz")
+    assert domain.place(after_undated, [*dated, undated], WS).into is Into.CURRENT
+
+
+def test_whole_second_dates_never_split_what_live_traffic_joins() -> None:
+    """Live, a send time is the receipt time cut to the second: 1.1 s apart can read as 2 s."""
+    complete = make_part(1, at_s=0.95, sent_s=0, text="BonviHR qanday ishlayapti?")  # quiet: after_complete_text_s
+    following = make_part(2, at_s=2.05, sent_s=2, text="login sahifasi ham")
+    assert domain.place(following, [complete], WS).into is Into.CURRENT
+
+
+def test_kut_holds_for_what_he_sent_within_hold_max_and_no_longer() -> None:
+    kut = domain.place(make_part(1, at_s=BACKLOG_S, sent_s=0, text="kut"), [], WS).part
+    assert kut.role is PartRole.HOLD
+    photo = make_part(2, at_s=BACKLOG_S + 0.01, sent_s=60)
+    assert domain.place(photo, [kut], WS).into is Into.CURRENT
+    later = make_part(2, at_s=BACKLOG_S + 0.01, sent_s=WS.hold_max_s + 60)
+    assert domain.place(later, [kut], WS) == domain.Placement(Into.NEW, later, close_current=CloseReason.HOLD_EXPIRED)
+
+
+def test_the_hard_cap_counts_on_the_owners_clock_too() -> None:
+    every_2_s = [make_part(i + 1, at_s=BACKLOG_S, sent_s=2 * i, text="yana bir narsa") for i in range(16)]  # 0–30 s
+    past_the_cap = make_part(17, at_s=BACKLOG_S, sent_s=32, text="yana bir narsa")
+    assert domain.place(past_the_cap, every_2_s, WS) == domain.Placement(
+        Into.NEW, past_the_cap, close_current=CloseReason.CAP
+    )
+
+
+def test_an_edit_replaces_its_message_in_the_assembling_burst_however_late_he_made_it() -> None:
+    original = make_part(1, at_s=BACKLOG_S, sent_s=0, text="login tuzat", message_id=7)
+    edit = make_part(
+        2, at_s=BACKLOG_S + 0.01, sent_s=300, kind=UpdateKind.EDITED, text="login sahifasini", message_id=7
+    )
+    assert domain.place(edit, [original], WS).into is Into.EDIT
+    other = make_part(3, at_s=BACKLOG_S + 0.02, sent_s=300, kind=UpdateKind.EDITED, text="boshqa", message_id=99)
+    assert domain.place(other, [original], WS).into is Into.NEW
+
+
+def test_a_transcript_counts_as_long_after_the_voice_note_as_it_really_took() -> None:
+    note = make_part(1, at_s=0.3, sent_s=0, kind=UpdateKind.VOICE, duration_s=5)
+    [note] = transcribed([note], 1, "login sahifasini tuzat", at_s=3.3)  # 3 s of STT
+    right_after = make_part(2, at_s=4.2, sent_s=4, text="registratsiyani ham")
+    assert domain.place(right_after, [note], WS).into is Into.CURRENT
+    # From a backlog: transcribed once the bot was back, so by receipt the window is still open.
+    held = make_part(1, at_s=BACKLOG_S, sent_s=0, kind=UpdateKind.VOICE, duration_s=5)
+    [held] = transcribed([held], 1, "login sahifasini tuzat", at_s=BACKLOG_S + 3)
+    live = make_part(2, at_s=BACKLOG_S + 4, sent_s=BACKLOG_S + 4, text="registratsiyani ham")
+    assert domain.window([held], WS).admits(live.at)
+    assert domain.place(live, [held], WS) == domain.Placement(Into.NEW, live, close_current=CloseReason.QUIET)
+
+
+def test_a_burst_still_waiting_for_a_transcript_is_never_closed_by_a_send_time() -> None:
+    """Closing it would hand the turn a voice note nobody has read: what follows joins it, as the window holds."""
+    note = make_part(1, at_s=BACKLOG_S, sent_s=0, kind=UpdateKind.VOICE, duration_s=5)
+    later = make_part(2, at_s=BACKLOG_S + 0.01, sent_s=180, text="HRMentor'da hisobot sahifasini qo'sh")
+    assert domain.place(later, [note], WS) == domain.Placement(Into.CURRENT, later)
+
+
 # --- transcripts ----------------------------------------------------------------------------------------------------
 def test_a_short_voice_stop_leaves_the_burst_which_closes_at_once() -> None:
     photo = make_part(1, at_s=0)
@@ -561,6 +662,18 @@ def test_parts_round_trip_and_every_content_string_is_scrubbed() -> None:
     assert isinstance(second, dict)
     assert isinstance(first["content"], dict)
     assert (first["content"]["caption"], second["transcript_text"], first["kind"]) == ("IZOH", "SALOM", "photo")
+
+
+def test_a_send_time_is_stored_with_its_part_and_a_part_without_one_keeps_its_old_shape() -> None:
+    dated = make_part(1, at_s=BACKLOG_S, sent_s=0, text="login sahifasini tuzat")
+    stored = domain.parts_json([dated, make_part(2, at_s=BACKLOG_S)], str)
+    assert domain.parts_from_json(stored) == (dated, make_part(2, at_s=BACKLOG_S))
+    assert isinstance(stored, list)
+    first, undated = stored
+    assert isinstance(first, dict)
+    assert isinstance(undated, dict)
+    assert first["sent_at"] == at(0).isoformat()
+    assert "sent_at" not in undated  # as every part was stored before send times were kept
 
 
 def test_content_never_shows_in_a_repr() -> None:

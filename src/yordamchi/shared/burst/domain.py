@@ -16,6 +16,11 @@ Every instant comes from the parts (when each arrived, when its transcript came 
 computes the windows the live path did (SPEC §2.7). SPEC §4.4 writes the rule as `window(parts, now, snap) →
 closes_at | HOLD`: here `Window.hold` is the HOLD, `Window.closes_at` is its ceiling, and the caller compares
 `closes_at` with now (`Window.is_due`).
+
+There are two clocks. The bot's (`BurstPart.at`, when a part was received) arms the timer. The owner's
+(`BurstPart.sent_at`, Telegram's date) also decides placement: what Telegram held while the Mac slept, or the network
+or the bot was down, arrives in one batch, so only the send times still tell messages written minutes apart (T36
+BUG-1). Live, the two agree to within Telegram's whole second.
 """
 
 import itertools
@@ -34,6 +39,8 @@ from yordamchi.shared.settings.domain import Snapshot
 ROW_KEEP: Final = timedelta(days=30)  # SPEC §4.2 `bursts`: 30 d
 # Telegram reports a voice note's duration in whole seconds, so its recording may have begun up to 1 s earlier.
 DURATION_PRECISION: Final = timedelta(seconds=1)
+# Telegram dates a message in whole seconds, so two send times may read up to 1 s further apart than they were.
+DATE_PRECISION: Final = timedelta(seconds=1)
 # SPEC §3.2.5: a voice note counts as an interrupt only if its transcript is this short.
 VOICE_INTERRUPT_MAX_WORDS: Final = 4
 # Parts that wait for a transcript from `shared/voice` (T19): the window holds until it arrives.
@@ -98,6 +105,7 @@ class BurstPart:
     update_id: int
     kind: UpdateKind
     at: datetime  # when the update was received
+    sent_at: datetime | None = None  # when the owner sent it (Telegram's date); None: unknown, `at` decides alone
     content: Content = field(default_factory=Content)
     message_id: int | None = None
     media_group_id: str | None = None
@@ -142,6 +150,7 @@ def part_from_update(update: StoredUpdate) -> BurstPart:
         update_id=update.update_id,
         kind=update.kind,
         at=update.received_at,
+        sent_at=update.sent_at,
         content=update.content,
         message_id=update.message_id,
         media_group_id=update.media_group_id,
@@ -370,6 +379,44 @@ def _edits(part: BurstPart, parts: Sequence[BurstPart]) -> bool:
     )
 
 
+def _as_sent(part: BurstPart) -> BurstPart:
+    """The part on the owner's clock: received the instant he sent it, and its transcript back as long after that as
+    it really took (STT time is the bot's, not a pause of his). A part with no send time stays as it is."""
+    if part.sent_at is None:
+        return part
+    delay = part.at - part.sent_at
+    transcript_at = None if part.transcript_at is None else part.transcript_at - delay
+    return replace(part, at=part.sent_at, transcript_at=transcript_at)
+
+
+def _stays_with(part: BurstPart, assembling: Sequence[BurstPart]) -> bool:
+    """An item of an album the burst holds, or an edit of a message it holds: a send time never cuts it off."""
+    group = part.media_group_id
+    return (group is not None and any(item.media_group_id == group for item in assembling)) or _edits(part, assembling)
+
+
+def _ended(
+    part: BurstPart, assembling: Sequence[BurstPart], current: Window, settings: WindowSettings
+) -> CloseReason | None:
+    """Why the assembling burst, whose window is `current`, ended before `part`; None while `part` belongs to it.
+
+    By the bot's clock first: `part` was received after the window (a late timer, a restart). Then by the owner's,
+    when every part has a send time (two clocks are never compared): he sent `part` after the window his own send
+    times give, allowing Telegram's whole second, however close together the two arrived. Never by the owner's clock
+    for an album item or an edit of a part the burst holds, nor while the burst waits for a transcript: it keeps its
+    window rather than close on a voice note nobody has read.
+    """
+    if not current.admits(part.at):
+        return current.reason
+    sent_at = part.sent_at
+    if sent_at is None or current.hold is HoldReason.TRANSCRIPT or _stays_with(part, assembling):
+        return None
+    if any(item.sent_at is None for item in assembling):
+        return None
+    sent = window([_as_sent(item) for item in assembling], settings)
+    return None if sent.admits(sent_at - DATE_PRECISION) else sent.reason
+
+
 def place(part: BurstPart, assembling: Sequence[BurstPart], settings: WindowSettings) -> Placement:
     """Where a newly received part goes, given the parts of the chat's assembling burst (empty if there is none).
 
@@ -382,13 +429,15 @@ def place(part: BurstPart, assembling: Sequence[BurstPart], settings: WindowSett
       voice note.
     - A part received after the assembling burst's window ended opens a new burst, and the old one closes for its
       own reason first: the rule decides by arrival time, so a late timer or a restart changes nothing.
+    - So does a part the owner sent after that window by his own send times, though it arrived inside it: Telegram
+      hands over what it held while the bot was away in one batch (`_ended`). Album items stay together.
     - An edit of a message in the assembling burst replaces that part; any other part joins.
     """
     if part.synthetic:
         return Placement(Into.ALONE, part, close_alone=CloseReason.SYNTHETIC)
     current = window(assembling, settings) if assembling else None
-    still_open = current is not None and current.admits(part.at)
-    ended = current.reason if current is not None and not still_open else None
+    ended = None if current is None else _ended(part, assembling, current, settings)
+    still_open = current is not None and ended is None
     interrupt = interrupt_of_part(part)
     if interrupt is InterruptKind.HOLD:
         held = replace(part, role=PartRole.HOLD)
@@ -665,7 +714,7 @@ def _instant(value: datetime | None) -> JsonValue:
 
 
 def _part_json(part: BurstPart, scrub: Callable[[str], str]) -> JsonObject:
-    return {
+    stored: JsonObject = {
         "update_id": part.update_id,
         "kind": part.kind.value,
         "at": _instant(part.at),
@@ -679,6 +728,9 @@ def _part_json(part: BurstPart, scrub: Callable[[str], str]) -> JsonObject:
         "transcript_text": None if part.transcript_text is None else scrub(part.transcript_text),
         "transcript_at": _instant(part.transcript_at),
     }
+    if part.sent_at is not None:  # only when known: a part without one keeps the shape it always had
+        stored["sent_at"] = _instant(part.sent_at)
+    return stored
 
 
 def parts_json(parts: Iterable[BurstPart], scrub: Callable[[str], str]) -> JsonValue:
@@ -727,6 +779,7 @@ def _part_from_json(raw: JsonValue) -> BurstPart | None:
         update_id=update_id,
         kind=kind,
         at=at,
+        sent_at=_datetime(raw.get("sent_at")),  # None in a part stored before send times were kept
         content=inbox.content_from_json(raw.get("content")),
         message_id=_int(raw.get("message_id")),
         media_group_id=_str(raw.get("media_group_id")),

@@ -8,7 +8,8 @@ bot heard back:
   (the watchdog must not restart it); polling resumes ≤ 60 s after the network is back; what the owner wrote and what
   finished meanwhile flows; "Internet uzilgan edi HH:MM–HH:MM" is told once.
 
-Two bugs found here are kept as strict xfails, so they turn into failures the day they are fixed.
+Two bugs were found here. BUG-1 (a held backlog joined into one burst) is fixed and its test passes; BUG-2 is
+kept as a strict xfail, so it turns into a failure the day it is fixed.
 """
 
 import json
@@ -234,17 +235,9 @@ async def test_a_ten_minute_outage_is_offline_not_dead_and_everything_flows_afte
         assert here.telegram.violations == []
 
 
-# --- bugs found here, kept as strict xfails ------------------------------------------------------------------------
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "T36 BUG-1: updates Telegram held while the bot was offline (or down, or the Mac asleep) all arrive in one "
-        "getUpdates batch, and shared/burst/domain.place() windows them by receipt time (inbound_updates."
-        "received_at), so instructions the owner sent minutes apart, to different projects, become one burst and one "
-        "'X'gami yoki Y'gami?' question (or go to one project). Telegram's message.date is never read."
-    ),
-)
+# --- bugs found here (BUG-1 fixed; BUG-2 a strict xfail) -----------------------------------------------------------
 async def test_messages_held_while_offline_stay_apart() -> None:
+    """T36 BUG-1: what Telegram held arrives in one getUpdates batch; the owner's send times keep it apart."""
     async with world("BonviHR", "HRMentor", script=finishes) as here:
         await here.start()
         await here.advance(3.0)
@@ -255,6 +248,8 @@ async def test_messages_held_while_offline_stay_apart() -> None:
         here.say("HRMentor'da hisobot sahifasini qo'sh #02")
         await here.advance(120.0, step=1.0)
         here.telegram.down = False
+        # `drain` only sees what reached the bot: first let polling resume and take the backlog in.
+        await here.within(RESUME_WITHIN_S + 30, lambda: not here.telegram.updates, what="the held updates fetched")
         await drain(here)
         assert delivered_to(here) == {"#01": {"BonviHR"}, "#02": {"HRMentor"}}
         assert not here.telegram.posted("gami?")

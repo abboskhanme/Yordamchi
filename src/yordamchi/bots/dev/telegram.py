@@ -10,6 +10,7 @@ There is no command handler: `/holat` and the other typed aliases are text like 
 `bots/dev/intents.py` once their burst closes. Nothing here ever sends a keyboard or a menu (D8).
 """
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from aiogram import Router
@@ -53,11 +54,19 @@ def _attachment(message: Message) -> tuple[UpdateKind, Attachment] | None:  # no
     return None
 
 
+def _sent_at(message: Message, *, edited: bool) -> datetime:
+    """When the owner sent it, by Telegram's clock (whole seconds): an edit's `edit_date`, else `date`. aiogram gives
+    `date` as an aware datetime and `edit_date` as Unix seconds."""
+    if edited and message.edit_date is not None:
+        return datetime.fromtimestamp(message.edit_date, tz=UTC)
+    return message.date.astimezone(UTC)
+
+
 def incoming_of(origin: OwnerOrigin, message: Message, *, edited: bool = False) -> IncomingUpdate:
-    """One admitted message (or its edit) as the inbox takes it: kind, text, caption, attachment, album, reply, and
-    where it was forwarded from (`inbox.domain.forward_of`: someone else's words are material, never a command). A
-    message with neither words nor a file we read (a sticker, a location) is `other`. Anything but the dev bot's minted
-    `OwnerOrigin` raises before anything is read (`require_owner_origin`)."""
+    """One admitted message (or its edit) as the inbox takes it: kind, text, caption, attachment, album, reply, when
+    the owner sent it (`_sent_at`), and where it was forwarded from (`inbox.domain.forward_of`: someone else's words
+    are material, never a command). A message with neither words nor a file we read (a sticker, a location) is
+    `other`. Anything but the dev bot's minted `OwnerOrigin` raises before anything is read (`require_owner_origin`)."""
     origin = require_owner_origin(origin, BotName.DEV)
     found = _attachment(message)
     text = message.text
@@ -83,6 +92,7 @@ def incoming_of(origin: OwnerOrigin, message: Message, *, edited: bool = False) 
         media_group_id=message.media_group_id,
         reply_to_message_id=None if reply is None else reply.message_id,
         forward=inbox_domain.forward_of(message.model_dump(mode="json")),
+        sent_at=_sent_at(message, edited=edited),
     )
 
 
