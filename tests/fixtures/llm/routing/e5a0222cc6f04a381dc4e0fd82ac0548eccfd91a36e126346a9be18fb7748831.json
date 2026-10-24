@@ -1,0 +1,22 @@
+{
+  "case": "context_running",
+  "duration_ms": 2259,
+  "latency_ms": 2260,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.78,
+        "project_id": "OvozYoz"
+      }
+    ],
+    "confidence": 0.78,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "OvozYoz"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"OvozYoz\",\"candidates\":[{\"project_id\":\"OvozYoz\",\"confidence\":0.78}],\"confidence\":0.78,\"needs_fresh\":false,\"is_new_project\":false}"
+}

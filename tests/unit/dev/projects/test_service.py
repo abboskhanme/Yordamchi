@@ -65,7 +65,7 @@ def _owner_layout(root: Path, tmp_path: Path) -> None:
     for name in WUNDERKIND:
         make_project_folder(root, name, git_dir=True)
     make_project_folder(root, "BonviCall Clone Archive", git_dir=True)
-    make_project_folder(root, "MegaPlus ERP", spec="# SPEC\n\nERP for a building-materials trader.\n")
+    make_project_folder(root, "MegaPlus ERP", spec="# SPEC\n\n## 1. Goal\n\nERP for a building-materials trader.\n")
     make_project_folder(root, "GasStation")  # empty: still a project
     (root / "BONVI_SERVER.md").write_text("# server notes\n", encoding="utf-8")
     (root / "WunderkindLC.zip").write_bytes(b"PK\x03\x04")

@@ -93,7 +93,7 @@ def test_each_case_is_well_formed_and_never_a_reply(case: dict[str, object]) -> 
     expect = case["expect"]
     assert isinstance(expect, dict)
     assert len(expect) == 1
-    assert set(expect) <= {"project", "ask", "no_project"}
+    assert set(expect) <= {"project", "ask", "asks", "no_project"}
     if "intent" in case:
         assert case["intent"] in {intent.value for intent in domain.LLM_INTENTS}
     assert "reply" not in str(case).lower()  # UC-10: the eval has no replies

@@ -1,0 +1,22 @@
+{
+  "case": "context_tests_passed_running",
+  "duration_ms": 2372,
+  "latency_ms": 2373,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.4,
+        "project_id": "BrokerApp"
+      }
+    ],
+    "confidence": 0,
+    "intent": "report_project",
+    "is_new_project": false,
+    "needs_fresh": true,
+    "project_id": null
+  },
+  "text": "{\"intent\":\"report_project\",\"project_id\":null,\"candidates\":[{\"project_id\":\"BrokerApp\",\"confidence\":0.4}],\"confidence\":0,\"needs_fresh\":true,\"is_new_project\":false}"
+}

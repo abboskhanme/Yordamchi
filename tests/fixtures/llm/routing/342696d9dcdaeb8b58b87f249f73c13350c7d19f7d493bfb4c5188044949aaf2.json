@@ -1,0 +1,22 @@
+{
+  "case": "context_still_broken",
+  "duration_ms": 1844,
+  "latency_ms": 1845,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.8,
+        "project_id": "BonviCall"
+      }
+    ],
+    "confidence": 0.8,
+    "intent": "report_project",
+    "is_new_project": false,
+    "needs_fresh": true,
+    "project_id": "BonviCall"
+  },
+  "text": "{\"intent\":\"report_project\",\"project_id\":\"BonviCall\",\"candidates\":[{\"project_id\":\"BonviCall\",\"confidence\":0.8}],\"confidence\":0.8,\"needs_fresh\":true,\"is_new_project\":false}"
+}

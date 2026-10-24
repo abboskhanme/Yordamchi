@@ -1,0 +1,22 @@
+{
+  "case": "explicit_bonvifinance",
+  "duration_ms": 1505,
+  "latency_ms": 1506,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.95,
+        "project_id": "BonviFinance"
+      }
+    ],
+    "confidence": 0.95,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "BonviFinance"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"BonviFinance\",\"candidates\":[{\"project_id\":\"BonviFinance\",\"confidence\":0.95}],\"confidence\":0.95,\"needs_fresh\":false,\"is_new_project\":false}"
+}

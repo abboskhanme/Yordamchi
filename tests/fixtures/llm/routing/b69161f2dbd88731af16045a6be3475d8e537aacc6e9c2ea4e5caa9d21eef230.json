@@ -1,0 +1,22 @@
+{
+  "case": "explicit_archive_exact",
+  "duration_ms": 2387,
+  "latency_ms": 2388,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.9,
+        "project_id": "BonviCall Clone Archive"
+      }
+    ],
+    "confidence": 0.9,
+    "intent": "investigate",
+    "is_new_project": false,
+    "needs_fresh": true,
+    "project_id": "BonviCall Clone Archive"
+  },
+  "text": "{\"intent\":\"investigate\",\"project_id\":\"BonviCall Clone Archive\",\"candidates\":[{\"project_id\":\"BonviCall Clone Archive\",\"confidence\":0.9}],\"confidence\":0.9,\"needs_fresh\":true,\"is_new_project\":false}"
+}

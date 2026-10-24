@@ -15,6 +15,15 @@ from yordamchi.persistence.uow import Database
 from yordamchi.personal.deps import PersonalDeps
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--record-llm",
+        action="store_true",
+        default=False,
+        help="with -m live: ask the real model and rewrite the replay fixtures in tests/fixtures/llm/<suite>/",
+    )
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if item.get_closest_marker("live") is not None:

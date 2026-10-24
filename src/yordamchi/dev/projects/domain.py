@@ -8,7 +8,8 @@ this module decides:
    entries, not symlinks;
 2. the flags: `is_worktree` (a `.git` file, or `-wt-` in the name) and `is_archive_name` (`… Archive`, `backup`,
    `… old`, `… copy`). Both make a project answer only to its exact name, until the owner unarchives it;
-3. the description: the owner's text, else the first prose paragraph of README, CLAUDE.md or the SPEC;
+3. the description: the owner's text, else the first real prose of README, CLAUDE.md, the SPEC's goal section or
+   PLAN.md (never a metadata, badge, link or heading line), topped up from the next source when it is thin;
 4. the deploy branches (`deploy_branches`, `platform_deploy`): which pushes start a CI workflow that deploys, plus the
    default branch of a project wired to a platform's Git integration (Vercel, Netlify, Render, Railway, App Engine),
    which deploys with no workflow file at all. An unreadable workflow makes every branch and tag count (fail closed:
@@ -47,7 +48,7 @@ GIT_TIMEOUT_S: Final = 10.0
 GIT_CONCURRENCY: Final = 8  # projects asked at once during a scan (NFR-CAP-01: ≥ 40 projects)
 ID_MAX: Final = 64  # SPEC §4.2: `id` S64
 DOC_READ_BYTES: Final = 64 * 1024  # of each README / CLAUDE.md / SPEC
-DESCRIPTION_MAX: Final = 200  # a description built from a file
+DESCRIPTION_MAX: Final = 300  # a description built from files: two or three sentences
 OWNER_DESCRIPTION_MAX: Final = 300
 LIST_DESCRIPTION_MAX: Final = 80  # per line of `loyihalar`
 ALIAS_MIN: Final = 2
@@ -114,6 +115,7 @@ class DescriptionSource(StrEnum):
     README = "readme"
     CLAUDE_MD = "claude_md"
     SPEC = "spec"
+    PLAN = "plan"
     OWNER = "owner"
     NONE = "none"
 
@@ -123,7 +125,10 @@ DOC_FILES: Final[tuple[tuple[DescriptionSource, tuple[str, ...]], ...]] = (
     (DescriptionSource.README, ("README.md", "README.markdown", "README.rst", "README.txt", "README")),
     (DescriptionSource.CLAUDE_MD, ("CLAUDE.md",)),
     (DescriptionSource.SPEC, ("docs/SPEC.md", "SPEC.md")),
+    (DescriptionSource.PLAN, ("PLAN.md", "docs/PLAN.md")),
 )
+TOP_UP_CHARS: Final = 80  # a description this short takes the next source's text too ("HR tizimi." + PLAN's goal)
+GOAL_ONLY: Final = frozenset({DescriptionSource.SPEC, DescriptionSource.PLAN})  # their first prose is rarely the goal
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +169,105 @@ def shorten(text: str, limit: int) -> str:
     return cut.rstrip(" ,;:—-") + "…"
 
 
+_HEADING: Final = re.compile(r"^(#{1,6})\s")
+_KEY: Final = re.compile(r"^([^:]{1,40}):(?:\s|$)")  # "Status: …", "Inputs (authority order): …"
+_DOC_PATH: Final = re.compile(r"[\w./-]+\.md\b", re.IGNORECASE)  # "To'liq reja: PLAN.md", "Read CLAUDE.md first"
+_SENTENCES: Final = re.compile(r"(?<=[.!?])\s+")
+_LINK_ONLY_REST: Final = re.compile(r"[\s·|•,;:()\[\]\-–—>/]+")
+_WORDS: Final = re.compile(r"[^\W\d_][\w'-]*")
+# A line opening with one of these words and a colon is about the document, not the project.
+_METADATA_KEYS: Final = frozenset(
+    {
+        "author",
+        "authors",
+        "authority",
+        "date",
+        "hujjat",
+        "holat",
+        "ijrochi",
+        "input",
+        "inputs",
+        "joylashuv",
+        "license",
+        "muallif",
+        "owner",
+        "reviewer",
+        "reviewers",
+        "sana",
+        "status",
+        "tags",
+        "updated",
+        "version",
+        "versiya",
+    }
+)
+_PURPOSE_KEYS: Final = frozenset({"goal", "maqsad", "mission", "purpose", "summary", "цель"})  # the label goes
+# A SPEC says what its project is for under one of these headings ("1. Goal", "1.1 Summary", "Bu nima").
+_PURPOSE_HEADINGS: Final = frozenset(
+    {
+        "about",
+        "goal",
+        "goals",
+        "introduction",
+        "maqsad",
+        "maqsadi",
+        "nima",
+        "overview",
+        "purpose",
+        "summary",
+        "umumiy",
+        "xulosa",
+        "назначение",
+        "обзор",
+        "описание",
+        "цель",
+    }
+)
+# What a title calls the document itself ("— Technical specification (release 1)", "— Claude uchun kontekst").
+_DOC_WORDS: Final = frozenset(
+    {
+        "and",
+        "architecture",
+        "arxitektura",
+        "claude",
+        "context",
+        "document",
+        "draft",
+        "for",
+        "hujjat",
+        "iteration",
+        "kontekst",
+        "loyiha",
+        "mvp",
+        "notes",
+        "of",
+        "overview",
+        "plan",
+        "project",
+        "qat'iy",
+        "readme",
+        "reja",
+        "rejasi",
+        "release",
+        "rules",
+        "shartnoma",
+        "spec",
+        "specification",
+        "system",
+        "technical",
+        "texnik",
+        "the",
+        "tizim",
+        "tizimi",
+        "uchun",
+        "va",
+        "version",
+    }
+)
+
+
 def _paragraphs(markdown: str) -> list[list[str]]:
+    """Blocks of non-blank lines outside code fences; a `#` heading is always a block of its own."""
     text = markdown.replace("\r\n", "\n").replace("\r", "\n").lstrip("﻿")
     text = _HTML_COMMENT.sub("", _FRONT_MATTER.sub("", text, count=1))
     paragraphs: list[list[str]] = []
@@ -176,8 +279,14 @@ def _paragraphs(markdown: str) -> list[list[str]]:
             line = ""  # noqa: PLW2901  # a fence ends the paragraph before it
         if fenced:
             continue
-        if line.strip():
-            current.append(line.strip())
+        stripped = line.strip()
+        if stripped and _HEADING.match(stripped):
+            if current:
+                paragraphs.append(current)
+            paragraphs.append([stripped])
+            current = []
+        elif stripped:
+            current.append(stripped)
         elif current:
             paragraphs.append(current)
             current = []
@@ -186,48 +295,160 @@ def _paragraphs(markdown: str) -> list[list[str]]:
     return paragraphs
 
 
+def _key(line: str) -> str | None:
+    """The first word of a "Key: value" line's key, case-folded: "Status: draft" → "status"."""
+    match = _KEY.match(line)
+    words = _WORDS.findall(match.group(1).casefold()) if match is not None else []
+    return words[0] if words else None
+
+
+def _without_pointers(text: str) -> str:
+    """`text` without the sentences that only point at other files ("To'liq reja va bosqichlar: PLAN.md")."""
+    return " ".join(sentence for sentence in _SENTENCES.split(text) if not _DOC_PATH.search(sentence))
+
+
 def _prose(lines: list[str]) -> str | None:
-    """The paragraph as one line of plain text, or None when it is a heading, table, list, badge row or HTML."""
+    """The paragraph as one line of plain text, or None when it is a heading, table, list, badge row, HTML, a row of
+    links, or the document's metadata (`Status:`, `Author:`, `HOLAT:` …). A metadata line inside a paragraph is
+    dropped, and a purpose label ("Maqsad:") leaves its text."""
     first = lines[0]
     if first.startswith(("#", "|", "<", "[![", "![", "> [!")) or _LIST_ITEM.match(first) or _RULE.match(first):
         return None
     if len(lines) > 1 and _RULE.match(lines[-1]):  # a setext heading
         return None
-    text = _clean_inline(" ".join(line.removeprefix(">").strip() for line in lines))
+    if not _LINK_ONLY_REST.sub("", _LINK.sub("", _IMAGE.sub("", " ".join(lines)))):
+        return None
+    kept: list[str] = []
+    for index, raw in enumerate(lines):
+        line = _clean_inline(raw.removeprefix(">").strip())
+        key = _key(line)
+        if key in _METADATA_KEYS:
+            if index == 0:
+                return None  # a metadata block: its wrapped lines are metadata too
+            continue
+        kept.append(line.split(":", 1)[1].strip() if key in _PURPOSE_KEYS else line)
+    text = _without_pointers(" ".join(kept))
     return text if len(text.split()) >= 3 else None
 
 
-def _heading(lines: list[str]) -> str | None:
-    first = lines[0]
-    if not first.startswith("#"):
+def _list_text(lines: list[str]) -> str | None:
+    """A list as one line: its items in order, an item's wrapped lines joined to it."""
+    if not _LIST_ITEM.match(lines[0]):
         return None
-    text = _clean_inline(first.lstrip("#"))
-    return text or None
+    items: list[str] = []
+    for line in lines:
+        if _LIST_ITEM.match(line):
+            items.append(_clean_inline(_LIST_ITEM.sub("", line, count=1)))
+        else:
+            items[-1] = f"{items[-1]} {_clean_inline(line)}"
+    text = ""
+    for item in filter(None, items):
+        text = f"{text}{'' if not text or text.endswith(('.', ';', ',', ':', '!', '?')) else ';'} {item}"
+    return text.strip() or None
 
 
-def summarize(markdown: str, *, name: str, limit: int = DESCRIPTION_MAX) -> str | None:
-    """The first prose paragraph of a README-like text, as one line within `limit`; else its first heading when that
-    says more than the project name; else None."""
+def _heading_level(lines: list[str]) -> int:
+    match = _HEADING.match(lines[0])
+    return len(match.group(1)) if match is not None else 0
+
+
+def _heading_words(lines: list[str]) -> set[str]:
+    return set(_WORDS.findall(_clean_inline(lines[0].lstrip("#")).casefold()))
+
+
+def _first_prose(paragraphs: Sequence[list[str]]) -> str | None:
+    """The first prose paragraph; one that ends with a colon goes on into the list after it ("Two bots: the dev bot
+    …; the personal bot …")."""
+    for index, lines in enumerate(paragraphs):
+        if (text := _prose(lines)) is None:
+            continue
+        follow = paragraphs[index + 1] if index + 1 < len(paragraphs) else None
+        if text.endswith(":") and follow is not None and (items := _list_text(follow)) is not None:
+            text = f"{text} {items}"
+        return text
+    return None
+
+
+def _purpose_section(paragraphs: Sequence[list[str]]) -> list[list[str]]:
+    """The paragraphs under the first heading that says what the project is for ("1. Goal", "Overview and goals")."""
+    for index, lines in enumerate(paragraphs):
+        level = _heading_level(lines)
+        if level and _heading_words(lines) & _PURPOSE_HEADINGS:
+            section: list[list[str]] = []
+            for later in paragraphs[index + 1 :]:
+                if 0 < _heading_level(later) <= level:
+                    break
+                section.append(later)
+            return section
+    return []
+
+
+def _labelled_goal(paragraphs: Sequence[list[str]]) -> str | None:
+    """A paragraph that opens with a purpose label ("> **Maqsad:** …", "Purpose: …")."""
+    for lines in paragraphs:
+        if _key(_clean_inline(lines[0].removeprefix(">").strip())) in _PURPOSE_KEYS and (text := _prose(lines)):
+            return text
+    return None
+
+
+def summarize(markdown: str, *, goal_only: bool = False, limit: int = DESCRIPTION_MAX) -> str | None:
+    """The first real prose of a README-like text, as one line within `limit` (two or three sentences); with
+    `goal_only` (a SPEC, a plan), only what states the project's goal: a "Maqsad:" line, else its goal section. None
+    when there is none: a heading, a badge, a link row or metadata is never a description."""
     paragraphs = _paragraphs(markdown)
-    for lines in paragraphs:
-        if (text := _prose(lines)) is not None:
-            return shorten(text, limit)
-    for lines in paragraphs:
-        heading = _heading(lines)
-        if heading is not None and len(heading.split()) >= 2 and heading.casefold() != name.casefold():
-            return shorten(heading, limit)
+    if goal_only:
+        text = _labelled_goal(paragraphs) or _first_prose(_purpose_section(paragraphs))
+    else:
+        text = _first_prose(paragraphs)
+    return shorten(text, limit) if text is not None else None
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[\W_]+", "", text.casefold())
+
+
+def title(markdown: str, *, name: str) -> str | None:
+    """The document's first `#` title, when it says something beyond the project's name and words for the document
+    itself: "Bolalar velosipedlari — AI sotuv tizimi" does, "BonviCall — Technical specification (release 1)" and
+    "PrivateBusiness — Claude uchun kontekst" do not."""
+    mine = _compact(name)
+    for lines in _paragraphs(markdown):
+        if _heading_level(lines) != 1:
+            continue
+        text = _clean_inline(lines[0].lstrip("#"))
+        meaningful = [
+            word
+            for word in _WORDS.findall(text.casefold())
+            if len(word) >= 2
+            and word not in _DOC_WORDS
+            and _compact(word) not in mine
+            and not re.fullmatch(r"v\d+", word)
+        ]
+        return shorten(text, DESCRIPTION_MAX) if len(meaningful) >= 2 else None
     return None
 
 
 def describe(docs: Sequence[DocText], *, name: str, owner: str | None) -> tuple[str, DescriptionSource]:
-    """The owner's description first, then README → CLAUDE.md → SPEC (`docs` in that order); "" when none says
-    anything."""
+    """The owner's description first; else the first real prose of README → CLAUDE.md → the SPEC's goal section →
+    PLAN.md (`docs` in that order), topped up from the next source while shorter than `TOP_UP_CHARS`; else a title
+    that says more than the name; else "": the folder name alone describes the project."""
     if owner:
         return owner, DescriptionSource.OWNER
-    for doc in docs:
-        if (text := summarize(doc.text, name=name)) is not None:
-            return text, doc.source
-    return "", DescriptionSource.NONE
+    found = [
+        (text, doc.source)
+        for doc in docs
+        if (text := summarize(doc.text, goal_only=doc.source in GOAL_ONLY)) is not None
+    ]
+    if not found:
+        titled = ((text, doc.source) for doc in docs if (text := title(doc.text, name=name)) is not None)
+        return next(titled, ("", DescriptionSource.NONE))
+    text, source = found[0]
+    for more, _ in found[1:]:
+        if len(text) >= TOP_UP_CHARS:
+            break
+        if more not in text:
+            text = f"{text} {more}"
+    return shorten(text, DESCRIPTION_MAX), source
 
 
 # --- deploy branches (UC-13 #1; SPEC §5.7 `deploy_push`) -----------------------------------------------------------

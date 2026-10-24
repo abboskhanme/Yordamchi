@@ -152,22 +152,88 @@ Second paragraph.
 
 
 def test_the_description_is_the_first_prose_paragraph() -> None:
-    assert domain.summarize(README, name="BonviHR") == (
-        "HR tizimi: xodimlar, ta'tillar va oylik hisob-kitobi. FastAPI + React."
-    )
+    assert domain.summarize(README) == "HR tizimi: xodimlar, ta'tillar va oylik hisob-kitobi. FastAPI + React."
 
 
-def test_a_heading_describes_only_when_it_says_more_than_the_name() -> None:
-    assert domain.summarize("# Yordamchi — project rules\n\n## Read first\n", name="Yordamchi") == (
-        "Yordamchi — project rules"
-    )
-    assert domain.summarize("# BonviHR\n\nTODO\n", name="BonviHR") is None
-    assert domain.summarize("", name="X") is None
+def test_a_heading_is_never_prose_and_a_title_counts_only_when_it_says_more_than_the_name() -> None:
+    assert domain.summarize("# Yordamchi — project rules\n\n## Read first\n") is None
+    assert domain.summarize("# BonviHR\n\nTODO\n") is None
+    assert domain.summarize("") is None
+    assert domain.title("# Yordamchi — project rules\n", name="Yordamchi") is None
+    assert domain.title("# BonviCall — Technical specification (release 1)\n", name="BonviCall") is None
+    assert domain.title("# PrivateBusiness — Claude uchun kontekst\n", name="PrivateBusiness") is None
+    assert domain.title("# ZIN-NUR v2 — QAT'IY TEXNIK SHARTNOMA (SPEC)\n", name="zinnur-v2") is None
+    bikes = "# Bolalar velosipedlari — AI sotuv tizimi: reja va hisob-kitob\n\nSana: 2026-09-27 · Holat: faqat reja\n"
+    assert domain.title(bikes, name="BS") == "Bolalar velosipedlari — AI sotuv tizimi: reja va hisob-kitob"
 
 
 def test_a_setext_heading_and_a_github_alert_are_not_descriptions() -> None:
     text = "Title Here Now\n==============\n\n> [!NOTE]\n> read this first please\n\nThe real text is here.\n"
-    assert domain.summarize(text, name="X") == "The real text is here."
+    assert domain.summarize(text) == "The real text is here."
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "Author: plan-architect · Date: 2026-09-04 · Status: **build from this**",
+        "Status: **binding for build agents** · 2026-10-20 · plan-architect. Inputs: `BRIEF.md`,\n`STACK.md`, v1.1.",
+        "> **HOLAT:** Domain va Application qatlamlari YOZILGAN va kompilyatsiyadan o'tgan.\n> Ular haqiqat manbai.",
+        "**Version:** 1.0 · **Date:** 2026-09-10 · **Status:** approved for implementation",
+        "Inputs (authority order): `docs/BRIEF.md` > `docs/REQUIREMENTS.md` > `docs/UX.md` and the rest",
+        "[Docs](docs/README.md) · [API](https://example.com/api) · [Changelog](CHANGELOG.md)",
+    ],
+)
+def test_metadata_and_link_rows_are_never_descriptions(metadata: str) -> None:
+    """T26 eval: BonviCall's description was "Author: plan-architect · Date: 2026-09-04 · Status: build from this",
+    BonviGo's and BonviImzo's their "Status:" lines, zinnur-v2's its "HOLAT:" block."""
+    assert domain.summarize(f"# X — SPEC\n\n{metadata}\n\nCall records for the sales team, kept for good.\n") == (
+        "Call records for the sales team, kept for good."
+    )
+
+
+def test_a_paragraph_under_its_heading_line_is_prose_and_a_pointer_sentence_is_dropped() -> None:
+    """T26 eval: PrivateBusiness's CLAUDE.md puts "## Bu nima" right above its text, and BonviHR's README ends its one
+    line with "To'liq reja va bosqichlar: PLAN.md"."""
+    claude_md = "# PrivateBusiness — Claude uchun kontekst\n\n## Bu nima\nLinkedIn orqali qurilayotgan B2B biznes.\n"
+    assert domain.summarize(claude_md) == "LinkedIn orqali qurilayotgan B2B biznes."
+    readme = "# Bonvi HR\n\nBonvi uchun HR boshqaruv tizimi.\nTo'liq reja va bosqichlar: [PLAN.md](./PLAN.md)\n"
+    assert domain.summarize(readme) == "Bonvi uchun HR boshqaruv tizimi."
+
+
+def test_a_paragraph_ending_in_a_colon_goes_on_into_its_list() -> None:
+    """T26 eval: Yordamchi's description stopped at "… as launchd agents:"."""
+    readme = (
+        "# Yordamchi\n\nTwo owner-only Telegram bots that run on the owner's MacBook:\n\n"
+        "- the **dev bot** turns messages into work, one session per project, and\n"
+        "  asks only about important things;\n"
+        "- the **personal bot** answers anything.\n\nA supervisor watches both.\n"
+    )
+    assert domain.summarize(readme) == (
+        "Two owner-only Telegram bots that run on the owner's MacBook: the dev bot turns messages into work, one "
+        "session per project, and asks only about important things; the personal bot answers anything."
+    )
+
+
+def test_a_spec_or_a_plan_describes_only_through_its_goal() -> None:
+    spec = (
+        "# BonviCall — Technical specification\n\nStyle and layering rules are NOT in this file.\n\n"
+        "## 1. Goal\n\nSalespeople's calls are recorded from their Android phones.\n\n## 2. Architecture\n\nText.\n"
+    )
+    assert domain.summarize(spec, goal_only=True) == "Salespeople's calls are recorded from their Android phones."
+    assert domain.summarize("# X\n\nThe wire contract is code-first.\n\n## 2. Data\n\nRows.\n", goal_only=True) is None
+    plan = (
+        "# BONVI HR — Tizim Rejasi\n\n> **Maqsad:** HR jarayonini bitta platformaga yig'ish.\n> **Ijrochi:** 1 dev.\n"
+    )
+    assert domain.summarize(plan, goal_only=True) == "HR jarayonini bitta platformaga yig'ish."
+
+
+def test_a_description_is_two_or_three_sentences_within_300_characters() -> None:
+    long = " ".join(f"Sentence number {index} says one more thing about the project." for index in range(12))
+    text = domain.summarize(f"# X\n\n{long}\n")
+    assert text is not None
+    assert len(text) <= domain.DESCRIPTION_MAX == 300
+    assert text.endswith(".")
+    assert text.count(".") >= 2
 
 
 def test_long_text_is_cut_at_a_sentence_or_a_word() -> None:
@@ -192,6 +258,31 @@ def test_the_owner_beats_readme_beats_claude_md_beats_spec() -> None:
     )
     assert domain.describe(docs, name="X", owner="Owner's words") == ("Owner's words", DescriptionSource.OWNER)
     assert domain.describe((), name="X", owner=None) == ("", DescriptionSource.NONE)
+
+
+def test_a_thin_description_is_topped_up_from_the_next_source() -> None:
+    """T26 eval: BonviHR's README says only "HR boshqaruv tizimi"; its PLAN.md says what the system gathers."""
+    docs = (
+        DocText(DescriptionSource.README, "# Bonvi HR\n\nBonvi uchun HR boshqaruv tizimi.\n"),
+        DocText(DescriptionSource.PLAN, "# Reja\n\n> **Maqsad:** Excel + Jobster + Verifix'dagi HR ishini yig'ish.\n"),
+    )
+    assert domain.describe(docs, name="BonviHR", owner=None) == (
+        "Bonvi uchun HR boshqaruv tizimi. Excel + Jobster + Verifix'dagi HR ishini yig'ish.",
+        DescriptionSource.README,
+    )
+
+
+def test_with_no_prose_anywhere_a_title_or_else_nothing_describes_the_project() -> None:
+    plan = "# Bolalar velosipedlari — AI sotuv tizimi\n\nSana: 2026-09-27\n\n## 1. Xulosa\n\n- MVP 8 kunda.\n"
+    assert domain.describe((DocText(DescriptionSource.PLAN, plan),), name="BS", owner=None) == (
+        "Bolalar velosipedlari — AI sotuv tizimi",
+        DescriptionSource.PLAN,
+    )
+    spec = "# ZIN-NUR v2 — QAT'IY TEXNIK SHARTNOMA (SPEC)\n\n> **HOLAT:** yozilgan.\n\n## 0. TEXNOLOGIYALAR\n"
+    assert domain.describe((DocText(DescriptionSource.SPEC, spec),), name="zinnur-v2", owner=None) == (
+        "",
+        DescriptionSource.NONE,
+    )
 
 
 # --- deploy branches: the fixtures (tests/fixtures/workflows/) ------------------------------------------------------

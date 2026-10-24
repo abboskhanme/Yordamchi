@@ -1,0 +1,26 @@
+{
+  "case": "content_candidates_form",
+  "duration_ms": 3148,
+  "latency_ms": 3149,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.45,
+        "project_id": "BonviHR"
+      },
+      {
+        "confidence": 0.4,
+        "project_id": "WunderkindEmployeesBot"
+      }
+    ],
+    "confidence": 0.45,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "BonviHR"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"BonviHR\",\"candidates\":[{\"project_id\":\"BonviHR\",\"confidence\":0.45},{\"project_id\":\"WunderkindEmployeesBot\",\"confidence\":0.4}],\"confidence\":0.45,\"needs_fresh\":false,\"is_new_project\":false}"
+}

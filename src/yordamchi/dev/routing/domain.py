@@ -8,7 +8,10 @@ A closed burst (`TurnInput`) is routed by these signals, in this order:
    projects answer only to their exact name, and a near miss of one ("HRMentor wt agent api") is a look-alike, so the
    bot asks. An exact name beats a typo, a typo that fits two names asks, and a digit is never a typo
    (`BonviHR` ≠ `BonviHR2`), nor is a doubled word ("tez-tez" ≠ `TezTel`) or a dropped first letter ("iPhone" ≠
-   `AI-Phone`). A short name that is also a word ("AI", "BS") counts only with a suffix ("AI'da").
+   `AI-Phone`). A short name or alias that is also a word ("AI", "BS", "hr", "NUR" of `NUR-Project`) counts only
+   with a suffix ("AI'da", "HR da") or before "loyiha"; a folder name that is an ordinary word ("yordamchi" = helper)
+   also when capitalized as a name. Of several names, the one with a target suffix ("NUR'da", "BonviHR'ga") is where
+   the work goes; "arxiv" and "архив" are spellings of "archive".
 2. **Reply** to a bot message linked to a project (`message_links`), unless another project is named.
 3. **Recent context**: the project the owner spoke about last, the one that reported last, and running turns, within
    `routing.context_window_min`. Context informs the LLM and is its fallback, and the one active project takes a
@@ -69,7 +72,7 @@ CLARIFICATION_KEEP: Final = timedelta(days=30)  # `clarifications`: row 30 d
 EXCERPT_MAX: Final = 60  # the material a question quotes (UC-02 AC)
 VOICE_ECHO_MAX: Final = 300  # UC-05: the transcript echoed in one line with the routed project
 LLM_TEXT_MAX: Final = 2000  # characters of one part sent to the routing LLM
-LLM_DESCRIPTION_MAX: Final = 160
+LLM_DESCRIPTION_MAX: Final = 300  # two or three sentences, as dev/projects builds them and the owner may write
 # T12 measured a cold routing ask at default effort at 7 s. No §4.3 key yet (`models.routing_effort` is proposed).
 ROUTING_EFFORT: Final = "low"
 
@@ -170,6 +173,16 @@ _SUFFIXES: Final = (
     "chi",
 )
 _UNQUOTED_STEM_MIN: Final = 5  # "hrmentorga" → "hrmentor", but never "aida" → "ai"
+# Where the work goes: in, to, the object ("NUR'da", "BonviHR'ga", "Yordamchi'ni"). Not from, of or like ('dan,
+# 'ning, 'dek), and not 'dagi: "MegaPlus ERP'dagi qoldiqlar" is the thing in X, mostly the source.
+_TARGET_SUFFIXES: Final = frozenset({"da", "ga", "ka", "qa", "ni"})
+# "BonviHR va HRMentor'da": a name joined to the next one shares its suffix.
+_CONJUNCTIONS: Final = frozenset({"va", "hamda", "yoki", "bilan", "and", "or", "и", "или"})
+_JOINED: Final = "+"  # the suffix recorded for a name joined to the next one
+_PROJECT_WORDS: Final = ("loyiha", "project", "проект")  # "yordamchi loyihasida", "AI project"
+# A folder name ending in one of these is known by the part before it too: `NUR-Project` is "NUR".
+_GENERIC_TAILS: Final = frozenset({"project", "loyiha", "app"})
+_ARCHIVE_SPELLINGS: Final = ("arxiv", "архив")  # Uzbek and Russian for "archive" ("BonviCall'ning arxiv nusxasi")
 
 
 def fold(text: str) -> str:
@@ -185,8 +198,17 @@ def compact(text: str) -> str:
 def tokens(text: str) -> tuple[str, ...]:
     """The words of `text`, folded. Hyphens, dots and apostrophes stay inside a word, so `HRMentor-wt-agent-api` and
     `BonviHR'da` are one word each."""
-    found = (match.group(0).strip(_WORD_EDGES) for match in _WORD.finditer(fold(text)))
+    return _split(fold(text))
+
+
+def _split(text: str) -> tuple[str, ...]:
+    found = (match.group(0).strip(_WORD_EDGES) for match in _WORD.finditer(text))
     return tuple(token for token in found if token)
+
+
+def _as_written(text: str) -> tuple[str, ...]:
+    """`tokens(text)` before case folding, one for one: how the owner capitalized each word ("Yordamchi")."""
+    return _split(" ".join(unicodedata.normalize("NFC", text).translate(_APOSTROPHES).split()))
 
 
 def typo_distance(a: str, b: str) -> int:
@@ -214,6 +236,7 @@ def within_one_typo(a: str, b: str) -> bool:
 class _Stem:
     text: str
     marked: bool  # its suffix was set off by an apostrophe or a hyphen ("AI'da", "BonviHR-ga")
+    suffix: str = ""  # what was cut off ("da" of "BonviHR'da")
 
 
 def _stems(token: str) -> tuple[_Stem, ...]:
@@ -222,13 +245,13 @@ def _stems(token: str) -> tuple[_Stem, ...]:
     found = [_Stem(token, marked=False)]
     head, quote, tail = token.partition("'")
     if quote and head and tail.isalpha():
-        found.append(_Stem(head, marked=True))
+        found.append(_Stem(head, marked=True, suffix=tail))
     head, dash, tail = token.rpartition("-")
     if dash and head and tail in _SUFFIXES:
-        found.append(_Stem(head, marked=True))
+        found.append(_Stem(head, marked=True, suffix=tail))
     if "'" not in token:
         found.extend(
-            _Stem(token[: -len(suffix)], marked=False)
+            _Stem(token[: -len(suffix)], marked=False, suffix=suffix)
             for suffix in _SUFFIXES
             if token.endswith(suffix) and len(token) - len(suffix) >= _UNQUOTED_STEM_MIN
         )
@@ -244,9 +267,22 @@ class _Name:
     project_id: str
     words: tuple[str, ...]
     compact: str
-    short: bool  # a folder name of ≤ SHORT_NAME_MAX letters: a bare mention is only a hint
+    short: bool  # ≤ SHORT_NAME_MAX letters ("AI", "BS", the alias "hr", "NUR"): bare it is only a hint
     loose: bool  # routable: a typo, a split spelling or a family word may reach it
     exact_only: bool  # archived or a worktree: only its exact name; a near miss asks
+    word: bool = False  # the folder name is an ordinary word ("Yordamchi" = helper): it counts capitalized
+
+
+def _is_word_like(name: str) -> bool:
+    """One word of letters, not a compound like `BonviHR` or `TezTel`: `Yordamchi`, `Wooden`. Written in lower case
+    it is the word ("yordamchi funksiya" = a helper function), not the project."""
+    return name.isalpha() and len(name) > SHORT_NAME_MAX and not any(char.isupper() for char in name[1:])
+
+
+def _heads(project_id: str) -> tuple[str, ...]:
+    """The part of a name before a generic last word: `NUR-Project` → "NUR"."""
+    pieces = [piece for piece in _SEPARATORS.split(fold(project_id)) if piece]
+    return (" ".join(pieces[:-1]),) if len(pieces) > 1 and pieces[-1] in _GENERIC_TAILS else ()
 
 
 def _names(projects: Iterable[Project]) -> list[_Name]:
@@ -255,12 +291,20 @@ def _names(projects: Iterable[Project]) -> list[_Name]:
         exact_only = project.exact_name_only and not project.missing
         if words := tokens(project.id):
             short = len(compact(project.id)) <= SHORT_NAME_MAX
-            names.append(_Name(project.id, words, compact(project.id), short, project.routable, exact_only))
-        # An alias is the owner's own word for the project, so even a short one counts bare.
+            word = _is_word_like(project.id)
+            names.append(_Name(project.id, words, compact(project.id), short, project.routable, exact_only, word))
+        # An alias is the owner's own word for the project; a short one ("hr") still needs a suffix, as "AI" does.
         names.extend(
-            _Name(project.id, alias_words, compact(alias), False, project.routable, exact_only)
-            for alias in project.aliases
-            if (alias_words := tokens(alias))
+            _Name(
+                project.id,
+                other_words,
+                compact(other),
+                len(compact(other)) <= SHORT_NAME_MAX,
+                project.routable,
+                exact_only,
+            )
+            for other in (*project.aliases, *_heads(project.id))
+            if (other_words := tokens(other))
         )
     return names
 
@@ -314,6 +358,17 @@ class Mentions:
     family: tuple[str, ...] = ()  # one word starts several names ("Wunderkind"): one of these, unsaid which
     lookalike: tuple[str, ...] = ()  # an exact-only project almost named ("HRMentor wt"): ask, never route
     ambiguous: tuple[str, ...] = ()  # one word is one typo from two names: ask
+    targeted: tuple[str, ...] = ()  # those of `named` with a suffix saying the work goes there ('da, 'ga, 'ni)
+    joined: tuple[str, ...] = ()  # those joined to the next name by "va", "and" …: they share its suffix
+
+    @property
+    def target(self) -> str | None:
+        """Of several named projects, the one the work goes to: the only one with a target suffix, the others bare or
+        with another suffix ("NUR'da … Yordamchi kabi", "HRMentor'dagi kodni BonviHR'ga ko'chir"). None when two
+        carry one ("X'ni Y'ga"), or a name is joined to another ("BonviHR va HRMentor'da": both)."""
+        if len(self.named) < 2 or len(self.targeted) != 1 or self.joined:
+            return None
+        return self.targeted[0]
 
     @property
     def hints(self) -> tuple[str, ...]:
@@ -333,21 +388,18 @@ def _window_compacts(words: Sequence[str]) -> tuple[str, ...]:
     return _distinct(head + compact(stem.text) for stem in _stems(words[-1]))
 
 
-def _exact_hit(window: Sequence[str], name: _Name) -> _Hit | None:
-    """`window` is `name` word for word, the last word maybe with a suffix. A bare short folder name is weak."""
+def _exact_stem(window: Sequence[str], name: _Name) -> _Stem | None:
+    """`window` is `name` word for word, the last word maybe with a suffix: the stem that names it."""
     if len(window) != len(name.words) or tuple(window[:-1]) != name.words[:-1]:
         return None
-    for stem in _stems(window[-1]):
-        if stem.text == name.words[-1]:
-            return _Hit.WEAK if name.short and not stem.marked else _Hit.NAMED
-    return None
+    return next((stem for stem in _stems(window[-1]) if stem.text == name.words[-1]), None)
 
 
 def _lookalike(window: Sequence[str], name: _Name, bases: Collection[str]) -> bool:
     """`window` nearly names exact-only `name` without naming it: another spelling, one typo, a routable name
     (`bases`) written on into it, in one word or several ("HRMentor-wt", "HRMentor wt" → `HRMentor-wt-agent-api`,
     "BonviCall clone" → `… Clone Archive`), or followed by most of the rest of it (`_base_and_rest`)."""
-    if _exact_hit(window, name) is not None:
+    if _exact_stem(window, name) is not None:
         return False
     for text in _window_compacts(window):
         if text == name.compact or _typo_of(text, name):
@@ -370,24 +422,55 @@ def _base_and_rest(window: Sequence[str], name: _Name, bases: Collection[str]) -
         return False
     covered = 0
     for word in window[1:]:
-        pieces = [len(text) for stem in _stems(word) if len(text := compact(stem.text)) >= 2 and text in rest]
+        texts = [_spelled_as_archive(compact(stem.text)) for stem in _stems(word)]
+        pieces = [len(text) for text in texts if len(text) >= 2 and text in rest]
         if not pieces:
             return False
         covered += max(pieces)
     return 2 * covered > len(rest)
 
 
+def _spelled_as_archive(text: str) -> str:
+    """ "arxiv", "arxividan", "архиве" read as "archive" ("BonviCall'ning arxiv nusxasi")."""
+    return "archive" if text.startswith(_ARCHIVE_SPELLINGS) else text
+
+
 class _Scan:
     """One text against the registry. Each method is one matching rule; `find_mentions` runs them in order. A strong
     hit takes its words, so a later, looser rule never reads them again."""
 
-    def __init__(self, words: tuple[str, ...], names: list[_Name]) -> None:
+    def __init__(self, words: tuple[str, ...], written: tuple[str, ...], names: list[_Name]) -> None:
         self.words = words
+        self.written = written if len(written) == len(words) else words  # case unknown: nothing is capitalized
         self.names = names
         self.loose = [name for name in names if name.loose]
         self.bases = frozenset(name.compact for name in self.loose)
         self.taken = [False] * len(words)
-        self.hits: list[tuple[int, _Hit, str]] = []
+        self.hits: list[tuple[int, _Hit, str, str]] = []  # (word, kind, project, suffix)
+
+    def _suffix_after(self, end: int) -> str:
+        """A suffix written as its own word after a name ("HR da", "Mega Plus ERP da": voice transcripts), or a
+        conjunction that joins the name to the next one, whose suffix it then shares ("BonviHR va HRMentor'da")."""
+        following = self.words[end] if end < len(self.words) else ""
+        if following in _SUFFIXES:
+            return following
+        return _JOINED if following in _CONJUNCTIONS else ""
+
+    def _project_word_after(self, end: int) -> bool:
+        return end < len(self.words) and self.words[end].startswith(_PROJECT_WORDS)
+
+    def _capitalized(self, index: int) -> bool:
+        return self.written[index][:1].isupper()
+
+    def _counts_bare(self, name: _Name, stem: _Stem, start: int, size: int) -> bool:
+        """A short name ("AI", "hr", "NUR") or an ordinary word ("yordamchi") names the project only with a suffix
+        ("AI'da", "HR da"), before "loyiha", or, for the word, capitalized as a name ("Yordamchi"). Else a hint."""
+        if not (name.short or name.word) or stem.marked:
+            return True
+        end = start + size
+        if self._suffix_after(end) not in {"", _JOINED} or self._project_word_after(end):
+            return True
+        return name.word and self._capitalized(start)
 
     def _windows(self, *, free: bool, min_size: int = 1) -> Iterator[tuple[int, tuple[str, ...]]]:
         """Every run of up to `NEAR_WINDOW` words; `free`: only runs no strong hit has taken."""
@@ -406,7 +489,9 @@ class _Scan:
         exact_only = [name for name in self.names if name.exact_only]
         for start, window in self._windows(free=False):
             self.hits.extend(
-                (start, _Hit.LOOKALIKE, name.project_id) for name in exact_only if _lookalike(window, name, self.bases)
+                (start, _Hit.LOOKALIKE, name.project_id, "")
+                for name in exact_only
+                if _lookalike(window, name, self.bases)
             )
 
     def exact(self) -> None:
@@ -416,22 +501,31 @@ class _Scan:
             for start in range(len(self.words) - size + 1):
                 if any(self.taken[start : start + size]):
                     continue
-                hit = _exact_hit(self.words[start : start + size], name)
-                if hit is not None:
-                    self.hits.append((start, hit, name.project_id))
-                    if hit is _Hit.NAMED:
-                        self._take(start, size)
+                stem = _exact_stem(self.words[start : start + size], name)
+                if stem is None:
+                    continue
+                suffix = stem.suffix or self._suffix_after(start + size)
+                if self._counts_bare(name, stem, start, size):
+                    self.hits.append((start, _Hit.NAMED, name.project_id, suffix))
+                    self._take(start, size)
+                else:
+                    self.hits.append((start, _Hit.WEAK, name.project_id, ""))
 
-    def _one_typo(self, stems: Sequence[str]) -> tuple[str, ...]:
-        return _distinct(name.project_id for name in self.loose if any(_typo_of(stem, name) for stem in stems))
+    @staticmethod
+    def _one_typo(stems: Sequence[str], names: Sequence[_Name]) -> tuple[str, ...]:
+        return _distinct(name.project_id for name in names if any(_typo_of(stem, name) for stem in stems))
 
-    def _cut_short(self, stems: Sequence[str]) -> tuple[str, ...]:
+    @staticmethod
+    def _cut_short(stems: Sequence[str], names: Sequence[_Name]) -> tuple[str, ...]:
         """Names a word may be the cut-off start of, two typos away ("bonviimpo" → `BonviImport`)."""
         return _distinct(
             name.project_id
-            for name in self.loose
+            for name in names
             if any(name.compact.startswith(stem) and _typo_of(stem, name, edits=2) for stem in stems)
         )
+
+    def _suffix_of(self, end: int) -> str:
+        return next((stem.suffix for stem in _stems(self.words[end - 1]) if stem.suffix), "") or self._suffix_after(end)
 
     def single_words(self) -> None:
         """One word that is a routable name spelled otherwise ("megapluserp", "Wunderkind-LC"), else one typo of one
@@ -441,12 +535,15 @@ class _Scan:
             if self.taken[start]:
                 continue
             stems = _window_compacts([word])
-            same = _distinct(name.project_id for name in self.loose if not name.short and name.compact in stems)
-            typos = self._one_typo(stems) if not same else ()
-            found = same or (_distinct([*typos, *self._cut_short(stems)]) if typos else ())
+            # An ordinary-word name written in lower case is the word: never another spelling or a typo of the name.
+            names = [name for name in self.loose if not name.word or self._capitalized(start)]
+            same = _distinct(name.project_id for name in names if not name.short and name.compact in stems)
+            typos = self._one_typo(stems, names) if not same else ()
+            found = same or (_distinct([*typos, *self._cut_short(stems, names)]) if typos else ())
             if found:
                 kind = _Hit.TYPO if len(found) == 1 else _Hit.AMBIGUOUS
-                self.hits.extend((start, kind, project) for project in found)
+                suffix = self._suffix_of(start + 1)
+                self.hits.extend((start, kind, project, suffix) for project in found)
                 self._take(start, 1)
 
     def _starts_family(self, word: str) -> bool:
@@ -464,11 +561,12 @@ class _Scan:
             for name in self.loose:
                 one_typo = len(name.words) == len(window) and any(_typo_of(text, name) for text in joined)
                 if one_typo or (name.compact in joined and self._starts_family(window[0])):
-                    self.hits.append((start, _Hit.TYPO, name.project_id))
+                    suffix = self._suffix_of(start + len(window))
+                    self.hits.append((start, _Hit.TYPO, name.project_id, suffix))
                     self._take(start, len(window))
                     break
                 if name.compact in joined:
-                    self.hits.append((start, _Hit.WEAK, name.project_id))
+                    self.hits.append((start, _Hit.WEAK, name.project_id, ""))
 
     def prefixes(self) -> None:
         """A word that starts routable names: several is a family ("Wunderkind"), one is a hint ("Claude")."""
@@ -482,17 +580,18 @@ class _Scan:
                 starts = _distinct(n.project_id for n in self.loose if n.compact.startswith(head) and n.compact != head)
                 if starts:
                     kind = _Hit.FAMILY if len(starts) > 1 else _Hit.WEAK
-                    self.hits.extend((start, kind, project) for project in starts)
+                    self.hits.extend((start, kind, project, "") for project in starts)
                     break
 
     def mentions(self) -> Mentions:
         ordered = sorted(self.hits, key=lambda hit: hit[0])
 
         def of(*kinds: _Hit) -> tuple[str, ...]:
-            return _distinct(project for _, kind, project in ordered if kind in kinds)
+            return _distinct(project for _, kind, project, _ in ordered if kind in kinds)
 
         named = of(_Hit.NAMED, _Hit.TYPO)
         exact = set(of(_Hit.NAMED))
+        strong = [(project, suffix) for _, kind, project, suffix in ordered if kind in {_Hit.NAMED, _Hit.TYPO}]
         return Mentions(
             named=named,
             typo=tuple(project for project in of(_Hit.TYPO) if project not in exact),
@@ -501,6 +600,8 @@ class _Scan:
             # Named exactly somewhere ("BonviCall Clone Archive'dagi"), a project is no near miss of itself.
             lookalike=tuple(project for project in of(_Hit.LOOKALIKE) if project not in exact),
             ambiguous=of(_Hit.AMBIGUOUS),
+            targeted=_distinct(project for project, suffix in strong if suffix in _TARGET_SUFFIXES),
+            joined=_distinct(project for project, suffix in strong if suffix == _JOINED),
         )
 
 
@@ -508,7 +609,7 @@ def find_mentions(text: str, projects: Iterable[Project]) -> Mentions:
     """The projects `text` names (signal 1). In order: look-alikes of exact-only projects; exact names and aliases;
     one word spelled otherwise or with one typo; names written apart; words that start names. Archived, worktree and
     missing projects match their exact name only."""
-    scan = _Scan(tokens(text), _names(projects))
+    scan = _Scan(tokens(text), _as_written(text), _names(projects))
     scan.lookalikes()
     scan.exact()
     scan.single_words()
@@ -712,7 +813,8 @@ def _settle(plan: RoutePlan) -> RoutePlan:
     """What the names and the reply settle, in order:
     - a look-alike or a typo between two names → ask those (with the name a look-alike runs on from), whatever else
       is said;
-    - one project named, and no reply to another one → that project (`explicit`);
+    - one project named, or one of several with a target suffix ("NUR'da … Yordamchi kabi"), and no reply to
+      another one → that project (`explicit`);
     - nothing named, a reply → the replied-to project (`reply`);
     - else the LLM picks, among the named projects (with the replied-to one, when a reply and a name disagree), or
       among a family a word starts, or among every routable project."""
@@ -723,9 +825,10 @@ def _settle(plan: RoutePlan) -> RoutePlan:
         bases = _bases_of(mentions.lookalike, plan.allowed)
         ask = _distinct([*named, *mentions.ambiguous, *bases, *mentions.lookalike])
         return replace(plan, ask_first=ask, ask_reason=reason)
-    if len(named) == 1 and reply in {None, named[0]}:
-        confidence = TYPO_CONFIDENCE if named[0] in mentions.typo else EXPLICIT_CONFIDENCE
-        return replace(plan, fixed=Candidate(named[0], confidence), fixed_method=Method.EXPLICIT)
+    only = named[0] if len(named) == 1 else mentions.target
+    if only is not None and reply in {None, only}:
+        confidence = TYPO_CONFIDENCE if only in mentions.typo else EXPLICIT_CONFIDENCE
+        return replace(plan, fixed=Candidate(only, confidence), fixed_method=Method.EXPLICIT)
     if not named and reply is not None:
         return replace(plan, fixed=Candidate(reply, REPLY_CONFIDENCE), fixed_method=Method.REPLY)
     if named:
@@ -1011,8 +1114,9 @@ def _settled(plan: RoutePlan, llm: LlmRoute | None, cfg: RouteSettings, *, inten
 
 def _by_llm(plan: RoutePlan, llm: LlmRoute, cfg: RouteSettings, *, intent: Intent) -> RouteDecision:
     """The LLM's pick routes when it is allowed, is no look-alike of an exact-only project in context, clears
-    `min_confidence` and leads the next allowed candidate by `min_margin`; or, below those, when it is the one active
-    project and leads every other candidate (context and content agree). Else one question."""
+    `min_confidence` and leads the next allowed candidate by `min_margin`; or, below those, when the model's first
+    choice (its pick, or with no pick its likeliest candidate) is the one active project and leads every other
+    candidate: context and content agree. Else one question."""
     fresh = llm.needs_fresh
     ranked = tuple(candidate for candidate in llm.ranked if candidate.project_id in plan.allowed)
     pick = llm.ranked[0] if llm.project_id is not None and llm.ranked else None  # null: the model did not commit
@@ -1027,11 +1131,18 @@ def _by_llm(plan: RoutePlan, llm: LlmRoute, cfg: RouteSettings, *, intent: Inten
     leads = pick is not None and confidence_milli(pick.confidence) - second >= confidence_milli(cfg.min_margin)
     if pick is not None and sure and leads:
         return _route(pick.project_id, pick.confidence, method=Method.LLM, intent=intent, fresh=fresh, reason="llm")
-    if pick is not None and pick.project_id == plan.lone_context and confidence_milli(pick.confidence) > second:
+    top = pick if pick is not None else (ranked[0] if ranked else None)  # its pick, or its likeliest candidate
+    if (
+        top is not None
+        and top.project_id == plan.lone_context
+        and top.confidence >= MIN_CANDIDATE_CONFIDENCE
+        and confidence_milli(top.confidence) > second
+    ):
         # UC-10: a follow-up with no subject of its own ("testlarini ham yoz") continues the one active project. The
-        # model's top pick says so too, but it rates such a follow-up below `min_confidence` (T26 eval: haiku gave
-        # 0.35–0.7 to 21 of 25 follow-ups and the bot asked each time). Never against the content: the model picked it.
-        active = pick.project_id
+        # model's top choice says so too, but it rates such a follow-up below `min_confidence`, or names it only as a
+        # candidate (T26 eval: haiku gave 0.35–0.7 to 21 of 25 follow-ups; "testlar o'tdimi?" came back null with
+        # the running project its one candidate). Never against the content: it is the model's own first choice.
+        active = top.project_id
         return _route(active, CONTEXT_CONFIDENCE, method=Method.CONTEXT, intent=intent, fresh=fresh, reason="context")
     if plan.media_only and (lone := plan.lone_context) is not None:
         # UC-02: a lone screenshot proceeds with a sensible interpretation instead of a question.

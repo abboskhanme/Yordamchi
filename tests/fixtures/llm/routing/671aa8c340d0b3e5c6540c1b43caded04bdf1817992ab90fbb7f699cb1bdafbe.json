@@ -1,0 +1,22 @@
+{
+  "case": "explicit_wooden",
+  "duration_ms": 1504,
+  "latency_ms": 1505,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.94,
+        "project_id": "Wooden"
+      }
+    ],
+    "confidence": 0.94,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "Wooden"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"Wooden\",\"candidates\":[{\"project_id\":\"Wooden\",\"confidence\":0.94}],\"confidence\":0.94,\"needs_fresh\":false,\"is_new_project\":false}"
+}

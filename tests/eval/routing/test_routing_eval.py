@@ -95,6 +95,7 @@ class Recent:
 class Expect:
     project: str | None = None  # routed (or merged) there, no question
     ask: tuple[str, ...] = ()  # one question naming at least these
+    any_question: bool = False  # one question naming at least two candidates, whichever
     no_project: bool = False  # nothing routed: report_all, server_status, new_project
 
     @property
@@ -145,9 +146,9 @@ def _recent(raw: object, where: str, projects: Sequence[str]) -> Recent:
 
 
 def _expect(raw: object, where: str, projects: Sequence[str]) -> Expect:
-    row = fields(raw, where, optional={"project", "ask", "no_project"})
+    row = fields(raw, where, optional={"project", "ask", "asks", "no_project"})
     if len(row) != 1:
-        msg = f"{where}: expect holds exactly one of project, ask, no_project"
+        msg = f"{where}: expect holds exactly one of project, ask, asks, no_project"
         raise CaseFileError(msg)
     if "project" in row:
         return Expect(project=_known(as_str(row["project"], f"{where} project"), projects, where))
@@ -157,6 +158,11 @@ def _expect(raw: object, where: str, projects: Sequence[str]) -> Expect:
             msg = f"{where}: ask names 1 to {domain.MAX_CANDIDATES} distinct projects"
             raise CaseFileError(msg)
         return Expect(ask=ask)
+    if "asks" in row:
+        if not as_bool(row["asks"], f"{where} asks"):
+            msg = f"{where}: asks is only ever true"
+            raise CaseFileError(msg)
+        return Expect(any_question=True)
     if not as_bool(row["no_project"], f"{where} no_project"):
         msg = f"{where}: no_project is only ever true"
         raise CaseFileError(msg)
@@ -357,6 +363,7 @@ class Grade:
     correct: bool
     silent_wrong: bool  # routed without a question, but not to the expected project (or not at all expected)
     asked: bool
+    on_target: bool = False  # routed to the expected project, whatever the intent
 
 
 def grade(case: Case, seen: Seen) -> Grade:
@@ -364,10 +371,12 @@ def grade(case: Case, seen: Seen) -> Grade:
     intent_ok = case.intent is None or seen.intent is case.intent
     expect = case.expect
     if expect.project is not None:
-        right = routed and seen.project == expect.project and intent_ok
-        return Grade(right, routed and seen.project != expect.project, asked)
+        on_target = routed and seen.project == expect.project
+        return Grade(on_target and intent_ok, routed and not on_target, asked, on_target)
     if expect.ask:
         return Grade(asked and set(expect.ask) <= set(seen.candidates), routed, asked)
+    if expect.any_question:
+        return Grade(asked and len(seen.candidates) >= 2, routed, asked)
     return Grade(seen.outcome == Outcome.NO_PROJECT.value and intent_ok, routed, asked)
 
 
@@ -376,14 +385,14 @@ class Bucket:
     total: int = 0
     correct: int = 0
     asked: int = 0  # not correct, but a question
-    wrong: int = 0  # not correct and no question
+    wrong: int = 0  # not correct, no question, and not the expected project (UC-10: "asked, never wrong")
 
     def add(self, mark: Grade) -> "Bucket":
         return Bucket(
             self.total + 1,
             self.correct + mark.correct,
             self.asked + (not mark.correct and mark.asked),
-            self.wrong + (not mark.correct and not mark.asked),
+            self.wrong + (not mark.correct and not mark.asked and not mark.on_target),
         )
 
     def meets(self, minimum: float) -> bool:
@@ -444,6 +453,8 @@ def _expected(case: Case) -> str:
         return case.expect.project + (f" ({case.intent.value})" if case.intent else "")
     if case.expect.ask:
         return f"ask {list(case.expect.ask)}"
+    if case.expect.any_question:
+        return "a question naming two or more"
     return f"no project ({case.intent.value})" if case.intent else "no project"
 
 

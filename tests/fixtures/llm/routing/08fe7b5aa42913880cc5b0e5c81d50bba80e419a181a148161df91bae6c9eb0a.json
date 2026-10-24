@@ -1,0 +1,22 @@
+{
+  "case": "explicit_ning",
+  "duration_ms": 2047,
+  "latency_ms": 2047,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.97,
+        "project_id": "Yordamchi"
+      }
+    ],
+    "confidence": 0.97,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "Yordamchi"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"Yordamchi\",\"candidates\":[{\"project_id\":\"Yordamchi\",\"confidence\":0.97}],\"confidence\":0.97,\"needs_fresh\":false,\"is_new_project\":false}"
+}

@@ -1,0 +1,22 @@
+{
+  "case": "context_reported",
+  "duration_ms": 2339,
+  "latency_ms": 2340,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.8,
+        "project_id": "WunderkindLMS"
+      }
+    ],
+    "confidence": 0.8,
+    "intent": "report_project",
+    "is_new_project": false,
+    "needs_fresh": true,
+    "project_id": "WunderkindLMS"
+  },
+  "text": "{\"intent\":\"report_project\",\"project_id\":\"WunderkindLMS\",\"candidates\":[{\"project_id\":\"WunderkindLMS\",\"confidence\":0.8}],\"confidence\":0.8,\"needs_fresh\":true,\"is_new_project\":false}"
+}

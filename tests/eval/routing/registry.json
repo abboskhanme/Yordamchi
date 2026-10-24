@@ -11,7 +11,7 @@
     },
     {
       "id": "AI-Phone",
-      "description": "A copy of the desktop assistant (../AI), forked to become a phone assistant: one that talks to other people on a call rather than to you at your desk.",
+      "description": "A copy of the desktop assistant (../AI), forked to become a phone assistant: one that talks to other people on a call rather than to you at your desk. The original is untouched and still the one to use for desktop work.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
@@ -25,21 +25,21 @@
     },
     {
       "id": "AgentsRoom",
-      "description": "A desktop command center for AI coding agents. Each agent is a Claude Code CLI session running in a project folder; you watch its output live, answer its questions with buttons, and see its status at…",
+      "description": "A desktop command center for AI coding agents. Each agent is a Claude Code CLI session running in a project folder; you watch its output live, answer its questions with buttons, and see its status at a glance — without a raw terminal. Built for people who are not programmers. macOS and Windows.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "BS",
-      "description": "",
-      "description_source": "none",
+      "description": "Bolalar velosipedlari — AI sotuv tizimi: reja va hisob-kitob",
+      "description_source": "plan",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "Bonvi-platform",
-      "description": "Telegram-native Business Process Intelligence — kompaniyaning Telegram guruhlaridagi kundalik muloqotdan biznes-jarayonlarni aniqlaydi, takrorlanuvchi operatsion ishlarni o'zi bajaradi va…",
+      "description": "Telegram-native Business Process Intelligence — kompaniyaning Telegram guruhlaridagi kundalik muloqotdan biznes-jarayonlarni aniqlaydi, takrorlanuvchi operatsion ishlarni o'zi bajaradi va rahbariyatga dalilga asoslangan raqam beradi. SAP Business One bilan faqat-o'qish rejimida integratsiyalashgan.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
@@ -53,14 +53,14 @@
     },
     {
       "id": "BonviCall",
-      "description": "Author: plan-architect · Date: 2026-09-04 · Status: build from this",
+      "description": "Bonvi's ~15 salespeople make ~15,000 calls a month from SIM cards in their personally owned Android phones. Today that data belongs to MoyZvonki, which deletes audio after 30 days.",
       "description_source": "spec",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "BonviCall Clone Archive",
-      "description": "Author: plan-architect · Date: 2026-09-04 · Status: build from this",
+      "description": "Bonvi's ~15 salespeople make ~15,000 calls a month from SIM cards in their personally owned Android phones. Today that data belongs to MoyZvonki, which deletes audio after 30 days.",
       "description_source": "spec",
       "is_worktree": false,
       "is_archive_name": true
@@ -74,49 +74,49 @@
     },
     {
       "id": "BonviGo",
-      "description": "Status: binding for build agents · 2026-10-20 · plan-architect. Inputs: BRIEF.md, ASSUMPTIONS.md, STACK.md, CONVENTIONS.md v1.1, ../BONVI_SERVER.md.",
+      "description": "BonviGo is the single start page for ~540 Bonvi employees: one public page listing every internal web system with a live status, search, a category filter, and per-browser pinned and recent services.",
       "description_source": "spec",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "BonviHR",
-      "description": "Bonvi (MBF Company, Qo'qon) uchun HR boshqaruv tizimi. To'liq reja va bosqichlar: PLAN.md",
+      "description": "Bonvi (MBF Company, Qo'qon) uchun HR boshqaruv tizimi. Bugun 3 xil joyda (Excel + Jobster + Verifix) sochilib yotgan HR jarayonini bitta o'z platformamizga yig'ish.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "BonviImport",
-      "description": "Xitoy · Gonkong · Dubaydan olib kelinadigan yuklarning to'liq import boshqaruv tizimi: zavodga zakaz → ishlab chiqarish → yuklash → chegarada avto almashtirish → tranzit → bojxona → ombor priyomkasi…",
+      "description": "Xitoy · Gonkong · Dubaydan olib kelinadigan yuklarning to'liq import boshqaruv tizimi: zavodga zakaz → ishlab chiqarish → yuklash → chegarada avto almashtirish → tranzit → bojxona → ombor priyomkasi → kontragent balansi.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "BonviImzo",
-      "description": "Status: draft for owner approval · 2026-10-13 · Author: plan-architect Inputs (authority order): docs/BRIEF.md > docs/REQUIREMENTS.md (REQ) > docs/UX.md (UX) > docs/STACK.md (STACK) >…",
+      "description": "BonviImzo replaces paper blanks and Telegram-group requests at Bonvi with an internal electronic document workflow: template-built blanks, configurable approval routes, Telegram-OTP signatures, partial fill with amendments, and a complete, tamper-evident history.",
       "description_source": "spec",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "BrokerApp",
-      "description": "Dehqon va oluvchini brokersiz to'g'ridan-to'g'ri bog'lovchi mobil ilova (O'zbekiston, meva-sabzavot bozori).",
+      "description": "Dehqon va oluvchini brokersiz to'g'ridan-to'g'ri bog'lovchi mobil ilova (O'zbekiston, meva-sabzavot bozori). Dehqon uchun eng sodda tajriba: rasm > matn, katta tugmalar, zaif internetga chidamli, o'zbek (lotin/kirill) va rus tillari.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "ClaudeManager",
-      "description": "A small macOS / Windows tray app that keeps several Claude (Pro/Max) accounts signed in and hands Claude Code over to the next account before the active one reaches its usage limit — running terminal…",
+      "description": "A small macOS / Windows tray app that keeps several Claude (Pro/Max) accounts signed in and hands Claude Code over to the next account before the active one reaches its usage limit — running terminal sessions keep going.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "FactoryIncome",
-      "description": "Zavod kirimlari (factory goods receipts). Local desktop app: a Telegram bot collects \"Далолатнома\" Excel files (and photos) from the supply group → parser + validation rules → AI checks through the…",
+      "description": "Zavod kirimlari (factory goods receipts). Local desktop app: a Telegram bot collects \"Далолатнома\" Excel files (and photos) from the supply group → parser + validation rules → AI checks through the locally installed Claude Code CLI (subscription, no API key) → review dashboard (edit, acknowledge…",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
@@ -130,14 +130,14 @@
     },
     {
       "id": "HRMentor",
-      "description": "Telegram assistant that answers employees' work questions from the organisation's own HR documents — job descriptions, internal rules, orders — with exact citations and links to read the source…",
+      "description": "Telegram assistant that answers employees' work questions from the organisation's own HR documents — job descriptions, internal rules, orders — with exact citations and links to read the source, sends blank forms on request and checks filled ones.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "HRMentor-wt-agent-api",
-      "description": "Telegram assistant that answers employees' work questions from the organisation's own HR documents — job descriptions, internal rules, orders — with exact citations, and helps them study those…",
+      "description": "Telegram assistant that answers employees' work questions from the organisation's own HR documents — job descriptions, internal rules, orders — with exact citations, and helps them study those documents. HR manages documents, staff and study assignments in a web panel.",
       "description_source": "readme",
       "is_worktree": true,
       "is_archive_name": false
@@ -151,14 +151,14 @@
     },
     {
       "id": "MegaPlus ERP",
-      "description": "Retail ERP and offline-first POS for the Mega Plus supermarket (Tashkent), replacing Linko. Read CLAUDE.md first, then docs/SPEC.md, docs/ARCHITECTURE.md, docs/STACK.md and docs/ROADMAP.md.",
+      "description": "Retail ERP and offline-first POS for the Mega Plus supermarket (Tashkent), replacing Linko.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "MegaPlus Platform",
-      "description": "AI-agent platform (web console, Telegram Mini App and bots) for the Mega Plus supermarket, next to the Mega Plus ERP.",
+      "description": "AI-agent platform (web console, Telegram Mini App and bots) for the Mega Plus supermarket, next to the Mega Plus ERP. It reads ERP data through a read-only API and keeps its own data: supplier agents, order proposals, HR, KPI.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
@@ -179,14 +179,14 @@
     },
     {
       "id": "PrivateBusiness",
-      "description": "PrivateBusiness — Claude uchun kontekst",
+      "description": "Abboskhan'ning LinkedIn orqali qurilayotgan B2B biznesi. Bu papka ham ish joyi, ham xotira: barcha reja, yozishma, qaror va kod shu yerda.",
       "description_source": "claude_md",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "Russian-Speaking",
-      "description": "Russian‑speaking practice platform for Uzbek learners: record an answer, get AI pronunciation + grading feedback, progress through modules, compete on the leaderboard.",
+      "description": "Russian‑speaking practice platform for Uzbek learners: record an answer, get AI pronunciation + grading feedback, progress through modules, compete on the leaderboard. Teachers run groups, assign work, and track a gradebook.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
@@ -207,14 +207,14 @@
     },
     {
       "id": "WunderkindAIAgent",
-      "description": "AI sales agent for the Wunderkind private school. Answers Instagram comments/DMs and Telegram chats, drives each conversation to an admission interview booking (name + phone), logs everything, and…",
+      "description": "AI sales agent for the Wunderkind private school. Answers Instagram comments/DMs and Telegram chats, drives each conversation to an admission interview booking (name + phone), logs everything, and alerts staff in Telegram. Managed from one admin panel.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "WunderkindEmployeesBot",
-      "description": "Wunderkind xususiy maktabiga ishga ariza topshirish uchun Telegram bot. Nomzod fan(lar)ni tanlaydi, ketma-ket savollarga javob beradi va (xohlasa) CV yuklaydi.",
+      "description": "Wunderkind xususiy maktabiga ishga ariza topshirish uchun Telegram bot. Nomzod fan(lar)ni tanlaydi, ketma-ket savollarga javob beradi va (xohlasa) CV yuklaydi. Har bir ariza maxsus guruhga shablon matn + avtomatik tuzilgan PDF CV + nomzodning original CV'si ko'rinishida yuboriladi.",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
@@ -249,15 +249,15 @@
     },
     {
       "id": "Yordamchi",
-      "description": "Two owner-only Telegram bots that run on the owner's MacBook as launchd agents:",
+      "description": "Two owner-only Telegram bots that run on the owner's MacBook as launchd agents: the dev bot turns messages and voice notes into work for headless Claude Code sessions, one per project, and asks only about important decisions (deploy, server changes, data loss, money, sending to others); the…",
       "description_source": "readme",
       "is_worktree": false,
       "is_archive_name": false
     },
     {
       "id": "zinnur-v2",
-      "description": "HOLAT: Domain va Application qatlamlari YOZILGAN va kompilyatsiyadan o'tgan. Ular haqiqat manbai — quyidagi imzolar aynan kodga mos. Bu hujjat majburiy shartnoma.",
-      "description_source": "spec",
+      "description": "",
+      "description_source": "none",
       "is_worktree": false,
       "is_archive_name": false
     }

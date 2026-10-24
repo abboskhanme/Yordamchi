@@ -1,0 +1,22 @@
+{
+  "case": "explicit_bonviagi",
+  "duration_ms": 1545,
+  "latency_ms": 1546,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.95,
+        "project_id": "BonviAGI"
+      }
+    ],
+    "confidence": 0.95,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "BonviAGI"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"BonviAGI\",\"candidates\":[{\"project_id\":\"BonviAGI\",\"confidence\":0.95}],\"confidence\":0.95,\"needs_fresh\":false,\"is_new_project\":false}"
+}

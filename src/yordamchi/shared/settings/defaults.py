@@ -722,10 +722,11 @@ ROUTING_CONTEXT_WINDOW_MIN = Setting(
     doc="Recent project activity counted as context for a follow-up.",
 )
 MODELS_ROUTING = _claude_model("models.routing", "haiku", bots=DEV, doc="Model of the warm routing assistant.")
+# T26: at 2.5 s, 26 of 163 live routing asks (haiku, effort low) timed out; 3.8 s keeps the ≤ 4 s decision (UC-10).
 TIMEOUTS_ROUTING_S = Setting(
     "timeouts.routing_s",
     float,
-    2.5,
+    3.8,
     check=Range(0.5, 15),
     group=Group.TIMEOUTS,
     bots=DEV,

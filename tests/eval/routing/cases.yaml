@@ -20,6 +20,8 @@
 #     expect       exactly one of:
 #                    project: X               routed to X without a question
 #                    ask: [X, Y]              one question that names at least these
+#                    asks: true               one question naming at least two candidates, any: the message points
+#                                             at no specific set (many projects have a login page)
 #                    no_project: true         a projectless intent (report_all, server_status, new_project)
 #     intent       optional: the expected intent, graded with the route; without it only the route is graded
 #
@@ -260,18 +262,42 @@ cases:
     voice: true
     text: "Vunderkind LMS da baholar sahifasi ochilmayapti"
     expect: {project: WunderkindLMS}
+  # T26 round 2: a short alias bare, the one target suffix among two names, an ordinary-word name before "loyiha".
+  - id: explicit_short_alias_beside_a_target
+    category: explicit
+    text: "NUR'da HR bo'limiga xodim qo'shish formasini tuzat"
+    expect: {project: NUR-Project}
+  - id: explicit_target_suffix_over_a_bare_name
+    category: explicit
+    text: "BonviHR'da Yordamchi ishlatadigan redact kutubxonasini qo'sh"
+    expect: {project: BonviHR}
+  - id: explicit_word_name_before_loyiha
+    category: explicit
+    text: "yordamchi loyihasida sozlamalar ro'yxatini qisqartir"
+    expect: {project: Yordamchi}
+  - id: explicit_head_of_a_generic_name
+    category: explicit
+    text: "NUR loyihasida sotuv hisobotiga filtr qo'sh"
+    expect: {project: NUR-Project}
 
   # --- content-clear: no name, the subject decides --------------------------------------------------------------------
-  - {id: content_candidates_form, category: content, text: "nomzodlar anketasi saqlanmayapti", expect: {project: BonviHR}}
+  # T26 correction (was content → BonviHR): job candidates' forms are BonviHR's and WunderkindEmployeesBot's
+  # ("Nomzod … ariza", registry.json); nothing in the message picks one.
+  - id: content_candidates_form
+    category: ambiguous
+    text: "nomzodlar anketasi saqlanmayapti"
+    expect: {ask: [BonviHR, WunderkindEmployeesBot]}
   - id: content_lc_attendance
     category: content
     text: "o'quv markazida davomat belgilanmayapti"
     expect: {project: WunderkindLC}
+  # T26 correction (was content → OvozYoz): a voice message turned into text is Yordamchi's (voice notes), TezTel's
+  # and Wooden's (their bots read voice); OvozYoz is hotkey dictation, not voice messages (registry.json).
   - id: content_stt
-    category: content
+    category: ambiguous
     voice: true
     text: "ovozli xabar matnga noto'g'ri o'girilyapti"
-    expect: {project: OvozYoz}
+    expect: {asks: true}
   - id: content_claude_accounts
     category: content
     text: "limit tugaganda keyingi akkauntga o'tmayapti"
@@ -550,13 +576,20 @@ cases:
     text: "claude CLI'ni yangi versiyaga ko'tar"
     recent: [{project: Yordamchi, minutes_ago: 4, kind: spoken}]
     expect: {project: Yordamchi}
+  - id: context_common_word_name
+    category: context
+    text: "yordamchi skript yozib ber, CSV'ni tozalaydigan"
+    recent: [{project: TezTel, minutes_ago: 4, kind: spoken}]
+    expect: {project: TezTel}
 
   # --- genuinely ambiguous: one question naming the candidates --------------------------------------------------------
-  - {id: ambiguous_login, category: ambiguous, text: "login sahifasini tuzat", expect: {ask: [BonviHR, HRMentor]}}
+  # T26 corrections (were ask [BonviHR, HRMentor] and ask [WunderkindLC, WunderkindLMS]): most of the 35 projects have
+  # a login page, and the message names none of the six Wunderkind folders; no two of them are the right ones.
+  - {id: ambiguous_login, category: ambiguous, text: "login sahifasini tuzat", expect: {asks: true}}
   - id: ambiguous_wunderkind_family
     category: ambiguous
     text: "Wunderkind'da yangi bo'lim qo'sh"
-    expect: {ask: [WunderkindLC, WunderkindLMS]}
+    expect: {asks: true}
   - id: ambiguous_megaplus
     category: ambiguous
     text: "MegaPlus'da hisobotni tuzat"
@@ -655,3 +688,12 @@ cases:
     category: ambiguous
     text: "Gemini Live ulanishi tez-tez uzilib qolyapti"
     expect: {ask: [AI, AI-Phone]}
+  # T26 round 2: "archive" in Uzbek and Russian.
+  - id: ambiguous_archive_uzbek
+    category: ambiguous
+    text: "BonviCall'ning arxiv nusxasidan eski skriptni ol"
+    expect: {ask: [BonviCall, BonviCall Clone Archive]}
+  - id: ambiguous_archive_russian
+    category: ambiguous
+    text: "BonviCall архивидан eski konfigni ko'chir"
+    expect: {ask: [BonviCall, BonviCall Clone Archive]}

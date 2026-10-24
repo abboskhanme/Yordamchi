@@ -152,6 +152,57 @@ def test_one_typo_or_another_spelling_still_names_a_routable_project(text: str, 
     assert found.typo == (project,)
 
 
+@pytest.mark.parametrize(
+    ("text", "named"),
+    [
+        ("yordamchi skript yozib ber", ()),  # "a helper script": the word, not the project
+        ("BonviHR'da yordamchi funksiya yoz", ("BonviHR",)),
+        ("yordamchilar uchun hisobot", ()),
+        ("yordamchim ishlamayapti", ()),  # one letter more is the word inflected, never a typo of the name
+        ("Yordamchi'ning testlarini yurgiz", ("Yordamchi",)),
+        ("Yordamchi qanday?", ("Yordamchi",)),  # capitalized as a name
+        ("yordamchi'da sozlama qo'sh", ("Yordamchi",)),  # with a suffix
+        ("yordamchi loyihasida sozlama qo'sh", ("Yordamchi",)),  # before "loyiha"
+        ("wooden stul rasmi", ()),
+        ("Wooden'ga rasm qo'sh", ("Wooden",)),
+    ],
+)
+def test_a_name_that_is_an_ordinary_word_counts_capitalized_suffixed_or_before_loyiha(
+    text: str, named: tuple[str, ...]
+) -> None:
+    """T26 eval: "yordamchi" (helper) named Yordamchi wherever it was said, so "yordamchi skript yoz" while TezTel was
+    active went to Yordamchi."""
+    found = _mentions(text)
+    assert found.named == named
+    if not named and text.startswith(("yordamchi ", "wooden ")):
+        assert found.weak[:1] in {("Yordamchi",), ("Wooden",)}  # still a hint for the model
+
+
+@pytest.mark.parametrize(
+    ("text", "named"),
+    [
+        ("HR bo'limi uchun hisobot", ()),  # the alias "hr" bare is a word: only a hint
+        ("hr'da ta'til arizasi ishlamayapti", ("BonviHR",)),
+        ("HR da ishga qabul shablonini qo'sh", ("BonviHR",)),  # the suffix written apart, as voice gives it
+        ("NUR'da servis bo'limi", ("NUR-Project",)),  # a name's head before a generic "-Project"
+        ("nur yog'dusi", ()),
+        ("AI loyihasida ovoz", ("AI",)),
+    ],
+)
+def test_a_short_alias_or_head_needs_a_suffix_like_a_short_name(text: str, named: tuple[str, ...]) -> None:
+    """T26: the alias "hr" named BonviHR in "NUR'da HR bo'limiga …"; aliases of ≤ 3 letters now follow the short-name
+    rule, and `NUR-Project` answers to "NUR'da"."""
+    assert _mentions(text).named == named
+
+
+@pytest.mark.parametrize("text", ["BonviCall'ning arxiv nusxasidan eski skriptni ol", "BonviCall архивидан конфиг"])
+def test_arxiv_and_arhiv_are_archive_words(text: str) -> None:
+    found = _mentions(text)
+    assert found.lookalike == ("BonviCall Clone Archive",)
+    decision = domain.decide(_plan(_item(text)), None, CFG)
+    assert (decision.outcome, set(decision.candidate_ids)) == (Outcome.ASK, {"BonviCall", "BonviCall Clone Archive"})
+
+
 def test_tez_tez_often_is_no_typo_of_teztel() -> None:
     """T26 eval: "Gemini Live ulanishi tez-tez uzilib qolyapti" went to TezTel without a question. A doubled word
     ("tez-tez", "teztez": often) is one letter from `teztel`, but Uzbek doubles words, and a doubled word is no name."""
@@ -465,13 +516,38 @@ def test_a_look_alike_or_a_typo_between_two_names_asks_whatever_the_llm_says() -
 
 
 def test_two_named_projects_let_the_llm_pick_one_of_them_or_ask() -> None:
-    text = "HRMentor'dagi login kodini BonviHR'ga ko'chir"
+    text = "HRMentor va BonviHR'dagi login kodini birlashtir"  # joined by "va": neither one is the target
     picked = _decide(text, _llm("BonviHR", 0.9, HRMentor=0.1))
     assert (picked.outcome, picked.method, picked.project_id) == (Outcome.ROUTE, Method.LLM, "BonviHR")
     unsure = _decide(text, _llm("BonviHR", 0.6, HRMentor=0.5))
     assert (unsure.outcome, unsure.candidate_ids) == (Outcome.ASK, ("BonviHR", "HRMentor"))
     offline = _decide(text, None)
     assert (offline.outcome, offline.candidate_ids) == (Outcome.ASK, ("HRMentor", "BonviHR"))
+
+
+@pytest.mark.parametrize(
+    ("text", "target"),
+    [
+        ("HRMentor'dagi login kodini BonviHR'ga ko'chir", "BonviHR"),  # from 'dagi, to 'ga
+        ("NUR'da HR bo'limiga xodim qo'shish formasini tuzat", "NUR-Project"),  # "HR" bare is only a hint
+        ("BonviHR'da Yordamchi ishlatadigan redact kutubxonasini qo'sh", "BonviHR"),  # "Yordamchi" bare
+    ],
+)
+def test_of_two_names_the_one_with_a_target_suffix_is_the_target(text: str, target: str) -> None:
+    """T26: the one name with 'da/'ga/'ni is where the work goes; another name bare or with 'dagi/'dan does not
+    override it, and the model is not asked to choose."""
+    decision = _decide(text, _llm(None, 0.0))
+    assert (decision.outcome, decision.method, decision.project_id) == (Outcome.ROUTE, Method.EXPLICIT, target)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["BonviHR va HRMentor'da parol sahifasini bir xil qil", "HRMentor'ni BonviHR'ga ko'chir"],
+)
+def test_names_joined_or_both_with_target_suffixes_leave_the_choice_open(text: str) -> None:
+    mentions = _mentions(text)
+    assert len(mentions.named) == 2
+    assert mentions.target is None
 
 
 def test_a_family_word_limits_the_pick_to_that_family() -> None:
@@ -545,8 +621,18 @@ def test_an_unsure_pick_asks_unless_it_is_the_one_active_project_and_leads() -> 
     assert tied.outcome is Outcome.ASK
     two = _decide("endi push qil", _llm("TezTel", 0.5), spoken=("TezTel", "BonviHR"))  # two active: no tie-break
     assert two.outcome is Outcome.ASK
-    null = _decide("endi push qil", _llm(None, 0.0, TezTel=0.35), spoken=("TezTel",))  # the model did not commit
-    assert (null.outcome, null.reason) == (Outcome.ASK, "no_pick")
+    elsewhere = _decide("endi push qil", _llm(None, 0.0, BonviHR=0.35), spoken=("TezTel",))  # no pick, another one
+    assert (elsewhere.outcome, elsewhere.reason) == (Outcome.ASK, "no_pick")
+
+
+def test_no_pick_whose_likeliest_candidate_is_the_one_active_project_continues_it() -> None:
+    """T26 eval: "testlar o'tdimi?" while BrokerApp ran came back with no pick and BrokerApp as its one candidate."""
+    decision = _decide("testlar o'tdimi?", _llm(None, 0.0, TezTel=0.4, BonviHR=0.35), spoken=("TezTel",))
+    assert (decision.outcome, decision.project_id, decision.method) == (Outcome.ROUTE, "TezTel", Method.CONTEXT)
+    tied = _decide("testlar o'tdimi?", _llm(None, 0.0, TezTel=0.4, BonviHR=0.4), spoken=("TezTel",))
+    assert tied.outcome is Outcome.ASK
+    nothing = _decide("testlar o'tdimi?", _llm(None, 0.0), spoken=("TezTel",))  # no candidate at all
+    assert nothing.outcome is Outcome.ASK
 
 
 def test_without_the_llm_one_active_project_takes_it_and_otherwise_the_bot_asks() -> None:
@@ -844,7 +930,7 @@ def test_rows_round_trip_and_unknown_values_fall_back() -> None:
 
 def test_route_settings_come_from_the_snapshot_defaults() -> None:
     assert (CFG.min_confidence, CFG.min_margin, CFG.context_window) == (0.75, 0.2, timedelta(minutes=15))
-    assert (CFG.merge_min_confidence, CFG.model, CFG.timeout_s) == (0.85, "haiku", 2.5)
+    assert (CFG.merge_min_confidence, CFG.model, CFG.timeout_s) == (0.85, "haiku", 3.8)
 
 
 def test_an_unknown_part_kind_reads_as_a_message() -> None:
