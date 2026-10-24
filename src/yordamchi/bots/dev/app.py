@@ -260,7 +260,7 @@ def build(boot: Boot, clock: Clock) -> "DevApp":
     from yordamchi.adapters.gemini.stt import GeminiTranscriber
     from yordamchi.adapters.git.cli import GitCli
     from yordamchi.adapters.github.cli import GhCli
-    from yordamchi.adapters.keystore.file import FileKeystore
+    from yordamchi.adapters.keystore.keychain import KeychainKeystore
     from yordamchi.adapters.macos.host import MacOsHost
     from yordamchi.adapters.mcp.client import McpHttpClient
     from yordamchi.adapters.openrouter.stt import OpenRouterTranscriber
@@ -287,7 +287,7 @@ def build(boot: Boot, clock: Clock) -> "DevApp":
         paths=paths,
         bootstrap=defaults.bootstrap_values(owner_id=config.owner_id, dev_group_id=config.dev_group_id),
         messenger=messenger,
-        keystore=FileKeystore(paths.master_key),
+        keystore=KeychainKeystore(bot=BotName.DEV, legacy_key_file=paths.master_key),
         assistant=assistant,
         transcribers=transcribers,
         synthesizers={},  # text-to-speech is P3

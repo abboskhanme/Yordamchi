@@ -1,6 +1,6 @@
 """Shared fixtures (CONVENTIONS §11). The network is closed (pytest-socket); `live` tests re-open it."""
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
 
 import pytest
@@ -79,3 +79,23 @@ def dev_deps(dev_db: Database, paths: Paths, fakes: Fakes) -> DevDeps:
 @pytest.fixture
 def personal_deps(personal_db: Database, dev_db_readonly: Database, paths: Paths, fakes: Fakes) -> PersonalDeps:
     return make_personal_deps(db=personal_db, paths=paths, fakes=fakes, peer_db=dev_db_readonly)
+
+
+@pytest.fixture(autouse=True)
+def _never_the_real_keychain(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Outside `live` tests, any attempt to execute the real `/usr/bin/security` (the macOS Keychain) fails loudly.
+
+    The choke point is `core.proc`, so tests that inject a fake runner, or patch `proc.run_sync` themselves, still work.
+    """
+    if request.node.get_closest_marker("live") is not None:
+        return
+    from yordamchi.core import proc
+
+    real_run_sync = proc.run_sync
+
+    def guarded_run_sync(argv: Sequence[str], **kwargs: object) -> proc.ProcResult:
+        if argv and str(argv[0]).endswith("/security"):
+            raise AssertionError("a test reached the real Keychain; use tests.fakes.security.FakeSecurity")
+        return real_run_sync(argv, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(proc, "run_sync", guarded_run_sync)
