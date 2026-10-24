@@ -239,7 +239,7 @@ Waves: {T50 T51 T52 T54 T55} → {T53 T56 T57} → T58 → T59 → T60.
 - [x] (DONE 2026-10-24) T74 `personal/artefacts` + `adapters/web` (Playwright, download, yt-dlp) — build-integration — deps: T47 — UC-32
 - [ ] T75 `personal/news` — build-backend — deps: T72 — UC-33
 - [ ] T76 gateway `yordamchi_int` + personal integrations half — build-integration — deps: T50, T70 — UC-35, UC-08 personal
-- [ ] T77 `bots/personal` wiring + tool-list equality refusal (S5 decision) [sequential] — build-backend — deps: T70–T76 — NFR-SEC-08
+- [x] (DONE 2026-10-24, before T75/T76: news and integrations answer NOT_YET) T77 `bots/personal` wiring + tool-list equality refusal (S5 decision) [sequential] — build-backend — deps: T70–T76 — NFR-SEC-08
 - [ ] T78 P3 evals: UC-30 quality ≥ 30 (owner-reviewed), injection ≥ 10, burst full ≥ 40 both bots, bridge isolation, fixture MCP — test-backend — deps: T77
 - [ ] T79 P3 latency, qa-security, install personal plist, QOLLANMA, DoD — deps: T78
 
