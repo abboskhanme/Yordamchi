@@ -9,8 +9,10 @@ this module decides:
 2. the flags: `is_worktree` (a `.git` file, or `-wt-` in the name) and `is_archive_name` (`… Archive`, `backup`,
    `… old`, `… copy`). Both make a project answer only to its exact name, until the owner unarchives it;
 3. the description: the owner's text, else the first prose paragraph of README, CLAUDE.md or the SPEC;
-4. the deploy branches (`deploy_branches`): which pushes start a CI workflow that deploys. An unreadable workflow
-   makes every branch and tag count (fail closed: an extra question is acceptable, a miss is not);
+4. the deploy branches (`deploy_branches`, `platform_deploy`): which pushes start a CI workflow that deploys, plus the
+   default branch of a project wired to a platform's Git integration (Vercel, Netlify, Render, Railway, App Engine),
+   which deploys with no workflow file at all. An unreadable workflow makes every branch and tag count (fail closed:
+   an extra question is acceptable, a miss is not);
 5. the registry view (`project_view`): the stored row plus the owner's settings — aliases, archived and unarchived
    names, descriptions, the executor — read at use time, so a chat change applies at once (UC-18 AC);
 6. name lookup, the owner's edits as new setting values, and the `loyihalar` text.
@@ -232,8 +234,20 @@ def describe(docs: Sequence[DocText], *, name: str, owner: str | None) -> tuple[
 WORKFLOWS_DIR: Final = ".github/workflows"
 WORKFLOW_SUFFIXES: Final = (".yml", ".yaml")
 WORKFLOW_MAX_BYTES: Final = 512 * 1024
-# Part of the cache key: when these rules change in a release, every project is checked again.
-DEPLOY_RULES_VERSION: Final = 1
+# Part of the cache key: when these rules change in a release, every project is checked again. 2: platform configs.
+DEPLOY_RULES_VERSION: Final = 2
+# A platform's Git integration deploys the production branch on every push, with no workflow file (T17b). Any of these
+# in the working tree makes the default branch count as deploying. `.vercel/project.json` is what `vercel link` writes;
+# it is usually git-ignored, so only the working tree has it.
+PLATFORM_FILES: Final = (
+    "vercel.json",
+    ".vercel/project.json",
+    "netlify.toml",
+    "render.yaml",
+    "railway.json",
+    "railway.toml",
+    "app.yaml",  # Google App Engine
+)
 
 
 class Unparseable:
@@ -321,9 +335,10 @@ def _escape_glob(name: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class DeployBranches:
-    """The pushes that start a deploying CI workflow. `branches` and `tags` are GitHub filter globs (`main`,
-    `release/**`); `every_*` means any name. `workflows` lists the files that deploy, `unparseable` the files that
-    forced `every_*`. Stored as `projects.deploy_branches_json`."""
+    """The pushes that deploy, through a CI workflow or a platform's Git integration. `branches` and `tags` are GitHub
+    filter globs (`main`, `release/**`); `every_*` means any name. `workflows` lists the files that deploy (workflow
+    files, and platform configs such as `vercel.json`), `unparseable` the files that forced `every_*`. Stored as
+    `projects.deploy_branches_json`."""
 
     every_branch: bool = False
     branches: tuple[str, ...] = ()
@@ -813,19 +828,38 @@ def deploy_branches(files: Sequence[WorkflowFile]) -> DeployBranches:
     )
 
 
+def platform_deploy(found: Collection[str], *, default_branch: str | None) -> DeployBranches:
+    """The pushes a platform's Git integration deploys (T17b): the default branch, when any of `PLATFORM_FILES` is in
+    `found` (what the working tree has). An unknown default branch makes every branch count (fail closed)."""
+    configs = tuple(name for name in PLATFORM_FILES if name in found)
+    if not configs:
+        return NO_DEPLOY
+    if default_branch is None or not default_branch.strip():
+        return DeployBranches(every_branch=True, workflows=configs)
+    return DeployBranches(branches=(_escape_glob(default_branch),), workflows=configs)
+
+
 def is_workflow_name(name: str) -> bool:
     return name.endswith(WORKFLOW_SUFFIXES) and not name.startswith(".")
 
 
-def deploy_key(head: str | None, stats: Sequence[WorkflowStat] | None) -> str:
-    """The cache key of the stored deploy branches (`deploy_checked_sha`): the rules version, the HEAD commit and the
-    working tree's workflow files. Any change re-runs the check; `stats=None` means the folder could not be listed."""
+def deploy_key(
+    head: str | None,
+    stats: Sequence[WorkflowStat] | None,
+    *,
+    platform: Collection[str] = (),
+    default_branch: str | None = None,
+) -> str:
+    """The cache key of the stored deploy branches (`deploy_checked_sha`): the rules version, the HEAD commit, the
+    working tree's workflow files, its platform configs and the default branch they deploy. Any change re-runs the
+    check; `stats=None` means the folder could not be listed."""
     digest = hashlib.sha256(f"rules={DEPLOY_RULES_VERSION}\nhead={head or ''}\n".encode())
     if stats is None:
         digest.update(b"workflows=unreadable\n")
     else:
         for stat in sorted(stats, key=lambda item: item.name):
             digest.update(f"{stat.name}\0{stat.size}\0{stat.mtime_ns}\n".encode(errors="surrogateescape"))
+    digest.update(f"platform={','.join(sorted(platform))}\nbranch={default_branch or ''}\n".encode())
     return digest.hexdigest()
 
 
@@ -839,6 +873,7 @@ class FolderFacts:
     git: GitKind
     docs: tuple[DocText, ...] = ()
     workflow_stats: tuple[WorkflowStat, ...] | None = ()  # None: `.github/workflows` exists but cannot be listed
+    platform_files: tuple[str, ...] = ()  # the `PLATFORM_FILES` present; one that cannot be checked counts as present
 
 
 @dataclass(frozen=True, slots=True)

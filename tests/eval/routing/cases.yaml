@@ -1,0 +1,205 @@
+# Routing eval cases, dev bot (UC-10; SPEC §3.2.6). Seeded by T20 with 48 owner-style messages over the owner's real
+# folder names (a read-only listing of ~/Documents/Projects, 2026-10-24). T26 grows the set to >= 120 (80 explicit or
+# content-clear, 20 context follow-ups, 20 genuinely ambiguous, >= 15 projects: tests/eval/thresholds.toml [routing]),
+# adds the runner and records the live LLM answers in tests/fixtures/llm/routing/. No case uses a reply (UC-10 AC).
+#
+#   projects       the registry, every folder name exactly. `*-wt-*` is a worktree and `… Archive` is archived: both
+#                  answer only to their exact name.
+#   aliases        alias → project (`projects.aliases`).
+#   cases[]
+#     id           unique snake_case
+#     category     explicit | content | context | ambiguous   (the UC-10 subsets; "content" = content-clear)
+#     text         what the owner wrote, or said (`voice: true`: the text is the transcript)
+#     recent       optional: [{project, minutes_ago, kind: spoken | reported | running}], the activity before it
+#     expect       exactly one of:
+#                    project: X               routed to X without a question
+#                    ask: [X, Y]              one question that names at least these
+#                    no_project: true         a projectless intent (report_all, server_status, new_project)
+#     intent       optional: the expected intent (default instruct_project)
+#
+# tests/unit/dev/routing/test_eval_seed.py checks the format, and that the deterministic layer alone (names, context,
+# the LLM unavailable) never routes a case to the wrong project without asking.
+
+projects:
+  - AI
+  - AI-Phone
+  - AIAgents
+  - AgentsRoom
+  - BS
+  - Bonvi-platform
+  - BonviAGI
+  - BonviCall
+  - BonviCall Clone Archive
+  - BonviFinance
+  - BonviGo
+  - BonviHR
+  - BonviImport
+  - BonviImzo
+  - BrokerApp
+  - ClaudeManager
+  - FactoryIncome
+  - GasStation
+  - HRMentor
+  - HRMentor-wt-agent-api
+  - ImportAgents
+  - MegaPlus ERP
+  - MegaPlus Platform
+  - NUR-Project
+  - OvozYoz
+  - PrivateBusiness
+  - Russian-Speaking
+  - TezTel
+  - Wooden
+  - WunderkindAIAgent
+  - WunderkindEmployeesBot
+  - WunderkindLC
+  - WunderkindLMS
+  - WunderkindOlympics
+  - WunderkindTestPortal
+  - Yordamchi
+  - zinnur-v2
+
+aliases:
+  hr: BonviHR
+
+cases:
+  # --- explicit: a name, an alias, a suffix, a typo -------------------------------------------------------------------
+  - {id: explicit_suffix_da, category: explicit, text: "BonviHR'da login sahifasini tuzat", expect: {project: BonviHR}}
+  - {id: explicit_unquoted_ga, category: explicit, text: "hrmentorga yangi endpoint qo'sh", expect: {project: HRMentor}}
+  - {id: explicit_ning, category: explicit, text: "Yordamchi'ning testlarini yurgiz", expect: {project: Yordamchi}}
+  - {id: explicit_lowercase, category: explicit, text: "ovozyoz stt xatosini tuzat", expect: {project: OvozYoz}}
+  - id: explicit_worktree_exact
+    category: explicit
+    text: "HRMentor-wt-agent-api'da agent API'ni tugat"
+    expect: {project: HRMentor-wt-agent-api}
+  - id: explicit_archive_exact
+    category: explicit
+    text: "BonviCall Clone Archive'dagi eski kodni ko'rib chiq"
+    expect: {project: BonviCall Clone Archive}
+  - {id: explicit_two_words, category: explicit, text: "MegaPlus ERP'da ombor hisobotini qo'sh", expect: {project: MegaPlus ERP}}
+  - id: explicit_two_words_unquoted
+    category: explicit
+    text: "megaplus platformda login sahifasini qayta yoz"
+    expect: {project: MegaPlus Platform}
+  - id: explicit_wunderkind_lc
+    category: explicit
+    text: "WunderkindLC'da guruhlar ro'yxatini tuzat"
+    expect: {project: WunderkindLC}
+  - id: explicit_wunderkind_lms
+    category: explicit
+    text: "WunderkindLMS'ga uy vazifasi bo'limini qo'sh"
+    expect: {project: WunderkindLMS}
+  - id: explicit_wunderkind_olympics
+    category: explicit
+    text: "WunderkindOlympics natijalar jadvalini yangila"
+    expect: {project: WunderkindOlympics}
+  - id: explicit_wunderkind_employees
+    category: explicit
+    text: "WunderkindEmployeesBot'ga ish vaqti hisobotini qo'sh"
+    expect: {project: WunderkindEmployeesBot}
+  - {id: explicit_typo, category: explicit, text: "hrmentr'da testlar yiqilyapti", expect: {project: HRMentor}}
+  - {id: explicit_typo_import, category: explicit, text: "BonviImpor'da excel importni tuzat", expect: {project: BonviImport}}
+  - {id: explicit_imzo, category: explicit, text: "BonviImzo'da e-imzo tekshiruvini qo'sh", expect: {project: BonviImzo}}
+  - {id: explicit_hyphen_name, category: explicit, text: "AI-Phone'da qo'ng'iroq yozuvini qo'sh", expect: {project: AI-Phone}}
+  - {id: explicit_short_with_suffix, category: explicit, text: "BS'ga yangi sahifa qo'sh", expect: {project: BS}}
+  - {id: explicit_version_suffix, category: explicit, text: "zinnur-v2'da deploy skriptini yoz", expect: {project: zinnur-v2}}
+  - {id: explicit_written_apart, category: explicit, text: "Bonvi Call'da qo'ng'iroqlar tarixini chiqar", expect: {project: BonviCall}}
+  - {id: explicit_russian_mix, category: explicit, text: "TezTel'da корзина работает неправильно, tuzat", expect: {project: TezTel}}
+  - {id: explicit_with_ai_word, category: explicit, text: "BonviHR'ga AI chat qo'sh", expect: {project: BonviHR}}
+  - id: explicit_report
+    category: explicit
+    text: "ClaudeManager qanday?"
+    expect: {project: ClaudeManager}
+    intent: report_project
+  - {id: explicit_voice, category: explicit, voice: true, text: "GasStation'da narxlarni yangila", expect: {project: GasStation}}
+  - {id: explicit_wooden, category: explicit, text: "Wooden'ga mahsulot rasmlarini qo'sh", expect: {project: Wooden}}
+  - {id: explicit_alias, category: explicit, text: "hr'da ta'til arizasi ishlamayapti", expect: {project: BonviHR}}
+  - id: explicit_two_named_target_clear
+    category: explicit
+    text: "HRMentor'dagi login kodini BonviHR'ga ko'chir"
+    expect: {project: BonviHR}
+
+  # --- content-clear: no name, the subject decides --------------------------------------------------------------------
+  - {id: content_candidates_form, category: content, text: "nomzodlar anketasi saqlanmayapti", expect: {project: BonviHR}}
+  - id: content_lc_attendance
+    category: content
+    text: "o'quv markazida davomat belgilanmayapti"
+    expect: {project: WunderkindLC}
+  - id: content_stt
+    category: content
+    voice: true
+    text: "ovozli xabar matnga noto'g'ri o'girilyapti"
+    expect: {project: OvozYoz}
+  - id: content_claude_accounts
+    category: content
+    text: "limit tugaganda keyingi akkauntga o'tmayapti"
+    expect: {project: ClaudeManager}
+  - {id: content_fuel, category: content, text: "yoqilg'i narxlari kunlik hisobotda chiqmayapti", expect: {project: GasStation}}
+  - {id: content_report_all, category: content, text: "bugun nima o'zgardi?", expect: {no_project: true}, intent: report_all}
+  - {id: content_server, category: content, text: "bonvi server qanday?", expect: {no_project: true}, intent: server_status}
+  - id: content_new_project
+    category: content
+    text: "yangi loyiha: kafe uchun buyurtma boti"
+    expect: {no_project: true}
+    intent: new_project
+
+  # --- context follow-ups: within 15 min of that project's activity ---------------------------------------------------
+  - id: context_tests
+    category: context
+    text: "testlarini ham yoz"
+    recent: [{project: HRMentor, minutes_ago: 3, kind: spoken}]
+    expect: {project: HRMentor}
+  - id: context_push
+    category: context
+    text: "endi commit qilib push qil"
+    recent: [{project: BonviHR, minutes_ago: 5, kind: spoken}]
+    expect: {project: BonviHR}
+  - id: context_reported
+    category: context
+    text: "nega yiqildi?"
+    recent: [{project: WunderkindLMS, minutes_ago: 2, kind: reported}]
+    expect: {project: WunderkindLMS}
+    intent: investigate
+  - id: context_running
+    category: context
+    voice: true
+    text: "yana bitta narsa: tinish belgilarini ham qo'y"
+    recent: [{project: OvozYoz, minutes_ago: 0, kind: running}]
+    expect: {project: OvozYoz}
+  - id: context_mobile
+    category: context
+    text: "mobil versiyada ham shunday qil"
+    recent: [{project: TezTel, minutes_ago: 8, kind: spoken}]
+    expect: {project: TezTel}
+
+  # --- genuinely ambiguous: one question naming the candidates --------------------------------------------------------
+  - {id: ambiguous_login, category: ambiguous, text: "login sahifasini tuzat", expect: {ask: [BonviHR, HRMentor]}}
+  - id: ambiguous_wunderkind_family
+    category: ambiguous
+    text: "Wunderkind'da yangi bo'lim qo'sh"
+    expect: {ask: [WunderkindLC, WunderkindLMS]}
+  - id: ambiguous_megaplus
+    category: ambiguous
+    text: "MegaPlus'da hisobotni tuzat"
+    expect: {ask: [MegaPlus ERP, MegaPlus Platform]}
+  - id: ambiguous_worktree_spaced
+    category: ambiguous
+    text: "HRMentor wt'da testlarni yoz"
+    expect: {ask: [HRMentor, HRMentor-wt-agent-api]}
+  - id: ambiguous_archive_near
+    category: ambiguous
+    text: "BonviCall clone'da eski kodni ol"
+    expect: {ask: [BonviCall, BonviCall Clone Archive]}
+  - {id: ambiguous_half_name, category: ambiguous, text: "WunderkindL'da xato bor", expect: {ask: [WunderkindLC, WunderkindLMS]}}
+  - id: ambiguous_cut_short
+    category: ambiguous
+    text: "bonviimpo'da xatoni tuzat"
+    expect: {ask: [BonviImzo, BonviImport]}
+  - id: ambiguous_two_recent
+    category: ambiguous
+    text: "testlarini ham yoz"
+    recent:
+      - {project: BonviHR, minutes_ago: 4, kind: spoken}
+      - {project: TezTel, minutes_ago: 6, kind: spoken}
+    expect: {ask: [BonviHR, TezTel]}
+  - {id: ambiguous_bare_ai, category: ambiguous, text: "AI agent qo'sh", expect: {ask: [AI, AIAgents]}}

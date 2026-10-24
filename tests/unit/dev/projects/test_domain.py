@@ -425,6 +425,51 @@ def test_the_cache_key_changes_with_head_workflows_and_readability() -> None:
     assert len(base) == 64
 
 
+# --- platform Git integrations (T17b) -------------------------------------------------------------------------------
+@pytest.mark.parametrize("config", domain.PLATFORM_FILES)
+def test_a_platform_config_makes_the_default_branch_deploy(config: str) -> None:
+    """Vercel, Netlify, Render, Railway and App Engine deploy the production branch on push with no workflow file."""
+    found = domain.platform_deploy({config, "README.md"}, default_branch="main")
+    assert (found.branches, found.every_branch, found.workflows) == (("main",), False, (config,))
+    assert found.covers_branch("main")
+    assert not found.covers_branch("feature/cart")
+    assert not found.covers_tag("v1.0")
+
+
+def test_no_platform_config_deploys_nothing() -> None:
+    assert domain.platform_deploy({"README.md", "package.json", "fly.toml"}, default_branch="main") == NO_DEPLOY
+    assert domain.platform_deploy((), default_branch=None) == NO_DEPLOY
+
+
+@pytest.mark.parametrize("branch", [None, "", "  "])
+def test_a_platform_config_with_an_unknown_default_branch_fails_closed(branch: str | None) -> None:
+    found = domain.platform_deploy({".vercel/project.json"}, default_branch=branch)
+    assert found.every_branch
+    assert found.covers_branch("anything")
+
+
+def test_a_platform_default_branch_is_matched_literally_and_joins_the_workflows() -> None:
+    odd = domain.platform_deploy({"netlify.toml"}, default_branch="release[1]*")
+    assert odd.covers_branch("release[1]*")
+    assert not odd.covers_branch("release1x")
+    both = domain.deploy_branches([load_workflow("release_on_tags.yml")]).union(
+        domain.platform_deploy({"vercel.json", "railway.toml"}, default_branch="master")
+    )
+    assert (both.branches, both.tags) == (("master",), ("v*",))
+    assert both.workflows == ("railway.toml", "release_on_tags.yml", "vercel.json")
+
+
+def test_the_cache_key_changes_with_platform_configs_and_the_default_branch() -> None:
+    stats = (WorkflowStat("deploy.yml", 120, 1),)
+    base = domain.deploy_key("a1", stats, platform=(), default_branch="main")
+    assert domain.deploy_key("a1", stats) == domain.deploy_key("a1", stats, platform=(), default_branch=None)
+    assert domain.deploy_key("a1", stats, platform=("vercel.json",), default_branch="main") != base
+    assert domain.deploy_key("a1", stats, platform=(), default_branch="master") != base
+    assert domain.deploy_key("a1", stats, platform=("a", "b"), default_branch="main") == domain.deploy_key(
+        "a1", stats, platform=("b", "a"), default_branch="main"
+    )
+
+
 # --- the registry view ----------------------------------------------------------------------------------------------
 def test_an_archive_name_is_archived_until_the_owner_unarchives_it() -> None:
     name = "BonviCall Clone Archive"

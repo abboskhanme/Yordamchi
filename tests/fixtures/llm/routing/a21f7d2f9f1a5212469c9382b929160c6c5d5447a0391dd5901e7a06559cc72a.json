@@ -1,0 +1,21 @@
+{
+  "case": "content_clear",
+  "duration_ms": 0,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "authored for T20 (no live call); T26 re-records live with --record-llm",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.05,
+        "project_id": "HRMentor"
+      }
+    ],
+    "confidence": 0.93,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "BonviHR"
+  },
+  "text": "{\"candidates\": [{\"confidence\": 0.05, \"project_id\": \"HRMentor\"}], \"confidence\": 0.93, \"intent\": \"instruct_project\", \"is_new_project\": false, \"needs_fresh\": false, \"project_id\": \"BonviHR\"}"
+}

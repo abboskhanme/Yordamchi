@@ -263,6 +263,48 @@ async def test_stored_deploy_branches_are_rechecked_only_when_head_or_a_workflow
     assert (await service.get_project(dev_deps, "Site")).deploy.every_branch
 
 
+async def test_a_platform_config_makes_the_default_branch_deploy_without_any_workflow(
+    dev_deps: DevDeps, root: Path, fakes: Fakes
+) -> None:
+    """T17b: a Vercel/Netlify/… Git integration deploys the default branch on push, with no workflow file."""
+    repo = make_project_folder(root, "Landing", git_dir=True)
+    (repo / "vercel.json").write_text("{}\n", encoding="utf-8")
+    fakes.git.default_branches[repo] = "master"
+    await service.sync_projects(dev_deps)
+
+    stored = (await service.get_project(dev_deps, "Landing")).deploy
+    assert (stored.branches, stored.workflows) == (("master",), ("vercel.json",))
+    fresh = await service.deploy_branches(dev_deps, "Landing")
+    assert fresh.covers_branch("master")
+    assert not fresh.covers_branch("feature/hero")
+
+
+async def test_a_platform_config_added_without_a_commit_is_seen_by_the_next_scan(
+    dev_deps: DevDeps, root: Path, fakes: Fakes
+) -> None:
+    """`vercel link` writes a git-ignored `.vercel/project.json`: no new commit, yet the cached value must change."""
+    repo = make_project_folder(root, "Shop", git_dir=True)
+    fakes.git.commits[(repo, "HEAD")] = _commit("a1", at=fakes.clock.now())
+    fakes.git.default_branches[repo] = "main"
+    await service.sync_projects(dev_deps)
+    assert not (await service.get_project(dev_deps, "Shop")).deploy.deploys
+
+    (repo / ".vercel").mkdir()
+    (repo / ".vercel" / "project.json").write_text('{"projectId": "prj_x"}\n', encoding="utf-8")
+    await service.sync_projects(dev_deps)
+    assert (await service.get_project(dev_deps, "Shop")).deploy.branches == ("main",)
+
+
+async def test_a_platform_config_with_no_known_default_branch_makes_every_branch_deploy(
+    dev_deps: DevDeps, root: Path
+) -> None:
+    repo = make_project_folder(root, "Static")  # not a repository: git knows no default branch
+    (repo / "netlify.toml").write_text("[build]\n", encoding="utf-8")
+    await service.sync_projects(dev_deps)
+    assert (await service.get_project(dev_deps, "Static")).deploy.every_branch
+    assert (await service.deploy_branches(dev_deps, "Static")).covers_branch("any/branch")
+
+
 async def test_an_unparseable_workflow_on_disk_makes_every_push_deploy(dev_deps: DevDeps, root: Path) -> None:
     make_project_folder(root, "Odd", workflows={"broken.yml": _fixture("unparseable.yml"), "ci.yml": "on: push\n"})
     await service.sync_projects(dev_deps)

@@ -33,6 +33,8 @@ from yordamchi.dev.gate import store as gate_store
 from yordamchi.dev.gate.domain import Policy
 from yordamchi.dev.gate.models import Decision
 from yordamchi.dev.gate.service import GateScope
+from yordamchi.dev.projects.domain import Project, ProjectPrefs, is_archive_name, project_view
+from yordamchi.dev.routing.domain import Activity, ActivityKind
 from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.uow import Database, Session
@@ -42,7 +44,7 @@ from yordamchi.ports.speech import Transcript
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.burst import domain as burst_domain
 from yordamchi.shared.burst import store as burst_store
-from yordamchi.shared.burst.domain import BurstPart, BurstStatus, CloseReason, WindowSettings
+from yordamchi.shared.burst.domain import BurstPart, BurstStatus, CloseReason, RunningTurn, TurnInput, WindowSettings
 from yordamchi.shared.cost.domain import Provider, Usage
 from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.inbox.domain import Attachment, Content, IncomingUpdate, StoredUpdate, UpdateKind, UpdateStatus
@@ -737,6 +739,162 @@ def make_transcript(
 
 
 # --- routing ---
+ROUTING_FIXTURES: Final = Path(__file__).parent / "fixtures" / "llm" / "routing"
+# The owner's ~/Documents/Projects folders (read-only listing, 2026-10-24; `BONVI_SERVER.md` is a file, not a project).
+OWNER_PROJECT_NAMES: Final = (
+    "AI",
+    "AI-Phone",
+    "AIAgents",
+    "AgentsRoom",
+    "BS",
+    "Bonvi-platform",
+    "BonviAGI",
+    "BonviCall",
+    "BonviCall Clone Archive",
+    "BonviFinance",
+    "BonviGo",
+    "BonviHR",
+    "BonviImport",
+    "BonviImzo",
+    "BrokerApp",
+    "ClaudeManager",
+    "FactoryIncome",
+    "GasStation",
+    "HRMentor",
+    "HRMentor-wt-agent-api",
+    "ImportAgents",
+    "MegaPlus ERP",
+    "MegaPlus Platform",
+    "NUR-Project",
+    "OvozYoz",
+    "PrivateBusiness",
+    "Russian-Speaking",
+    "TezTel",
+    "Wooden",
+    "WunderkindAIAgent",
+    "WunderkindEmployeesBot",
+    "WunderkindLC",
+    "WunderkindLMS",
+    "WunderkindOlympics",
+    "WunderkindTestPortal",
+    "Yordamchi",
+    "zinnur-v2",
+)
+
+
+def make_project_views(
+    *names: str,
+    at: datetime = DEFAULT_START,
+    aliases: Mapping[str, str] | None = None,
+    descriptions: Mapping[str, str] | None = None,
+    archived: tuple[str, ...] = (),
+    missing: tuple[str, ...] = (),
+) -> tuple[Project, ...]:
+    """Registry views as routing sees them: `*-wt-*` names are worktrees, `… Archive` names archived (both answer
+    only to their exact name); `aliases` maps alias → project, as `projects.aliases` does."""
+    prefs = ProjectPrefs(aliases=aliases or {}, descriptions=descriptions or {}, archived=list(archived))
+    return tuple(
+        project_view(
+            make_project_record(
+                name,
+                at=at,
+                is_worktree="-wt-" in name,
+                is_archive_name=is_archive_name(name),
+                missing_since=at if name in missing else None,
+            ),
+            prefs,
+        )
+        for name in names
+    )
+
+
+async def add_registered_projects(
+    s: Session, *names: str, at: datetime = DEFAULT_START, descriptions: Mapping[str, str] | None = None
+) -> None:
+    """`projects` rows as the scan writes them, flags inferred from the names as in `make_project_views`."""
+    for name in names:
+        record = make_project_record(
+            name,
+            at=at,
+            description=(descriptions or {}).get(name, ""),
+            is_worktree="-wt-" in name,
+            is_archive_name=is_archive_name(name),
+        )
+        await projects_store.set_project(s, record)
+
+
+def make_voice_part(update_id: int, *, at_s: float, transcript: str, duration_s: int = 5) -> BurstPart:
+    """A voice note whose transcript has arrived (`shared/voice`), as the burst holds it at close."""
+    part = make_part(update_id, at_s=at_s, kind=UpdateKind.VOICE, duration_s=duration_s)
+    return replace(
+        part,
+        transcript=burst_domain.TranscriptState.DONE,
+        transcript_text=transcript,
+        transcript_at=part.at + timedelta(seconds=1),
+    )
+
+
+def make_turn_input(*parts: BurstPart, burst_id: int = 1, reason: CloseReason = CloseReason.QUIET) -> TurnInput:
+    """A closed burst of `parts` (a text "salom" when none), as routing receives it."""
+    chosen = parts or (make_part(text="salom"),)
+    last = max(part.at for part in chosen)
+    return burst_domain.turn_input(
+        burst_id, DEV_GROUP_ID, chosen, opened_at=chosen[0].at, closed_at=last, reason=reason
+    )
+
+
+async def make_closed_burst(
+    s: Session, *parts: BurstPart, bot: BotName = BotName.DEV, reason: CloseReason = CloseReason.QUIET
+) -> TurnInput:
+    """A `closed` burst row holding `parts`, and the turn input the router reads for it."""
+    chosen = parts or (make_part(text="salom"),)
+    last = max(part.at for part in chosen)
+    row = await burst_store.add_burst(
+        s,
+        bot=bot.value,
+        chat_id=DEV_GROUP_ID if bot is BotName.DEV else OWNER_ID,
+        status=BurstStatus.CLOSED.value,
+        opened_at=chosen[0].at,
+        last_part_at=last,
+        closes_at=last,
+        closed_at=last,
+        close_reason=reason.value,
+        input_json=burst_domain.parts_json(chosen, str),
+    )
+    return burst_domain.turn_input(row.id, row.chat_id, chosen, opened_at=chosen[0].at, closed_at=last, reason=reason)
+
+
+def make_running_turn(
+    project_id: str, *, last_part_at: datetime = DEFAULT_START, message_ids: frozenset[int] = frozenset()
+) -> RunningTurn:
+    return RunningTurn(last_part_at=last_part_at, project_id=project_id, message_ids=message_ids)
+
+
+def make_activity(project_id: str, *, at: datetime, kind: ActivityKind = ActivityKind.SPOKEN) -> Activity:
+    return Activity(project_id=project_id, at=at, kind=kind)
+
+
+def routing_reply(
+    project_id: str | None,
+    confidence: float,
+    *,
+    intent: str = "instruct_project",
+    candidates: Mapping[str, float] | None = None,
+    needs_fresh: bool = False,
+    is_new_project: bool = False,
+) -> dict[str, JsonValue]:
+    """A structured routing answer of the `routing.domain.OUTPUT_SCHEMA` shape (queue it on `FakeAssistant`)."""
+    others: list[JsonValue] = [{"project_id": name, "confidence": value} for name, value in (candidates or {}).items()]
+    return {
+        "intent": intent,
+        "project_id": project_id,
+        "candidates": others,
+        "confidence": confidence,
+        "needs_fresh": needs_fresh,
+        "is_new_project": is_new_project,
+    }
+
+
 # --- settings ---
 async def add_setting_row(
     db: Database, key: str, value: JsonValue, *, at: datetime, version: int | None = None

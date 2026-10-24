@@ -235,6 +235,44 @@ STT_TERM_KNOWN = Msg("«{term}» ro'yxatda bor — shunday yozaman.")
 ERR_STT_TERM_INVALID = Msg("So'z 1–{limit} belgi bo'lsin, bitta qatorda.")
 
 # --- routing ---
+# The first reply names the target project (UC-10 AC, SPEC §3.2.1 step 7); a voice note is echoed with it (UC-05).
+ROUTED = Msg("→ {project}")
+ROUTED_MERGED = Msg("→ {project} (ishlayotgan topshiriqqa qo'shdim)")
+VOICE_ECHO = Msg("Ovoz: «{text}» → {project}")
+VOICE_ECHO_MERGED = Msg("Ovoz: «{text}» → {project} (ishlayotgan topshiriqqa qo'shdim)")
+# The one clarification (UC-10 F): it quotes the material (UC-02 AC) and names the candidates in the order "2" means.
+ROUTING_WHICH_PROJECT_ONE = Msg("{material} — {first} uchunmi? «ha» deb yoki kerakli loyiha nomini yozing.")
+ROUTING_WHICH_PROJECT_TWO = Msg("{material} — {first}'gami yoki {second}'gami?")
+ROUTING_WHICH_PROJECT_THREE = Msg("{material} — {first}'gami, {second}'gami yoki {third}'gami?")
+ROUTING_WHICH_PROJECT_ANY = Msg("{material} — qaysi loyiha uchun? Loyiha nomini yozing.")
+ROUTING_MATERIAL_QUOTE = Msg("«{text}»")
+ROUTING_MATERIAL_PHOTO = Msg("Rasm")
+ROUTING_MATERIAL_VIDEO = Msg("Video")
+ROUTING_MATERIAL_FILE = Msg("Fayl")
+ROUTING_MATERIAL_AUDIO = Msg("Audio")
+ROUTING_MATERIAL_VOICE = Msg("Ovozli xabar")
+ROUTING_MATERIAL_LINK = Msg("Havola")
+ROUTING_MATERIAL_MESSAGE = Msg("Xabar")
+ROUTING_CHOICE_OUT_OF_RANGE = Msg("1 dan {count} gacha raqam yoki loyiha nomini yozing: {options}.")
+ROUTING_CLARIFY_CANCELLED = Msg("Xo'p, u xabarni hech qaysi loyihaga yubormadim.")
+ROUTING_CLARIFY_EXPIRED = Msg(
+    "«{candidates}» degan savolimga javob bo'lmadi — o'sha xabarni hech qaysi loyihaga yubormadim. Kerak bo'lsa, "
+    "loyiha nomi bilan qayta yozing."
+)
+# "bu X uchun edi" (UC-10 F): routing moves the work; turns stops the wrong turn, lists its files, reverts on "ha".
+ROUTING_WRONG_TARGET_MOVED = Msg("→ {to_project}: topshiriqni {from_project}'dan olib, {to_project}'ga qayta yubordim.")
+ROUTING_WRONG_TARGET_FILES = Msg(
+    "{project}: shu topshiriq o'zgartirgan fayllar ({count}): {files}. Ularni avvalgi holatiga qaytaraymi? (ha / yo'q)"
+)
+ROUTING_WRONG_TARGET_CLEAN = Msg("{project}: hech qaysi fayl o'zgarmagan — qaytaradigan narsa yo'q.")
+ROUTING_WRONG_TARGET_REVERTED = Msg("{project}: {count} ta faylni avvalgi holatiga qaytardim.")
+ROUTING_WRONG_TARGET_KEPT = Msg("{project}: o'zgarishlarni o'z holicha qoldirdim.")
+ROUTING_WRONG_TARGET_SAME = Msg("{project}: bu topshiriq allaqachon shu loyihada.")
+ROUTING_WRONG_TARGET_NONE = Msg(
+    "{project}: so'nggi {hours} soatda boshqa loyihaga yuborilgan topshiriq topilmadi. Kerak bo'lsa, topshiriqni "
+    "{project} nomi bilan qayta yozing."
+)
+
 # --- settings ---
 ERR_SETTING_UNKNOWN = Msg("«{key}» degan sozlama yo'q.")
 ERR_SETTING_INVALID = Msg("«{key}» uchun bu qiymat to'g'ri emas. Mumkin: {options}.")

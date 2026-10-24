@@ -108,6 +108,22 @@ def _workflow_stats(folder: Path) -> tuple[WorkflowStat, ...] | None:
     return tuple(sorted(stats, key=lambda item: item.name))
 
 
+def _may_exist(path: Path) -> bool:
+    """False only when the path is surely absent; a path that cannot be checked may exist (fail closed)."""
+    try:
+        path.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _platform_files(folder: Path) -> tuple[str, ...]:
+    """The `domain.PLATFORM_FILES` in the working tree."""
+    return tuple(name for name in domain.PLATFORM_FILES if _may_exist(folder / name))
+
+
 def _folder_facts(folder: Path) -> FolderFacts:
     dot_git = folder / ".git"
     git = GitKind.REPO if dot_git.is_dir() else GitKind.WORKTREE if dot_git.is_file() else GitKind.NONE
@@ -117,6 +133,7 @@ def _folder_facts(folder: Path) -> FolderFacts:
         git=git,
         docs=_docs(folder),
         workflow_stats=_workflow_stats(folder),
+        platform_files=_platform_files(folder),
     )
 
 
@@ -195,8 +212,14 @@ async def _committed_deploy(deps: DevDeps, repo: Path, ref: str, *, timeout: flo
     return domain.deploy_branches(await asyncio.to_thread(_parse_files, files))
 
 
-async def _worktree_deploy(repo: Path) -> DeployBranches:
-    return domain.deploy_branches(await asyncio.to_thread(_worktree_workflows, repo))
+def _worktree_inputs(repo: Path) -> tuple[tuple[WorkflowFile, ...], tuple[str, ...]]:
+    return _worktree_workflows(repo), _platform_files(repo)
+
+
+async def _worktree_deploy(repo: Path, *, default_branch: str | None) -> DeployBranches:
+    """What the working tree deploys: its workflows, plus the default branch when a platform config is there."""
+    workflows, platform = await asyncio.to_thread(_worktree_inputs, repo)
+    return domain.deploy_branches(workflows).union(domain.platform_deploy(platform, default_branch=default_branch))
 
 
 # --- the scan -------------------------------------------------------------------------------------------------------
@@ -212,25 +235,29 @@ class _Seen:
 
 
 async def _inspect(deps: DevDeps, folder: FolderFacts, previous: ProjectRecord | None) -> _Seen:
-    """git facts and deploy branches of one folder. Deploy branches are recomputed only when the HEAD commit or a
-    workflow file changed (`domain.deploy_key`). A git failure keeps the last facts and adds what the working tree
-    shows, so the stored value only ever errs towards asking."""
+    """git facts and deploy branches of one folder. Deploy branches are recomputed only when the HEAD commit, a
+    workflow file, a platform config or the default branch changed (`domain.deploy_key`). A git failure keeps the last
+    facts and adds what the working tree shows, so the stored value only ever errs towards asking."""
     repo = Path(folder.path)
     project = domain.project_id(folder.name)
     timeout = domain.GIT_TIMEOUT_S
+    known_branch = previous.default_branch if previous is not None else None
     try:
         git = await _git_facts(deps, repo, timeout=timeout) if folder.git is not GitKind.NONE else None
-        key = domain.deploy_key(git.head if git else None, folder.workflow_stats)
+        branch = git.default_branch if git is not None else known_branch
+        key = domain.deploy_key(
+            git.head if git else None, folder.workflow_stats, platform=folder.platform_files, default_branch=branch
+        )
         if previous is not None and previous.deploy_checked_sha == key:
             return _Seen(folder=folder, git=git, deploy=previous.deploy, deploy_key=key)
-        deploy = await _worktree_deploy(repo)
+        deploy = await _worktree_deploy(repo, default_branch=branch)
         if git is not None and git.head is not None:
             deploy = deploy.union(await _committed_deploy(deps, repo, git.head, timeout=timeout))
         return _Seen(folder=folder, git=git, deploy=deploy, deploy_key=key)
     except ExternalError as error:
         log.warning("project_git_failed", project=project, error_code=error.code.value)
         known = previous.deploy if previous is not None else domain.NO_DEPLOY
-        deploy = known.union(await _worktree_deploy(repo))
+        deploy = known.union(await _worktree_deploy(repo, default_branch=known_branch))
         return _Seen(folder=folder, git=None, deploy=deploy, deploy_key=None, git_failed=True)
 
 
@@ -388,11 +415,12 @@ async def deploy_branches(
     deps: DevDeps, project_id: str, *, ref: str = "HEAD", timeout: float = domain.GIT_TIMEOUT_S
 ) -> DeployBranches:
     """Which pushes deploy, read now (SPEC §5.7 `deploy_push`): the working tree's workflows plus those committed at
-    `ref` (pass the commit being pushed). A workflow that cannot be read, or a git failure reading the commit, makes
-    every branch and tag count. A folder that is not a git repository has no commit side."""
+    `ref` (pass the commit being pushed), and the default branch when the working tree has a platform config (T17b).
+    A workflow that cannot be read, or a git failure reading the commit, makes every branch and tag count. A folder
+    that is not a git repository has no commit side."""
     project = await get_project(deps, project_id)
     repo = Path(project.path)
-    result = await _worktree_deploy(repo)
+    result = await _worktree_deploy(repo, default_branch=project.default_branch)
     try:
         committed = await _committed_deploy(deps, repo, ref, timeout=timeout)
     except GitFailed as error:
