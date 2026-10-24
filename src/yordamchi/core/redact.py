@@ -112,15 +112,19 @@ PATTERNS: Final[tuple[SecretPattern, ...]] = (
     ),
     SecretPattern(
         "telegram_bot_url",
-        re.compile(r"(?<=api\.telegram\.org/)(?:file/)?bot([^/\s\"']+)"),
+        # `[` and `]` are excluded so an already-masked marker after "bot" is never re-matched (T27-B1).
+        re.compile(r"(?<=api\.telegram\.org/)(?:file/)?bot([^/\s\"'\[\]]+)"),
         group=1,
         vaultable=False,
+        accept=lambda value: MASK not in value,
     ),
     SecretPattern(
         "generic_secret",
-        re.compile(rf"(?i)(?<![A-Za-z0-9]){_GENERIC_KEYWORD}(?![A-Za-z0-9])[\s\"'`:=]{{1,4}}([^\s\"'`]{{24,}})"),
+        # The value stops at `&`, `#` and brackets: a URL query keeps its next parameter, and a masked marker
+        # is never swallowed (T27-B2). A value holding MASK is already masked and is left alone (T27-B1).
+        re.compile(rf"(?i)(?<![A-Za-z0-9]){_GENERIC_KEYWORD}(?![A-Za-z0-9])[\s\"'`:=]{{1,4}}([^\s\"'`&#\[\]]{{24,}})"),
         group=1,
-        accept=_looks_random,
+        accept=lambda value: MASK not in value and _looks_random(value),
     ),
 )
 

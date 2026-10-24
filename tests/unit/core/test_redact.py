@@ -135,3 +135,29 @@ async def test_the_asyncio_handler_logs_through_redaction(caplog: pytest.LogCapt
     line = JsonFormatter(process="dev", version="test").format(record)
     assert '"event": "asyncio_unhandled"' in line
     assert DEV_BOT_TOKEN not in line
+
+
+# --- regressions found by the T27 secrets eval (2026-10-24) ---
+_QUERY_KEY = "Zq8rT2vLmN4pXw7KcB1yHs9DjF3gUe6A"
+
+
+def test_generic_secret_stops_at_the_next_url_query_parameter() -> None:
+    text = f"https://hooks.example.com/notify?token={_QUERY_KEY}&channel=dev"
+    [hit] = redact.find_secrets(text)
+    assert hit.value == _QUERY_KEY
+    assert redact.scrubbed(text).endswith("&channel=dev")
+
+
+def test_scrubbing_a_scrubbed_github_url_leaves_the_marker_whole() -> None:
+    text = "remote shunday: https://ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8" + "@github.com/owner/repo.git"
+    once = redact.scrubbed(text)
+    assert redact.scrubbed(once) == once
+    assert once.endswith("@github.com/owner/repo.git")
+
+
+def test_scrubbing_a_scrubbed_telegram_url_leaves_the_marker_whole() -> None:
+    text = f"https://api.telegram.org/bot{DEV_BOT_TOKEN}/getMe"
+    once = redact.scrubbed(text)
+    assert DEV_BOT_TOKEN not in once
+    assert redact.scrubbed(once) == once
+    assert once.endswith("/getMe")
