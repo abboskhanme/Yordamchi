@@ -14,9 +14,14 @@ dependencies = [
     "alembic==1.20.1",
     "claude-agent-sdk==0.2.173",
     "cryptography==50.0.2",
+    "edge-tts==7.3.1",
     "google-genai==2.33.0",
+    "mcp==2.3.0",
+    "playwright==1.64.1",
     "pyyaml==6.0.3",
     "sqlalchemy[asyncio]==2.1.6",
+    "yt-dlp-ejs==0.8.0",
+    "yt-dlp[default]==2026.10.21",
 ]
 
 [build-system]
