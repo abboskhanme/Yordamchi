@@ -201,3 +201,35 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] T57: reuse the release naming and these `uv sync` flags: `--frozen --no-dev --no-editable --compile-bytecode --link-mode clone --python 3.12.15`.
 - [ ] Before T43: T32 and T34 merged (otherwise the dev plist crash-loops), and both tokens rotated (`--env-only --rotate-tokens`, DEPLOY.md §6).
 - [ ] The SPEC §9.3 "ClaudeManager is running" check needs its process name.
+
+## From T20 (routing)
+- [ ] Router order (T34/T24):
+  1. pre-parse: interrupts and the self-test;
+  2. `answer_clarification`;
+  3. approvals and question answers (`answer_decision`);
+  4. `correct_route` (wrong-target intent);
+  5. `route_burst`, or `decide_route` + `record_route(s, …)` inside T24's uow.
+- [ ] `RouteFacts` inputs:
+  - `reply_projects` from `message_links`;
+  - `reported` activity from outbox/turns;
+  - `running` as `RunningTurn(message_ids, media_group_ids, last_part_at)`;
+  - `open_questions` / `others_pending` from T29/T18.
+- [ ] The outbox sends `Routed/Resolution/Correction/Expired.reply` before any delivery. After the question is sent, `set_clarification_message(deps, id, message_id)`.
+- [ ] Burst: add `get_turn_input(deps, burst_id)`, so T24 can re-deliver for `Resolution` / `Correction`.
+- [ ] T34:
+  - `warm_routing(deps)` at startup and after settings changes;
+  - `expire_clarifications(deps)` about every minute;
+  - retention calls `routing.service.apply_retention`.
+- [ ] T24 wrong target (`CorrectionKind.MOVED`):
+  - stop the turn and list its files;
+  - re-deliver to `to_project`;
+  - `decisions(kind=wrong_target_revert)`; on "ha" `_REVERTED`, on "yo'q" `_KEPT`.
+- [ ] Routing asks don't carry images yet (≤ 2 images need a media download).
+- [ ] Settings (SPEC §4.3 + `SPEC_KEYS`): `routing.clarify_expire_min` = 30, `routing.correct_window_min` = 120 (T21 adds `models.routing_effort`).
+- [ ] T46 QOLLANMA: answering "X'gami yoki Y'gami?" ("2", a name, "hech biri") and "bu X uchun edi".
+
+## From T27 (burst + secrets evals)
+- [x] Redact bugs T27-B1 and T27-B2 fixed on main (5cc9076), with regression tests.
+- [ ] Once routing is wired, count its clarifying questions in the burst eval's "asks nothing" measure. T45 owner grading is still to come.
+- [ ] When executor sessions exist, extend the secrets leak search to the Claude/Codex transcripts.
+- [ ] Gap: an edit to a message already in a running turn is not a continuation (`burst/domain.py` `continues()`); decide in T24/T29.

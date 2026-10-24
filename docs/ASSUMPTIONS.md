@@ -277,3 +277,15 @@ question. Correct any line and it changes.
 - [2026-10-24] Personal plist → staged in `DATA/launchd/`, not `~/Library/LaunchAgents`, until P3 → anything in LaunchAgents loads at login.
 - [2026-10-24] Supervisor `ProcessType` = Standard (SPEC §9.1); the bots use Interactive → the supervisor needs no foreground priority.
 - [2026-10-24] Check script → red on: `can_join_groups` true, a non-empty command menu, AC sleep ≠ 0, the owner posting as an anonymous admin; free disk and FileVault are info only.
+
+## Routing (T20) and evals (T27), merged 2026-10-24
+- [2026-10-24] Strong name match (exact or alias with an Uzbek suffix = 1.0; one typo in words ≥ 6 letters = 0.9) → route with no question; short names ("AI", "BS") count only with a suffix; split names ("Bonvi Call") only after a family word → UC-10.
+- [2026-10-24] Look-alikes ask → a digit is never a typo; a typo that fits two names, or that is the cut-off start of another, asks; archived/`*-wt-*` projects never come from the LLM or from context, and a near miss asks naming both → never send to the wrong project silently.
+- [2026-10-24] Two projects named, or a reply that disagrees with a name → the LLM picks among exactly those, else ask → "HRMentor'dagi kodni BonviHR'ga ko'chir" must not need a question (a deliberate deviation from SPEC's literal "two matches → ask").
+- [2026-10-24] The LLM is asked on every burst for intent and `needs_fresh`, but never overrules a named project → intent drives report vs instruct.
+- [2026-10-24] LLM down → the single active project takes the message (confidence 0.8), else ask; a lone screenshot goes to the active project as `investigate` → UC-02, no interrogation.
+- [2026-10-24] Clarification → binds to the replied question, else the newest live one; "ha" counts only for a single candidate; it expires after 30 min with a notice → no silent drops.
+- [2026-10-24] Wrong target → a short message naming one project plus a marker ("edi", "xato") corrects the latest work within 2 h → UC-10.
+- [2026-10-24] Platform deploy files (T17b) → any of 7 files in the working tree makes the default branch deploy; an unknown default branch makes every branch deploy; `DEPLOY_RULES_VERSION` = 2 forces a recheck → fail closed.
+- [2026-10-24] Secrets eval → `sk-ant-api` keys are stored (only `sk-ant-oat` is refused, SPEC §4.5); unknown-format keys may stay in the inbox payload but never reach a reply or a log (UC-04 wording); the leak search counts any 16-char fragment.
+- [2026-10-24] Redact fix → `generic_secret` stops at `&`, `#` and brackets; neither it nor `telegram_bot_url` re-matches a value that is already masked → T27-B1/B2.
