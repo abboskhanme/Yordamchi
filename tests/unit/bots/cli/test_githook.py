@@ -1,5 +1,5 @@
-"""bots.cli.githook, in process: the name rules, the line rules (patterns and exact vault values) and the patch
-reader. The real pre-push runs as a subprocess in tests/integration/test_gate_cli.py."""
+"""bots.cli.githook, in process: the hook scripts, the name rules, the line rules (patterns and exact vault values)
+and the patch reader. The real hooks run as subprocesses in tests/integration/test_gate_cli.py."""
 
 import hashlib
 import json
@@ -12,6 +12,19 @@ from yordamchi.bots.cli import githook
 from yordamchi.bots.cli.githook import Hit
 
 NO_HASHES: frozenset[str] = frozenset()
+REPO_GITHOOKS = Path(__file__).resolve().parents[4] / "githooks"
+
+
+def test_every_hook_script_hands_itself_to_the_module() -> None:
+    names = {path.name for path in REPO_GITHOOKS.iterdir() if not path.name.startswith(".")}  # not Finder's
+    assert names == {githook.PRE_PUSH, *githook.PASS_THROUGH_HOOKS}
+    for name in sorted(names):
+        script = (REPO_GITHOOKS / name).read_text(encoding="utf-8")
+        assert script.startswith("#!/bin/sh\n"), name
+        assert script.endswith('\nexec "$YORDAMCHI_PY" -I -m yordamchi.bots.cli.githook "$0" "$@"\n'), name
+        assert (REPO_GITHOOKS / name).stat().st_mode & 0o111, name
+    pass_through = {(REPO_GITHOOKS / name).read_bytes() for name in githook.PASS_THROUGH_HOOKS}
+    assert len(pass_through) == 1  # one text: a fix to one of them reaches all of them
 
 
 @pytest.mark.parametrize(

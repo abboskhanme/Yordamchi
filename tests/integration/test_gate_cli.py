@@ -1,6 +1,7 @@
-"""The shims and the pre-push hook as real subprocesses against a control socket in a temp dir (SPEC §5.7 Layer 2;
-UC-13; NFR-SEC-02/11): allow, refuse, no socket → refuse, the secret block naming the file and line, and the real
-gate service behind the socket, mounted the way T34 will (`core.control.dispatch`).
+"""The shims and the git hooks as real subprocesses against a control socket in a temp dir (SPEC §5.7 Layer 2;
+UC-13; NFR-SEC-02/11): allow, refuse, no socket → refuse, the secret block naming the file and line, the real gate
+service behind the socket, mounted the way T34 will (`core.control.dispatch`), and the project's own hooks (husky,
+`.git/hooks`) still running behind Yordamchi's (T18b).
 
 The scripts run with an environment built here from nothing, as an executor session's would be (SPEC §5.3): shims
 first on PATH, `YORDAMCHI_PY`/`YORDAMCHI_SOCK`/`YORDAMCHI_SESSION_TOKEN`, and `core.hooksPath` through `GIT_CONFIG_*`.
@@ -18,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from tests.factories import FAKE_KEYS, UNKNOWN_FORMAT_KEY, make_gate_scope, projects_root_of
+from yordamchi.bots.cli import githook
 from yordamchi.core import control, proc
 from yordamchi.core.control import GateAnswer, GateCheck, GateHandlers, SecretAnswer, SecretBlocked
 from yordamchi.core.paths import Paths
@@ -422,3 +424,198 @@ async def test_a_clean_push_runs_the_projects_own_pre_push_hook(repo: Repo, bot:
     lines = marker.read_text(encoding="utf-8").splitlines()
     assert lines[0] == "origin"
     assert lines[1].startswith("refs/heads/main ")  # git's ref lines reach the project's hook unchanged
+
+
+# --- the project's own hooks behind Yordamchi's (T18b) --------------------------------------------------------------
+# husky v9's `.husky/_/h`, without its init files and messages: run `.husky/<hook>` (no `#!`, not executable) with sh.
+HUSKY_H = """n=$(basename "$0")
+s=$(dirname "$(dirname "$0")")/$n
+[ ! -f "$s" ] && exit 0
+[ "${HUSKY-}" = "0" ] && exit 0
+export PATH="node_modules/.bin:$PATH"
+sh -e "$s" "$@"
+"""
+
+
+def write_hook(folder: Path, name: str, body: str, *, shebang: str = "#!/bin/sh\n") -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    hook = folder / name
+    hook.write_text(shebang + body, encoding="utf-8")
+    hook.chmod(0o755)
+    return hook
+
+
+def hook_log(repo: Repo) -> Path:
+    """Where the test's project hooks write what they saw (outside the work tree, so never committed)."""
+    return repo.work.parent / "hooks.log"
+
+
+def logged(repo: Repo) -> list[str]:
+    log = hook_log(repo)
+    return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
+async def install_husky(repo: Repo, scripts: dict[str, str]) -> None:
+    """husky v9's layout: `core.hooksPath=.husky/_` in the repo's own config; each hook there sources `h`."""
+    helper = repo.work / ".husky" / "_"
+    write_hook(helper, "h", HUSKY_H, shebang="#!/usr/bin/env sh\n")
+    for name, body in scripts.items():
+        write_hook(helper, name, '. "$(dirname "$0")/h"\n', shebang="#!/usr/bin/env sh\n")
+        (repo.work / ".husky" / name).write_text(body, encoding="utf-8")
+    assert (await repo.git("config", "core.hooksPath", ".husky/_")).returncode == 0
+
+
+async def session_git(repo: Repo, *args: str, env: dict[str, str] | None = None) -> proc.ProcResult:
+    """git as a bot session runs it: Yordamchi's hooks through `GIT_CONFIG_*`, the interpreter set."""
+    return await repo.git(*args, env={**push_env(repo, socket=None), **(env or {})})
+
+
+async def session_commit(
+    repo: Repo, files: dict[str, str], message: str, *, env: dict[str, str] | None = None
+) -> proc.ProcResult:
+    for name, text in files.items():
+        (repo.work / name).write_text(text, encoding="utf-8")
+    assert (await repo.git("add", "-A")).returncode == 0
+    return await session_git(repo, "commit", "-q", "-m", message, env=env)
+
+
+async def run_wrapper(repo: Repo, name: str, *args: str) -> proc.ProcResult:
+    """One of Yordamchi's hooks run the way git runs it: from the repo root, in the session's environment."""
+    return await proc.run([str(GITHOOKS / name), *args], env=push_env(repo, socket=None), cwd=repo.work, timeout=60)
+
+
+async def head_of(repo: Repo) -> str:
+    return (await repo.git("rev-parse", "HEAD")).stdout.decode().strip()
+
+
+async def test_a_husky_hook_runs_in_a_bot_session_and_a_failing_one_blocks_the_commit(repo: Repo) -> None:
+    log = hook_log(repo)
+    await install_husky(
+        repo,
+        {
+            "pre-commit": f'echo pre-commit >> "{log}"\nexit "${{HOOK_EXIT:-0}}"\n',
+            "commit-msg": f'cat "$1" >> "{log}"\n',
+        },
+    )
+    before = await head_of(repo)
+
+    refused = await session_commit(repo, {"app.py": "print(1)\n"}, "salom", env={"HOOK_EXIT": "1"})
+    unchanged = await head_of(repo)
+    passed = await session_git(repo, "commit", "-q", "-m", "salom")
+
+    assert refused.returncode != 0
+    assert unchanged == before
+    assert passed.returncode == 0, passed.stderr
+    assert logged(repo) == ["pre-commit", "pre-commit", "salom"]
+
+
+async def test_git_dir_hooks_are_the_fallback_and_get_gits_own_argv_and_stdin(repo: Repo) -> None:
+    log = hook_log(repo)
+    hooks = repo.work / ".git" / "hooks"
+    for name in ("prepare-commit-msg", "post-commit", "post-checkout"):
+        write_hook(hooks, name, f'echo "{name}:$*" >> "{log}"\n')
+    write_hook(hooks, "post-rewrite", f'echo "post-rewrite:$*" >> "{log}"\ncat >> "{log}"\n')
+
+    assert (await session_commit(repo, {"a.txt": "1\n"}, "one")).returncode == 0
+    first = await head_of(repo)
+    assert (await session_git(repo, "commit", "-q", "--amend", "--no-edit")).returncode == 0
+    amended = await head_of(repo)
+    assert (await session_git(repo, "switch", "-q", "-c", "topic")).returncode == 0
+
+    assert logged(repo) == [
+        "prepare-commit-msg:.git/COMMIT_EDITMSG message",
+        "post-commit:",
+        "prepare-commit-msg:.git/COMMIT_EDITMSG commit HEAD",
+        "post-commit:",
+        "post-rewrite:amend",
+        f"{first} {amended}",  # git's stdin, unchanged
+        f"post-checkout:{amended} {amended} 1",
+    ]
+
+
+async def test_a_missing_or_not_executable_project_hook_is_a_no_op(repo: Repo) -> None:
+    write_hook(repo.work / ".git" / "hooks", "pre-commit", "exit 1\n").chmod(0o644)  # git skips it too
+
+    results = {name: (await run_wrapper(repo, name)).returncode for name in sorted(githook.PASS_THROUGH_HOOKS)}
+    committed = await session_commit(repo, {"a.txt": "1\n"}, "one")
+
+    assert results == dict.fromkeys(sorted(githook.PASS_THROUGH_HOOKS), 0)
+    assert committed.returncode == 0, committed.stderr
+
+
+async def test_the_project_hooks_exit_code_comes_back_unchanged(repo: Repo) -> None:
+    write_hook(repo.work / ".git" / "hooks", "pre-rebase", 'exit "$1"\n')
+
+    codes = [(await run_wrapper(repo, "pre-rebase", code)).returncode for code in ("0", "3", "42")]
+
+    assert codes == [0, 3, 42]
+
+
+async def test_a_project_hook_without_a_shebang_runs_under_sh_as_git_runs_it(repo: Repo) -> None:
+    log = hook_log(repo)
+    write_hook(repo.work / ".git" / "hooks", "commit-msg", f'echo "$1" > "{log}"\n', shebang="")
+
+    result = await session_commit(repo, {"a.txt": "1\n"}, "one")
+
+    assert result.returncode == 0, result.stderr
+    assert logged(repo) == [".git/COMMIT_EDITMSG"]
+
+
+async def test_a_hooks_path_outside_the_repository_is_not_followed(repo: Repo) -> None:
+    marker = repo.work.parent / "elsewhere.ran"
+    write_hook(repo.work.parent / "elsewhere", "pre-commit", f'touch "{marker}"\nexit 1\n')
+    assert (await repo.git("config", "core.hooksPath", "../elsewhere")).returncode == 0
+
+    result = await session_commit(repo, {"a.txt": "1\n"}, "one")
+
+    assert result.returncode == 0, result.stderr
+    assert b"is outside the repository, so its hooks did not run" in result.stderr
+    assert not marker.exists()
+
+
+async def test_a_project_hook_that_leads_back_to_yordamchis_does_not_loop(repo: Repo) -> None:
+    (repo.work / ".git" / "hooks" / "pre-commit").symlink_to(GITHOOKS / "pre-commit")
+
+    result = await session_commit(repo, {"a.txt": "1\n"}, "one")  # a loop would hit the 60 s timeout
+
+    assert result.returncode == 0, result.stderr
+
+
+async def test_without_the_interpreter_the_project_hook_cannot_run_so_the_commit_stops(repo: Repo) -> None:
+    env = push_env(repo, socket=None)
+    del env["YORDAMCHI_PY"]
+    (repo.work / "a.txt").write_text("1\n", encoding="utf-8")
+    assert (await repo.git("add", "-A")).returncode == 0
+
+    result = await repo.git("commit", "-q", "-m", "one", env=env)
+
+    assert result.returncode != 0
+    assert b"the project's pre-commit hook could not run (YORDAMCHI_PY is not set)" in result.stderr
+
+
+async def test_a_secret_blocks_the_push_before_the_projects_pre_push_runs(
+    repo: Repo, bot: FakeBot, run_dir: Path
+) -> None:
+    write_hashes(run_dir)
+    write_hook(repo.work / ".git" / "hooks", "pre-push", f'echo ran >> "{hook_log(repo)}"\n')
+    await repo.commit({".env": "X=1\n"})
+
+    result = await push(repo, socket=bot.socket)
+
+    assert result.returncode != 0
+    assert b"rule=env_file" in result.stderr
+    assert logged(repo) == []
+
+
+async def test_a_clean_push_runs_a_husky_pre_push_after_the_scan(repo: Repo, bot: FakeBot, run_dir: Path) -> None:
+    write_hashes(run_dir)
+    log = hook_log(repo)
+    await install_husky(repo, {"pre-push": f'echo "$1" >> "{log}"\ncat >> "{log}"\n'})
+    await repo.commit({"src/app.py": "print(1)\n"})
+
+    result = await push(repo, socket=bot.socket)
+
+    assert result.returncode == 0, result.stderr
+    lines = logged(repo)
+    assert lines[0] == "origin"
+    assert lines[1].startswith("refs/heads/main ")

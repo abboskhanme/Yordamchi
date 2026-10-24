@@ -34,7 +34,7 @@ from yordamchi.dev.gate.domain import GateClass, Policy, Reason
 from yordamchi.dev.gate.models import Decision
 from yordamchi.dev.gate.service import AnswerKind, DecisionReply, GateScope, SecretReport, ShimRequest
 from yordamchi.ports.agent import GuardVerdict, ToolCall
-from yordamchi.ports.git import GitStatus
+from yordamchi.ports.git import Commit, GitStatus
 from yordamchi.shared.audit import store as audit_store
 from yordamchi.shared.audit.domain import AuditKind
 from yordamchi.shared.audit.models import AuditEvent
@@ -429,6 +429,25 @@ async def test_the_turn_start_state_decides_discarding_commands(dev_deps: DevDep
     dirty = await check(dev_deps, make_gate_scope(root, dirty_before_turn=True), "git checkout -- .")
     unknown = await check(dev_deps, make_gate_scope(root, dirty_before_turn=None), "git stash drop")
     assert dirty.reason_code == unknown.reason_code == Reason.DISCARD_CHANGES.value
+
+
+async def test_stash_entries_older_than_the_turn_decide_a_stash_drop(
+    dev_deps: DevDeps, fakes: Fakes, root: Path
+) -> None:
+    started = fakes.clock.now()
+    scope = make_gate_scope(root, turn_started_at=started)
+    stashes = fakes.git.stashes[scope.project_root]
+    stashes.append(Commit("a1", "On main: agent wip", started + timedelta(minutes=2)))
+    assert (await check(dev_deps, scope, "git stash drop")).allow
+
+    stashes.append(Commit("b2", "On main: owner's half-done edit", started - timedelta(days=1)))
+    owners = await check(dev_deps, scope, "git stash clear")
+    fakes.git.failures["stash_entries"] = GitFailed(operation="git_stash_entries", reason="failed")
+    unreadable = await check(dev_deps, scope, "git stash drop")
+    no_turn_start = await check(dev_deps, make_gate_scope(root), "git stash drop")
+
+    assert owners.reason_code == unreadable.reason_code == no_turn_start.reason_code == Reason.DISCARD_CHANGES.value
+    assert [call[0] for call in fakes.git.calls] == ["stash_entries"] * 3  # without the turn's start: not read
 
 
 async def _register(deps: DevDeps, fakes: Fakes, root: Path, *, workflows: dict[str, str] | None = None) -> Path:

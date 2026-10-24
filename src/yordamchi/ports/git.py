@@ -86,6 +86,11 @@ class Git(Protocol):
         """The remote's URL without any `user:password@` part, or None when there is no such remote."""
         ...
 
+    async def stash_entries(self, repo: Path, *, timeout: float) -> list[Commit]:
+        """`git stash list`, newest first (`stash@{0}` first): one commit per entry, `committed_at` = when it was
+        stashed. Empty when nothing is stashed."""
+        ...
+
     async def tree_files(
         self, repo: Path, ref: str, directory: str, *, max_bytes: int, timeout: float
     ) -> Mapping[str, bytes | None]:

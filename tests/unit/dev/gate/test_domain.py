@@ -71,6 +71,7 @@ CTX = GateContext(
     untracked=frozenset(),
     db_hosts=(),
     dirty_before_turn=False,
+    stash_before_turn=0,
     remote_urls={"origin": GITHUB_REMOTE, domain.DEFAULT_PUSH_REMOTE: GITHUB_REMOTE},
     protected_pids=frozenset({BOT_PID}),
 )
@@ -1192,6 +1193,35 @@ def test_shim_covers_a_script_approved_as_one_command() -> None:
     assert not shim(["prod", "reboot"], [grant]).allowed
 
 
+def test_shim_lets_gits_fetch_from_a_server_through_but_not_its_push() -> None:
+    """`git fetch|pull|clone|ls-remote` from a server remote runs `ssh … git-upload-pack '<path>'`: a read (T18b)."""
+    assert shim(["-o", "SendEnv=GIT_PROTOCOL", "deploy@prod.example.com", "git-upload-pack '/srv/app.git'"], []).allowed
+    assert shim(["-p", "2222", "deploy@prod.example.com", "git-upload-pack '~/app.git'"], []).allowed
+    assert shim(["prod", "git-upload-pack 'app.git'"], []).allowed
+    push = shim(["-o", "SendEnv=GIT_PROTOCOL", "deploy@prod.example.com", "git-receive-pack '/srv/app.git'"], [])
+    assert (push.action, push.gate_class, push.reason) == (Action.ASK, GateClass.SERVER_WRITE, Reason.REMOTE_COMMAND)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git-upload-pack '/srv/app.git'; rm -rf /srv/app",
+        "git-upload-pack '/srv/app.git' > /srv/app/out",
+        "git-upload-pack",
+        "git-upload-pack /srv/a.git /srv/b.git",
+        "git-upload-pack '--help'",
+        "git-upload-pack $(reboot)",
+        "my-upload-pack /srv/app.git",  # a custom `--upload-pack` program
+    ],
+)
+def test_only_gits_own_fetch_command_counts_as_a_fetch(command: str) -> None:
+    assert shim(["prod", command], []).action is Action.ASK
+
+
+def test_a_fetch_from_a_jump_only_host_still_asks() -> None:
+    assert shim(["server", "git-upload-pack '/c/repo.git'"], []).reason is Reason.JUMP_ONLY_HOST
+
+
 def test_shim_refuses_other_programs_and_forbidden_calls() -> None:
     assert shim(["x"], [], tool_name="curl").action is Action.FORBID
     assert shim(["prod", "cat", f"{DATA}/dev.env"], []).action is Action.FORBID
@@ -1258,6 +1288,48 @@ def test_an_unknown_turn_start_state_counts_as_dirty(command: str) -> None:
 def test_commands_that_keep_uncommitted_work_never_ask(command: str) -> None:
     assert_free(classify(command, with_ctx(dirty_before_turn=True)))
     assert not domain.needs(bash(command), RULES, with_ctx(dirty_before_turn=None)).dirty_before_turn
+
+
+# --- T18b: stash entries from before the turn (`stash_before_turn`) -------------------------------------------------
+DROPPING_STASHES = ["git stash drop", "git stash drop -q stash@{1}", "git stash clear", "git -C api stash clear"]
+
+
+@pytest.mark.parametrize("command", DROPPING_STASHES)
+def test_dropping_the_owners_older_stash_entries_asks_even_with_a_clean_tree(command: str) -> None:
+    verdict = classify(command, with_ctx(dirty_before_turn=False, stash_before_turn=2))
+    assert (verdict.action, verdict.gate_class, verdict.reason) == (
+        Action.ASK,
+        GateClass.FS_DESTROY,
+        Reason.DISCARD_CHANGES,
+    ), verdict
+
+
+@pytest.mark.parametrize("command", DROPPING_STASHES)
+def test_dropping_only_stash_entries_made_in_this_turn_is_free(command: str) -> None:
+    assert_free(classify(command, with_ctx(dirty_before_turn=False, stash_before_turn=0)))
+
+
+@pytest.mark.parametrize("command", DROPPING_STASHES)
+def test_an_unknown_stash_counts_as_the_owners(command: str) -> None:
+    unknown = with_ctx(stash_before_turn=None)
+    assert domain.needs(bash(command), RULES, unknown).stash_before_turn
+    assert classify(command, unknown).reason is Reason.DISCARD_CHANGES
+
+
+@pytest.mark.parametrize(
+    "command", ["git stash", "git stash push -m wip", "git stash pop", "git stash list", "git reset --hard"]
+)
+def test_only_dropping_a_stash_depends_on_the_stash(command: str) -> None:
+    assert_free(classify(command, with_ctx(dirty_before_turn=False, stash_before_turn=3)))
+    assert not domain.needs(bash(command), RULES, with_ctx(stash_before_turn=None)).stash_before_turn
+
+
+def test_stash_entries_are_counted_as_older_than_the_turn_to_the_second() -> None:
+    started = NOW + timedelta(milliseconds=400)
+    newest_first = [NOW + timedelta(seconds=1), NOW, NOW - timedelta(days=3)]
+    assert domain.stashed_before_turn(newest_first, started) == 2  # `NOW` may be the turn's own first 0.4 s: counted
+    assert domain.stashed_before_turn([], started) == 0
+    assert not domain.GateNeeds(stash_before_turn=True).empty
 
 
 # --- T18: pushes to a remote name that points at a server (`remote_urls`) -------------------------------------------

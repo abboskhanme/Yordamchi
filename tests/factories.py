@@ -648,6 +648,7 @@ def make_gate_scope(
     session_key: str = GATE_SESSION_KEY,
     turn_id: int | None = 31,
     dirty_before_turn: bool | None = False,
+    turn_started_at: datetime | None = None,
 ) -> GateScope:
     """The scope `turns` would build for a session of `project` whose folder is `root / project`."""
     return GateScope(
@@ -657,6 +658,7 @@ def make_gate_scope(
         policy=policy,
         turn_id=turn_id,
         dirty_before_turn=dirty_before_turn,
+        turn_started_at=turn_started_at,
     )
 
 

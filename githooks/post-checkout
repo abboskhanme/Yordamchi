@@ -1,0 +1,9 @@
+#!/bin/sh
+# Yordamchi pass-through hook (SPEC §5.7, T18b). Bot sessions point git's core.hooksPath at this folder, which hides
+# the project's own hooks, so this runs the project's hook of the same name in its place: same argv, stdin and exit
+# code (`yordamchi.bots.cli.githook`). Without the interpreter that hook cannot be found, so this hook fails.
+if [ -z "$YORDAMCHI_PY" ]; then
+  echo "yordamchi: the project's ${0##*/} hook could not run (YORDAMCHI_PY is not set)" >&2
+  exit 1
+fi
+exec "$YORDAMCHI_PY" -I -m yordamchi.bots.cli.githook "$0" "$@"

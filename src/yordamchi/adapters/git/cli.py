@@ -309,6 +309,11 @@ class GitCli:
         url = result.stdout.decode("utf-8", errors="replace").strip()
         return _without_credentials(url) if url else None
 
+    async def stash_entries(self, repo: Path, *, timeout: float) -> list[Commit]:
+        args = ("stash", "list", "-z", "--no-show-signature", _LOG_FORMAT)
+        result = await self._run("git_stash_entries", repo, *args, timeout=timeout)
+        return _commits(result.stdout)
+
     async def tree_files(
         self, repo: Path, ref: str, directory: str, *, max_bytes: int, timeout: float
     ) -> Mapping[str, bytes | None]:

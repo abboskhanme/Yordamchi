@@ -2,10 +2,11 @@
 
 Flow (the service owns every fetch; this module only decides):
 1. `needs(call, rules, ctx)` lists the facts the call depends on: untracked files, branches, deploy branches, the
-   project's DB hosts, git remote URLs, whether the tree was dirty when the turn started, and script recipes
-   (`./x.sh`, `make t`, `npm run s`, `just r`). The service fetches them into a new `GateContext` and calls `needs`
-   again until it returns nothing new (recipes nest at most two levels). The parsers for the files behind recipes
-   and DB hosts are pure and live at the end of this module; the service only reads the bytes.
+   project's DB hosts, git remote URLs, whether the tree was dirty and what was stashed when the turn started,
+   and script recipes (`./x.sh`, `make t`, `npm run s`, `just r`). The service fetches them into a new
+   `GateContext` and calls `needs` again until it returns nothing new (recipes nest at most two levels). The
+   parsers for the files behind recipes and DB hosts are pure and live at the end of this module; the service only
+   reads the bytes.
 2. `classify(call, rules, ctx)` → `GateVerdict(allow | ask | forbid)`. A fact that is still missing fails closed.
 3. On `ask`: `grant_step(...)` picks the approved grant, the pending decision or a new question for the exact
    `(project_id, tool_name, input_sha256)`.
@@ -128,7 +129,7 @@ class Reason(StrEnum):
     DELETE_UNTRACKED = "delete_untracked"
     DELETE_GIT_DIR = "delete_git_dir"
     DELETE_UNKNOWN = "delete_unknown"
-    DISCARD_CHANGES = "discard_changes"  # reset --hard, checkout -- ., restore, stash drop over pre-turn edits
+    DISCARD_CHANGES = "discard_changes"  # reset --hard, checkout -- ., restore, stash drop over pre-turn work
     REPO_DELETE = "repo_delete"
     REPO_PUBLIC = "repo_public"
     CLOUD_SPEND = "cloud_spend"
@@ -233,8 +234,9 @@ class GateContext:
     configured, so tools use their local default); `deploy_branches` the pushes that start a deploying CI workflow
     (`dev/projects`, read fresh for the pushed refs; `FAIL_CLOSED` when the workflows could not be read).
     `dirty_before_turn`: the tree held uncommitted changes when the turn started (the owner's own edits, which a
-    discarding command would destroy). `remote_urls`: git remote name → its URL (credential-free; None = no such
-    remote), with `DEFAULT_PUSH_REMOTE` for a bare `git push`.
+    discarding command would destroy). `stash_before_turn`: how many `git stash list` entries are older than the
+    turn (the owner's, which `stash drop|clear` would destroy; see `stashed_before_turn`). `remote_urls`: git remote
+    name → its URL (credential-free; None = no such remote), with `DEFAULT_PUSH_REMOTE` for a bare `git push`.
     """
 
     policy: Policy
@@ -249,6 +251,7 @@ class GateContext:
     untracked: frozenset[str] | None = None
     db_hosts: tuple[str, ...] | None = None
     dirty_before_turn: bool | None = None
+    stash_before_turn: int | None = None
     remote_urls: Mapping[str, str | None] = field(default_factory=dict)
     recipes: Mapping[ScriptRef, str | None] = field(default_factory=dict)
     protected_pids: frozenset[int] = frozenset()
@@ -267,6 +270,7 @@ class GateNeeds:
     deploy_branches: bool = False
     db_hosts: bool = False
     dirty_before_turn: bool = False
+    stash_before_turn: bool = False
     remotes: tuple[str, ...] = ()
     scripts: tuple[ScriptRef, ...] = ()
     deploy_refs: tuple[str, ...] = ()
@@ -280,6 +284,7 @@ class GateNeeds:
             or self.deploy_branches
             or self.db_hosts
             or self.dirty_before_turn
+            or self.stash_before_turn
             or self.remotes
             or self.scripts
         )
@@ -1244,8 +1249,9 @@ class _Walk:
 
     # --- the server read-only allowlist (SPEC §5.7) ---
     def remote_read_only(self, text: str) -> bool:
-        """Every command is on `gate.readonly_remote_commands` (optionally after `sudo`/`sudo -n`), and pipes only
-        feed `grep head tail wc sort uniq cut`; no redirection except fd duplication and `/dev/null`."""
+        """Every command is on `gate.readonly_remote_commands` or is git's fetch service (optionally after
+        `sudo`/`sudo -n`), and pipes only feed `grep head tail wc sort uniq cut`; no redirection except fd
+        duplication and `/dev/null`."""
         try:
             script = _parse(text)
         except _Unparseable:
@@ -1253,7 +1259,10 @@ class _Walk:
         commands = [item for item in script if isinstance(item, _Command)]
         if not commands or len(commands) != len(script):
             return False
-        patterns = [_Pattern(tuple(entry.split())) for entry in self.rules.readonly_remote_commands]
+        patterns = [
+            *_GIT_FETCH_COMMANDS,
+            *(_Pattern(tuple(entry.split())) for entry in self.rules.readonly_remote_commands),
+        ]
         return all(_remote_command_ok(command, patterns) for command in commands)
 
     # --- scripts ---
@@ -1731,7 +1740,7 @@ def _git_subcommand(walk: _Walk, sub: str, rest: list[_Word]) -> _Effect:
         return _Effect.WRITE
     discards = _discard_label(sub, rest)
     if discards is not None:
-        _discard(walk, discards)  # never on the read list: the effect below is WRITE
+        _discard(walk, discards, stash=sub == "stash")  # never on the read list: the effect below is WRITE
     if sub == "remote":
         _git_remote(walk, rest)
     if sub in _GIT_READ:
@@ -2015,13 +2024,21 @@ def _discard_label(sub: str, rest: Sequence[_Word]) -> str | None:
     return " ".join(_strip_markers(text) for text in (sub, *texts))[:120] if discards.get(sub, False) else None
 
 
-def _discard(walk: _Walk, label: str) -> None:
-    """Free unless the tree held changes before the turn started: the agent may throw away its own work, never the
-    owner's (orchestrator decision 2026-10-24). Unknown counts as dirty."""
+def _discard(walk: _Walk, label: str, *, stash: bool) -> None:
+    """Free unless the owner's work is at stake: the agent may throw away its own work, never the owner's
+    (orchestrator decisions 2026-10-24). That work is the changes in the tree when the turn started (which the agent
+    may also have stashed since), and for `stash drop|clear` every stash entry older than the turn, even with a
+    clean tree (T18b). Unknown counts as at stake."""
     dirty = walk.ctx.dirty_before_turn
     if dirty is None:
         walk.need("dirty_before_turn")
-    if dirty is not False:
+    at_stake = dirty is not False
+    if stash:
+        stashed = walk.ctx.stash_before_turn
+        if stashed is None:
+            walk.need("stash_before_turn")
+        at_stake = at_stake or stashed != 0
+    if at_stake:
         walk.ask(GateClass.FS_DESTROY, Reason.DISCARD_CHANGES, f"git {label}")
 
 
@@ -2114,6 +2131,9 @@ _RSYNC_VALUE_OPTIONS: Final = frozenset(
     }
 )  # fmt: skip
 _REMOTE_FILTERS: Final = frozenset({"grep", "egrep", "fgrep", "head", "tail", "wc", "sort", "uniq", "cut"})
+# What git itself runs over ssh to fetch, pull, clone or ls-remote (connect.c): a read on any host but a jump-only
+# one, whatever `gate.readonly_remote_commands` says. Not `git-receive-pack` (a push), nor a custom `--upload-pack`.
+_GIT_FETCH_COMMANDS: Final = (_Pattern(("git-upload-pack", "<path>")),)
 
 
 @dataclass(frozen=True, slots=True)
@@ -3511,6 +3531,7 @@ def needs(call: ToolCall, rules: GateRules, ctx: GateContext) -> GateNeeds:
         deploy_branches="deploy_branches" in missing,
         db_hosts="db_hosts" in missing,
         dirty_before_turn="dirty_before_turn" in missing,
+        stash_before_turn="stash_before_turn" in missing,
         remotes=tuple(walk.remotes_needed),
         scripts=tuple(walk.scripts),
         deploy_refs=tuple(dict.fromkeys(walk.push_sources)),
@@ -4001,3 +4022,10 @@ def db_hosts_from(files: Mapping[str, str]) -> tuple[str, ...]:
             elif value.startswith("$") or "%(" in value:
                 hosts.append("?")
     return tuple(dict.fromkeys(hosts))
+
+
+def stashed_before_turn(stashed_at: Iterable[datetime], turn_started_at: datetime) -> int:
+    """`stash_before_turn`: how many stash entries (`git stash list`, by commit time) are older than the turn. Commit
+    times have whole seconds, so an entry from the turn's first second counts as older: an extra question, never a
+    lost entry."""
+    return sum(1 for at in stashed_at if at <= turn_started_at)

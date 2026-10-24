@@ -84,7 +84,8 @@ class GateScope:
 
     `session_key` is a stable id of the session (`agent_sessions.id`): a grant consumed in it, and the shims called
     from it, match on it. `dirty_before_turn` is whether `git status` showed changes when the turn started (None =
-    not recorded, so discarding commands ask).
+    not recorded, so discarding commands ask). `turn_started_at` tells the owner's stash entries from the agent's
+    (None = not known, so `git stash drop|clear` asks).
     """
 
     project_id: str
@@ -93,6 +94,7 @@ class GateScope:
     policy: Policy = Policy.FULL
     turn_id: int | None = None
     dirty_before_turn: bool | None = None
+    turn_started_at: datetime | None = None
     protected_pids: frozenset[int] = frozenset()
     mcp_read_only_tools: frozenset[str] = frozenset()
     mcp_preallowed_tools: frozenset[str] = frozenset()
@@ -245,6 +247,16 @@ async def _remote_fact(deps: DevDeps, root: Path, name: str, *, timeout: float) 
     return lambda ctx: replace(ctx, remote_urls={**ctx.remote_urls, name: url})
 
 
+async def _stash_fact(deps: DevDeps, scope: GateScope, *, timeout: float) -> _Update | None:
+    """How many stash entries are older than the turn. Without the turn's start it stays unknown (the call asks)."""
+    started = scope.turn_started_at
+    if started is None:
+        return None
+    entries = await deps.git.stash_entries(scope.project_root, timeout=timeout)
+    count = domain.stashed_before_turn((entry.committed_at for entry in entries), started)
+    return lambda ctx: replace(ctx, stash_before_turn=count)
+
+
 async def _attempt(fact: str, fetch: Awaitable[_Update | None], *, timeout: float) -> _Update | None:
     try:
         async with asyncio.timeout(timeout):
@@ -272,6 +284,8 @@ def _fetches(deps: DevDeps, scope: GateScope, need: GateNeeds, *, timeout: float
         fetches["deploy_branches"] = partial(_deploy_fact, deps, scope.project_id, need.deploy_refs, timeout=timeout)
     if need.db_hosts:
         fetches["db_hosts"] = partial(_db_hosts_fact, root, private)
+    if need.stash_before_turn:
+        fetches["stash_before_turn"] = partial(_stash_fact, deps, scope, timeout=timeout)
     for name in need.remotes:
         fetches[f"remote:{name}"] = partial(_remote_fact, deps, root, name, timeout=timeout)
     for ref in need.scripts:

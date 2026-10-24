@@ -27,6 +27,7 @@ class FakeGit:
         self.ignored_paths: defaultdict[Path, set[str]] = defaultdict(set)
         self.default_branches: dict[Path, str] = {}
         self.remotes: dict[tuple[Path, str], str] = {}
+        self.stashes: defaultdict[Path, list[Commit]] = defaultdict(list)  # newest first
         self.failures: dict[str, Exception] = {}
         self.calls: list[tuple[str, Path, tuple[str, ...]]] = []
 
@@ -85,6 +86,10 @@ class FakeGit:
     async def remote_url(self, repo: Path, *, remote: str, timeout: float) -> str | None:
         self._call("remote_url", repo, remote)
         return self.remotes.get((repo, remote))
+
+    async def stash_entries(self, repo: Path, *, timeout: float) -> list[Commit]:
+        self._call("stash_entries", repo)
+        return list(self.stashes[repo])
 
     async def init(self, path: Path, *, branch: str, timeout: float) -> None:
         self._call("init", path, branch)

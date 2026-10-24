@@ -205,6 +205,20 @@ async def test_the_remote_url_never_carries_credentials(git: GitCli, repo: Path)
     assert await git.remote_url(repo, remote="ssh", timeout=TIMEOUT) == "ssh://git@example.com:2222/x.git"
 
 
+async def test_stash_entries_come_newest_first_with_the_time_each_was_stashed(git: GitCli, repo: Path) -> None:
+    assert await git.stash_entries(repo, timeout=TIMEOUT) == []
+    (repo / "README.md").write_text("# owner's edit\n", encoding="utf-8")
+    await sh(repo, "stash", "push", "-q", "-m", "owner: half-done", env={"GIT_COMMITTER_DATE": OLD_DATE})
+    (repo / "README.md").write_text("# agent's edit\n", encoding="utf-8")
+    await sh(repo, "stash", "push", "-q", "-m", "agent: wip")
+
+    entries = await git.stash_entries(repo, timeout=TIMEOUT)
+
+    assert [entry.subject for entry in entries] == ["On main: agent: wip", "On main: owner: half-done"]
+    assert entries[1].committed_at.isoformat() == OLD_DATE
+    assert entries[0].committed_at > entries[1].committed_at
+
+
 async def test_tree_files_reads_a_directory_as_committed(git: GitCli, repo: Path) -> None:
     await commit_file(repo, ".github/workflows/deploy.yml", "on: push\n", "workflows")
     await commit_file(repo, ".github/workflows/same.yml", "on: push\n", "same content, one blob")

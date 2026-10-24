@@ -38,6 +38,7 @@ class GitContract:
         assert await git.log(repo, since_days=7, limit=10, timeout=TIMEOUT) == []
         assert await git.tree_files(repo, "HEAD", ".github/workflows", max_bytes=1024, timeout=TIMEOUT) == {}
         assert await git.remote_url(repo, remote="origin", timeout=TIMEOUT) is None
+        assert await git.stash_entries(repo, timeout=TIMEOUT) == []
 
 
 class TestFakeGit(GitContract):
