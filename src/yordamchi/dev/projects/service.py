@@ -152,9 +152,7 @@ def _scan_root(root: Path, excluded: Collection[str]) -> _RootScan | None:
     folders: list[FolderFacts] = []
     skipped = 0
     for entry in entries:
-        reason = domain.skip_reason(
-            entry.name, is_dir=entry.is_dir(), is_symlink=entry.is_symlink(), excluded=excluded
-        )
+        reason = domain.skip_reason(entry.name, is_dir=entry.is_dir(), is_symlink=entry.is_symlink(), excluded=excluded)
         if reason is None:
             folders.append(_folder_facts(entry))
         else:

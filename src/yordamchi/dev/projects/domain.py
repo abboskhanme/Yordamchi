@@ -95,9 +95,7 @@ def is_excluded(name: str, excluded: Collection[str]) -> bool:
     return any(project_id(entry).casefold() == key for entry in excluded)
 
 
-def skip_reason(
-    name: str, *, is_dir: bool, is_symlink: bool, excluded: Collection[str] = ()
-) -> SkipReason | None:
+def skip_reason(name: str, *, is_dir: bool, is_symlink: bool, excluded: Collection[str] = ()) -> SkipReason | None:
     """Why a top-level entry is not a project, or None when it is one."""
     if name.startswith("."):
         return SkipReason.HIDDEN
