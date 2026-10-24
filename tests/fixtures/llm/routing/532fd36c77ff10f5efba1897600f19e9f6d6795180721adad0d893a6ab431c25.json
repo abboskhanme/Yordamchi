@@ -1,0 +1,17 @@
+{
+  "case": "content_new_project_voice",
+  "duration_ms": 1285,
+  "latency_ms": 1286,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [],
+    "confidence": 0,
+    "intent": "new_project",
+    "is_new_project": true,
+    "needs_fresh": false,
+    "project_id": null
+  },
+  "text": "{\"intent\":\"new_project\",\"project_id\":null,\"candidates\":[],\"confidence\":0,\"needs_fresh\":false,\"is_new_project\":true}"
+}

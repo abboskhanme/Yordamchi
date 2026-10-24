@@ -152,6 +152,61 @@ def test_one_typo_or_another_spelling_still_names_a_routable_project(text: str, 
     assert found.typo == (project,)
 
 
+def test_tez_tez_often_is_no_typo_of_teztel() -> None:
+    """T26 eval: "Gemini Live ulanishi tez-tez uzilib qolyapti" went to TezTel without a question. A doubled word
+    ("tez-tez", "teztez": often) is one letter from `teztel`, but Uzbek doubles words, and a doubled word is no name."""
+    for text in ("Gemini Live ulanishi tez-tez uzilib qolyapti", "teztez xato beryapti"):
+        found = _mentions(text)
+        assert (found.named, found.typo, found.ambiguous) == ((), (), ()), text
+    assert _mentions("BonviHR'da sessiya tez-tez uziladi").named == ("BonviHR",)
+    assert _mentions("TezTell'da ombor").named == ("TezTel",)  # a real typo still names it
+
+
+def test_iphone_is_no_typo_of_ai_phone() -> None:
+    """T26 eval: "iphone" is `aiphone` without its first letter, and TezTel's owner talks about iPhones. A typo may
+    change the first letter (voice gives "Vunderkind") but never drop it."""
+    found = _mentions("iPhone 15 Pro'ning tannarxini hisobla")
+    assert (found.named, found.typo) == ((), ())
+    assert _mentions("VunderkindLC'da guruhlar").named == ("WunderkindLC",)
+    assert _mentions("AI-Phne'da qo'ng'iroq").named == ("AI-Phone",)
+
+
+def test_a_worktree_name_cut_short_in_one_word_asks_naming_both() -> None:
+    """T26 eval: "HRMentor-wt'da testlarni yurgiz" named nothing, and the LLM, choosing among routable projects only,
+    could send it to HRMentor. One word that runs on from a routable name into a worktree's is a near miss."""
+    found = _mentions("HRMentor-wt'da testlarni yurgiz")
+    assert (found.named, found.lookalike) == ((), ("HRMentor-wt-agent-api",))
+    decision = _decide("HRMentor-wt'da testlarni yurgiz", _llm("HRMentor", 0.97))
+    assert (decision.outcome, decision.candidate_ids) == (Outcome.ASK, ("HRMentor", "HRMentor-wt-agent-api"))
+    assert _mentions("HRMentor'da testlar").lookalike == ()  # the routable name itself, with a suffix, is no near miss
+
+
+@pytest.mark.parametrize(
+    ("text", "lookalike"),
+    [
+        ("HRMentor agent-api'da yangi endpoint qo'sh", "HRMentor-wt-agent-api"),
+        ("HRMentor agent api'da", "HRMentor-wt-agent-api"),
+        ("BonviCall archive'dan eski konfiguratsiyani ol", "BonviCall Clone Archive"),
+    ],
+)
+def test_a_routable_name_with_most_of_a_worktree_or_archive_name_asks(text: str, lookalike: str) -> None:
+    """T26 eval: "HRMentor agent-api'da …" and "BonviCall archive'dan …" went to HRMentor and BonviCall without a
+    question: the owner skipped "wt" or "Clone". The routable name followed by words that make up more than half of
+    the rest of an exact-only name is a near miss."""
+    found = _mentions(text)
+    assert found.lookalike == (lookalike,)
+    decision = domain.decide(_plan(_item(text)), None, CFG)
+    assert decision.outcome is Outcome.ASK
+    assert lookalike in decision.candidate_ids
+
+
+def test_one_ordinary_word_after_a_name_is_no_near_miss() -> None:
+    for text in ("HRMentor'ga agent qo'sh", "HRMentor'da API'ni tuzat", "BonviCall'da clone qilish funksiyasi"):
+        found = _mentions(text)
+        assert found.lookalike == (), text
+        assert len(found.named) == 1, text
+
+
 def test_a_typo_is_never_across_a_digit_and_short_words_are_never_typos() -> None:
     projects = make_project_views("BonviHR", "BonviHR2")
     assert _mentions("BonviHR2'da", projects).named == ("BonviHR2",)
@@ -464,6 +519,36 @@ def test_a_null_pick_never_routes_even_with_confident_candidates() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("top", "others"),
+    [(0.5, {}), (0.35, {"BrokerApp": 0.2}), (0.4, {"BonviCall": 0.35}), (0.74, {"HRMentor": 0.6})],
+)
+def test_a_follow_up_the_llm_is_unsure_of_still_continues_the_one_active_project(
+    top: float, others: dict[str, float]
+) -> None:
+    """T26 eval: 20 of 25 follow-ups ("endi commit qilib push qil" 5 min after BonviHR) were asked, though the model's
+    top pick was the active project each time: it rates a follow-up with no subject 0.35–0.7. Context and the model
+    agree, so it routes (as context: it never steers a running turn on its own)."""
+    decision = _decide("endi commit qilib push qil", _llm("TezTel", top, **others), spoken=("TezTel",))
+    assert (decision.outcome, decision.project_id) == (Outcome.ROUTE, "TezTel")
+    assert (decision.method, decision.confidence, decision.reason) == (
+        Method.CONTEXT,
+        domain.CONTEXT_CONFIDENCE,
+        "context",
+    )
+
+
+def test_an_unsure_pick_asks_unless_it_is_the_one_active_project_and_leads() -> None:
+    other = _decide("endi push qil", _llm("BonviHR", 0.5), spoken=("TezTel",))  # the model points elsewhere
+    assert (other.outcome, other.reason) == (Outcome.ASK, "low_confidence")
+    tied = _decide("endi push qil", _llm("TezTel", 0.4, BonviHR=0.4), spoken=("TezTel",))
+    assert tied.outcome is Outcome.ASK
+    two = _decide("endi push qil", _llm("TezTel", 0.5), spoken=("TezTel", "BonviHR"))  # two active: no tie-break
+    assert two.outcome is Outcome.ASK
+    null = _decide("endi push qil", _llm(None, 0.0, TezTel=0.35), spoken=("TezTel",))  # the model did not commit
+    assert (null.outcome, null.reason) == (Outcome.ASK, "no_pick")
+
+
 def test_without_the_llm_one_active_project_takes_it_and_otherwise_the_bot_asks() -> None:
     lone = _decide("testlarini ham yoz", None, spoken=("HRMentor",))
     assert (lone.outcome, lone.method, lone.project_id) == (Outcome.ROUTE, Method.CONTEXT, "HRMentor")
@@ -503,6 +588,20 @@ def test_a_confident_new_project_is_no_route_and_an_unsure_one_is_ordinary() -> 
     assert _decide("yangi loyiha: kafe uchun bot", new).outcome is Outcome.NO_PROJECT
     unsure = replace(_llm("BonviHR", 0.5), intent=Intent.NEW_PROJECT)
     assert _decide("kafe uchun bot", unsure).outcome is Outcome.ASK
+
+
+def test_a_new_project_at_confidence_zero_with_no_existing_candidate_is_still_new() -> None:
+    """T26 eval: "yangi loyiha ochamiz: kafe uchun stol band qilish boti" came back `new_project`, `project_id` null,
+    confidence 0 (the prompt: "nothing points to any project → confidence 0"), and the bot asked "which project?"."""
+    zero = domain.parse_llm_route(routing_reply(None, 0.0, intent="new_project", is_new_project=True), REGISTRY)
+    assert zero is not None
+    decision = _decide("yangi loyiha ochamiz: kafe uchun stol band qilish boti", zero)
+    assert (decision.outcome, decision.intent) == (Outcome.NO_PROJECT, Intent.NEW_PROJECT)
+    plausible = domain.parse_llm_route(
+        routing_reply(None, 0.0, intent="new_project", is_new_project=True, candidates={"BonviHR": 0.4}), REGISTRY
+    )
+    assert plausible is not None
+    assert _decide("kafe uchun bot", plausible).outcome is Outcome.ASK  # an existing project may be meant: ask
 
 
 def test_a_question_names_at_most_three_candidates_most_likely_first() -> None:

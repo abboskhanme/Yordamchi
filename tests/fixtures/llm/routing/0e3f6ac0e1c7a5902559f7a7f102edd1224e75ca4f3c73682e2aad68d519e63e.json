@@ -1,0 +1,17 @@
+{
+  "case": "content_server",
+  "duration_ms": 2478,
+  "latency_ms": 2478,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [],
+    "confidence": 0.8,
+    "intent": "server_status",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": null
+  },
+  "text": "{\"intent\":\"server_status\",\"project_id\":null,\"candidates\":[],\"confidence\":0.8,\"needs_fresh\":false,\"is_new_project\":false}"
+}

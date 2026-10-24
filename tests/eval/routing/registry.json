@@ -1,0 +1,265 @@
+{
+  "root": "~/Documents/Projects",
+  "skipped": 2,
+  "projects": [
+    {
+      "id": "AI",
+      "description": "Hands-free desktop assistant. You speak, it acts — no wake word, no Enter key. Speech runs through the Gemini Live API; the actions run locally on your machine.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "AI-Phone",
+      "description": "A copy of the desktop assistant (../AI), forked to become a phone assistant: one that talks to other people on a call rather than to you at your desk.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "AIAgents",
+      "description": "Bonvi's AI agent team on Hermes Agent: Telegram bots that do the repetitive part of office work, running 24/7 on a VPS.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "AgentsRoom",
+      "description": "A desktop command center for AI coding agents. Each agent is a Claude Code CLI session running in a project folder; you watch its output live, answer its questions with buttons, and see its status at…",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BS",
+      "description": "",
+      "description_source": "none",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "Bonvi-platform",
+      "description": "Telegram-native Business Process Intelligence — kompaniyaning Telegram guruhlaridagi kundalik muloqotdan biznes-jarayonlarni aniqlaydi, takrorlanuvchi operatsion ishlarni o'zi bajaradi va…",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BonviAGI",
+      "description": "",
+      "description_source": "none",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BonviCall",
+      "description": "Author: plan-architect · Date: 2026-09-04 · Status: build from this",
+      "description_source": "spec",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BonviCall Clone Archive",
+      "description": "Author: plan-architect · Date: 2026-09-04 · Status: build from this",
+      "description_source": "spec",
+      "is_worktree": false,
+      "is_archive_name": true
+    },
+    {
+      "id": "BonviFinance",
+      "description": "",
+      "description_source": "none",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BonviGo",
+      "description": "Status: binding for build agents · 2026-10-20 · plan-architect. Inputs: BRIEF.md, ASSUMPTIONS.md, STACK.md, CONVENTIONS.md v1.1, ../BONVI_SERVER.md.",
+      "description_source": "spec",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BonviHR",
+      "description": "Bonvi (MBF Company, Qo'qon) uchun HR boshqaruv tizimi. To'liq reja va bosqichlar: PLAN.md",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BonviImport",
+      "description": "Xitoy · Gonkong · Dubaydan olib kelinadigan yuklarning to'liq import boshqaruv tizimi: zavodga zakaz → ishlab chiqarish → yuklash → chegarada avto almashtirish → tranzit → bojxona → ombor priyomkasi…",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BonviImzo",
+      "description": "Status: draft for owner approval · 2026-10-13 · Author: plan-architect Inputs (authority order): docs/BRIEF.md > docs/REQUIREMENTS.md (REQ) > docs/UX.md (UX) > docs/STACK.md (STACK) >…",
+      "description_source": "spec",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "BrokerApp",
+      "description": "Dehqon va oluvchini brokersiz to'g'ridan-to'g'ri bog'lovchi mobil ilova (O'zbekiston, meva-sabzavot bozori).",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "ClaudeManager",
+      "description": "A small macOS / Windows tray app that keeps several Claude (Pro/Max) accounts signed in and hands Claude Code over to the next account before the active one reaches its usage limit — running terminal…",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "FactoryIncome",
+      "description": "Zavod kirimlari (factory goods receipts). Local desktop app: a Telegram bot collects \"Далолатнома\" Excel files (and photos) from the supply group → parser + validation rules → AI checks through the…",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "GasStation",
+      "description": "",
+      "description_source": "none",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "HRMentor",
+      "description": "Telegram assistant that answers employees' work questions from the organisation's own HR documents — job descriptions, internal rules, orders — with exact citations and links to read the source…",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "HRMentor-wt-agent-api",
+      "description": "Telegram assistant that answers employees' work questions from the organisation's own HR documents — job descriptions, internal rules, orders — with exact citations, and helps them study those…",
+      "description_source": "readme",
+      "is_worktree": true,
+      "is_archive_name": false
+    },
+    {
+      "id": "ImportAgents",
+      "description": "AI agent team that sources spare parts from Chinese factories, negotiates inside a human-approved mandate and hands an evidence-backed shortlist to the people who sign.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "MegaPlus ERP",
+      "description": "Retail ERP and offline-first POS for the Mega Plus supermarket (Tashkent), replacing Linko. Read CLAUDE.md first, then docs/SPEC.md, docs/ARCHITECTURE.md, docs/STACK.md and docs/ROADMAP.md.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "MegaPlus Platform",
+      "description": "AI-agent platform (web console, Telegram Mini App and bots) for the Mega Plus supermarket, next to the Mega Plus ERP.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "NUR-Project",
+      "description": "NUR TECHNO GROUP kompaniyasining ichki ERP / CRM tizimi. Sotuv, Servis, Moliya, HR va Ta'minot bo'limlarini birlashtiruvchi zamonaviy veb-platforma.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "OvozYoz",
+      "description": "Hotkey-driven dictation for Windows and macOS. Press the shortcut, speak, and the text is typed into whatever window has the cursor — Word, a browser, a chat, a code editor.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "PrivateBusiness",
+      "description": "PrivateBusiness — Claude uchun kontekst",
+      "description_source": "claude_md",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "Russian-Speaking",
+      "description": "Russian‑speaking practice platform for Uzbek learners: record an answer, get AI pronunciation + grading feedback, progress through modules, compete on the leaderboard.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "TezTel",
+      "description": "Purchases in Dubai (AED) → landed unit cost in USD → stock → wholesale sales and profit. Admin panel (React), REST API (FastAPI), Telegram bot with Gemini (text and voice questions).",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "Wooden",
+      "description": "Bookkeeping bot and admin panel for Botirjon Yog'och Mahsulotlari, a lumber company in Uzbekistan.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "WunderkindAIAgent",
+      "description": "AI sales agent for the Wunderkind private school. Answers Instagram comments/DMs and Telegram chats, drives each conversation to an admission interview booking (name + phone), logs everything, and…",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "WunderkindEmployeesBot",
+      "description": "Wunderkind xususiy maktabiga ishga ariza topshirish uchun Telegram bot. Nomzod fan(lar)ni tanlaydi, ketma-ket savollarga javob beradi va (xohlasa) CV yuklaydi.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "WunderkindLC",
+      "description": "Lidlar (CRM) · O'quvchilar · Guruhlar · Moliya · Jurnal · O'quv dasturi · Call-center · 3 ta alohida portal",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "WunderkindLMS",
+      "description": "The client's school is a paying customer of EduSchool (wunderkind.eduschool.uz) and that system is in live production use right now. We study it only to rebuild the same functionality in this project.",
+      "description_source": "claude_md",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "WunderkindOlympics",
+      "description": "Wunderkind maktabi ichki tizimlari uchun platforma. Birinchi modul: olimpiada konkurslari — web admin tizimi, har olimpiada uchun ommaviy landing sahifa va Telegram ro'yxatdan o'tish boti.",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "WunderkindTestPortal",
+      "description": "",
+      "description_source": "none",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "Yordamchi",
+      "description": "Two owner-only Telegram bots that run on the owner's MacBook as launchd agents:",
+      "description_source": "readme",
+      "is_worktree": false,
+      "is_archive_name": false
+    },
+    {
+      "id": "zinnur-v2",
+      "description": "HOLAT: Domain va Application qatlamlari YOZILGAN va kompilyatsiyadan o'tgan. Ular haqiqat manbai — quyidagi imzolar aynan kodga mos. Bu hujjat majburiy shartnoma.",
+      "description_source": "spec",
+      "is_worktree": false,
+      "is_archive_name": false
+    }
+  ]
+}

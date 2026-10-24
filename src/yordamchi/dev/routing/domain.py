@@ -7,10 +7,12 @@ A closed burst (`TurnInput`) is routed by these signals, in this order:
    or one typo away for words of ≥ 6 letters. Only `Project.routable` projects match loosely; archived and `*-wt-*`
    projects answer only to their exact name, and a near miss of one ("HRMentor wt agent api") is a look-alike, so the
    bot asks. An exact name beats a typo, a typo that fits two names asks, and a digit is never a typo
-   (`BonviHR` ≠ `BonviHR2`). A short name that is also a word ("AI", "BS") counts only with a suffix ("AI'da").
+   (`BonviHR` ≠ `BonviHR2`), nor is a doubled word ("tez-tez" ≠ `TezTel`) or a dropped first letter ("iPhone" ≠
+   `AI-Phone`). A short name that is also a word ("AI", "BS") counts only with a suffix ("AI'da").
 2. **Reply** to a bot message linked to a project (`message_links`), unless another project is named.
 3. **Recent context**: the project the owner spoke about last, the one that reported last, and running turns, within
-   `routing.context_window_min`. Context informs the LLM and is its fallback; it never routes against the content.
+   `routing.context_window_min`. Context informs the LLM and is its fallback, and the one active project takes a
+   follow-up the LLM's unsure top pick agrees with; it never routes against the content.
 4. **LLM** (`routing` kind, fast tier, `OUTPUT_SCHEMA`): `{intent, project_id, candidates, confidence, needs_fresh,
    is_new_project}`. Its pick must come from the allowed set: the named projects when several are named, a family
    (`Wunderkind*`) when one word starts several names, else the routable projects.
@@ -50,7 +52,7 @@ from yordamchi.shared.settings.domain import Snapshot
 EXPLICIT_CONFIDENCE: Final = 1.0  # SPEC §3.2.6 step 1
 TYPO_CONFIDENCE: Final = 0.9  # one typo away, or another spelling: still routes and may steer (≥ merge 0.85)
 REPLY_CONFIDENCE: Final = 0.95  # step 2
-CONTEXT_CONFIDENCE: Final = 0.8  # the LLM is unavailable and one project is active: routes, never steers on its own
+CONTEXT_CONFIDENCE: Final = 0.8  # one project is active and the LLM is unavailable or agrees: routes, never steers
 TYPO_MIN_CHARS: Final = 6  # "Damerau-Levenshtein ≤ 1 for tokens of ≥ 6 chars"
 SHORT_NAME_MAX: Final = 3  # "AI", "BS": words as much as names
 FAMILY_MIN_CHARS: Final = 5  # "bonvi", "wunderkind", "megaplus": a word that starts several names
@@ -80,7 +82,7 @@ class Method(StrEnum):
     BINDING = "binding"  # an answer bound to an open item: here, the answer to a clarification
     DRAFT = "draft"  # an open new-project draft took the message (P2)
     LLM = "llm"
-    CONTEXT = "context"  # the LLM was unavailable; the one active project took it
+    CONTEXT = "context"  # the one active project took it: the LLM was unavailable, or its unsure pick agreed
 
 
 class Intent(StrEnum):
@@ -267,12 +269,27 @@ def _digits(text: str) -> tuple[str, ...]:
     return tuple(_DIGITS.findall(text))
 
 
+def _doubled(text: str) -> bool:
+    """One word said twice: "tez-tez" (often), "sekin-sekin". Uzbek doubles words; a doubled word is never a name."""
+    half = len(text) // 2
+    return len(text) % 2 == 0 and text[:half] == text[half:]
+
+
+def _drops_first_letter(text: str, name: str) -> bool:
+    """`text` starts where `name` does after its first letter: "iphone" against `aiphone`."""
+    return text[:1] != name[:1] and text[:1] == name[1:2]
+
+
 def _typo_of(text: str, name: _Name, *, edits: int = 1) -> bool:
-    """At most `edits` typos from `name`, never across a digit: `BonviHR2` and `BonviHR3` are different projects."""
+    """At most `edits` typos from `name`, never across a digit: `BonviHR2` and `BonviHR3` are different projects. Never
+    a doubled word ("tez-tez" is not `TezTel`), and never the name without its first letter ("iPhone" is not
+    `AI-Phone`); a changed first letter still counts ("Vunderkind")."""
     return (
         len(text) >= TYPO_MIN_CHARS
         and len(name.compact) >= TYPO_MIN_CHARS
         and _digits(text) == _digits(name.compact)
+        and not _doubled(text)
+        and not _drops_first_letter(text, name.compact)
         and abs(len(text) - len(name.compact)) <= edits
         and typo_distance(text, name.compact) <= edits
     )
@@ -327,17 +344,37 @@ def _exact_hit(window: Sequence[str], name: _Name) -> _Hit | None:
 
 
 def _lookalike(window: Sequence[str], name: _Name, bases: Collection[str]) -> bool:
-    """`window` nearly names exact-only `name` without naming it: another spelling, one typo, or a routable name
-    (`bases`) written on into it ("HRMentor wt" → `HRMentor-wt-agent-api`, "BonviCall clone" → `… Clone Archive`)."""
+    """`window` nearly names exact-only `name` without naming it: another spelling, one typo, a routable name
+    (`bases`) written on into it, in one word or several ("HRMentor-wt", "HRMentor wt" → `HRMentor-wt-agent-api`,
+    "BonviCall clone" → `… Clone Archive`), or followed by most of the rest of it (`_base_and_rest`)."""
     if _exact_hit(window, name) is not None:
         return False
     for text in _window_compacts(window):
         if text == name.compact or _typo_of(text, name):
             return True
-        extends = any(text.startswith(base) and len(text) > len(base) for base in bases)
-        if len(window) >= 2 and extends and name.compact.startswith(text):
+        extends = text not in bases and any(text.startswith(base) and len(text) > len(base) for base in bases)
+        if extends and name.compact.startswith(text):
             return True
-    return False
+    return _base_and_rest(window, name, bases)
+
+
+def _base_and_rest(window: Sequence[str], name: _Name, bases: Collection[str]) -> bool:
+    """The routable name exact-only `name` starts with, then only words from the rest of `name` that make up more
+    than half of it: "HRMentor agent-api" → `HRMentor-wt-agent-api`, "BonviCall archive'dan" → `BonviCall Clone
+    Archive`. One ordinary word does not ("HRMentor'ga agent qo'sh": "agent" is half of "wtagentapi")."""
+    head = compact(_SEPARATORS.split(fold(name.project_id))[0])
+    rest = name.compact.removeprefix(head)
+    if len(window) < 2 or name.compact != compact(name.project_id) or head not in bases or rest == name.compact:
+        return False
+    if all(compact(stem.text) != head for stem in _stems(window[0])):
+        return False
+    covered = 0
+    for word in window[1:]:
+        pieces = [len(text) for stem in _stems(word) if len(text := compact(stem.text)) >= 2 and text in rest]
+        if not pieces:
+            return False
+        covered += max(pieces)
+    return 2 * covered > len(rest)
 
 
 class _Scan:
@@ -660,9 +697,21 @@ def plan_route(
     return _settle(base)
 
 
+def _bases_of(lookalikes: Sequence[str], routable: Collection[str]) -> tuple[str, ...]:
+    """The routable project each look-alike's name runs on from (`HRMentor-wt-agent-api` → `HRMentor`), so the
+    question names both even when only the look-alike was nearly written ("HRMentor-wt'da")."""
+    found: list[str] = []
+    for lookalike in lookalikes:
+        mine = compact(lookalike)
+        runs_on = [project for project in routable if mine.startswith(compact(project)) and mine != compact(project)]
+        found.extend(sorted(runs_on, key=lambda project: (-len(compact(project)), project))[:1])
+    return _distinct(found)
+
+
 def _settle(plan: RoutePlan) -> RoutePlan:
     """What the names and the reply settle, in order:
-    - a look-alike or a typo between two names → ask those, whatever else is said;
+    - a look-alike or a typo between two names → ask those (with the name a look-alike runs on from), whatever else
+      is said;
     - one project named, and no reply to another one → that project (`explicit`);
     - nothing named, a reply → the replied-to project (`reply`);
     - else the LLM picks, among the named projects (with the replied-to one, when a reply and a name disagree), or
@@ -671,7 +720,9 @@ def _settle(plan: RoutePlan) -> RoutePlan:
     named = mentions.named
     if mentions.lookalike or mentions.ambiguous:
         reason = "lookalike" if mentions.lookalike else "typo_ambiguous"
-        return replace(plan, ask_first=_distinct([*named, *mentions.ambiguous, *mentions.lookalike]), ask_reason=reason)
+        bases = _bases_of(mentions.lookalike, plan.allowed)
+        ask = _distinct([*named, *mentions.ambiguous, *bases, *mentions.lookalike])
+        return replace(plan, ask_first=ask, ask_reason=reason)
     if len(named) == 1 and reply in {None, named[0]}:
         confidence = TYPO_CONFIDENCE if named[0] in mentions.typo else EXPLICIT_CONFIDENCE
         return replace(plan, fixed=Candidate(named[0], confidence), fixed_method=Method.EXPLICIT)
@@ -928,14 +979,24 @@ def decide(plan: RoutePlan, llm: LlmRoute | None, cfg: RouteSettings) -> RouteDe
     return _by_llm(plan, llm, cfg, intent=intent)
 
 
+def _starts_a_project(llm: LlmRoute, cfg: RouteSettings) -> bool:
+    """The model says the message starts a project that does not exist yet: confidently, or with no existing project
+    plausible at all. The prompt asks for confidence 0 whenever `project_id` is null, so a null pick with no candidate
+    is the model's "new", not doubt (T26 eval: "yangi loyiha ochamiz: …" came back new_project at 0 and was asked)."""
+    if llm.intent is not Intent.NEW_PROJECT:
+        return False
+    if confidence_milli(llm.confidence) >= confidence_milli(cfg.min_confidence):
+        return True
+    return llm.project_id is None and all(other.confidence < MIN_CANDIDATE_CONFIDENCE for other in llm.ranked)
+
+
 def _settled(plan: RoutePlan, llm: LlmRoute | None, cfg: RouteSettings, *, intent: Intent) -> RouteDecision | None:
-    """What holds whatever the LLM picked: a look-alike asks; a confident new project, the named or replied-to project,
-    and a projectless report go through. None: the project is still open."""
+    """What holds whatever the LLM picked: a look-alike asks; a new project, the named or replied-to project, and a
+    projectless report go through. None: the project is still open."""
     fresh = llm.needs_fresh if llm is not None else False
     if plan.ask_first:
         return _ask(plan, (), intent=intent, method=Method.EXPLICIT, reason=plan.ask_reason, fresh=fresh)
-    new = llm is not None and llm.intent is Intent.NEW_PROJECT
-    if llm is not None and new and confidence_milli(llm.confidence) >= confidence_milli(cfg.min_confidence):
+    if llm is not None and _starts_a_project(llm, cfg):
         return RouteDecision(Outcome.NO_PROJECT, Method.LLM, Intent.NEW_PROJECT, None, llm.confidence, reason="new")
     if plan.fixed is not None and plan.fixed_method is not None:
         method = plan.fixed_method
@@ -950,7 +1011,8 @@ def _settled(plan: RoutePlan, llm: LlmRoute | None, cfg: RouteSettings, *, inten
 
 def _by_llm(plan: RoutePlan, llm: LlmRoute, cfg: RouteSettings, *, intent: Intent) -> RouteDecision:
     """The LLM's pick routes when it is allowed, is no look-alike of an exact-only project in context, clears
-    `min_confidence` and leads the next allowed candidate by `min_margin`. Else one question."""
+    `min_confidence` and leads the next allowed candidate by `min_margin`; or, below those, when it is the one active
+    project and leads every other candidate (context and content agree). Else one question."""
     fresh = llm.needs_fresh
     ranked = tuple(candidate for candidate in llm.ranked if candidate.project_id in plan.allowed)
     pick = llm.ranked[0] if llm.project_id is not None and llm.ranked else None  # null: the model did not commit
@@ -965,6 +1027,12 @@ def _by_llm(plan: RoutePlan, llm: LlmRoute, cfg: RouteSettings, *, intent: Inten
     leads = pick is not None and confidence_milli(pick.confidence) - second >= confidence_milli(cfg.min_margin)
     if pick is not None and sure and leads:
         return _route(pick.project_id, pick.confidence, method=Method.LLM, intent=intent, fresh=fresh, reason="llm")
+    if pick is not None and pick.project_id == plan.lone_context and confidence_milli(pick.confidence) > second:
+        # UC-10: a follow-up with no subject of its own ("testlarini ham yoz") continues the one active project. The
+        # model's top pick says so too, but it rates such a follow-up below `min_confidence` (T26 eval: haiku gave
+        # 0.35–0.7 to 21 of 25 follow-ups and the bot asked each time). Never against the content: the model picked it.
+        active = pick.project_id
+        return _route(active, CONTEXT_CONFIDENCE, method=Method.CONTEXT, intent=intent, fresh=fresh, reason="context")
     if plan.media_only and (lone := plan.lone_context) is not None:
         # UC-02: a lone screenshot proceeds with a sensible interpretation instead of a question.
         return _route(lone, CONTEXT_CONFIDENCE, method=Method.CONTEXT, intent=intent, fresh=fresh, reason="media")

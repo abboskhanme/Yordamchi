@@ -1,0 +1,26 @@
+{
+  "case": "content_dictation_typo",
+  "duration_ms": 1649,
+  "latency_ms": 1650,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.93,
+        "project_id": "OvozYoz"
+      },
+      {
+        "confidence": 0.03,
+        "project_id": "AI"
+      }
+    ],
+    "confidence": 0.93,
+    "intent": "investigate",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "OvozYoz"
+  },
+  "text": "{\"intent\":\"investigate\",\"project_id\":\"OvozYoz\",\"candidates\":[{\"project_id\":\"OvozYoz\",\"confidence\":0.93},{\"project_id\":\"AI\",\"confidence\":0.03}],\"confidence\":0.93,\"needs_fresh\":false,\"is_new_project\":false}"
+}

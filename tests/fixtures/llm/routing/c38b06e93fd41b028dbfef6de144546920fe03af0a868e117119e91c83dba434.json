@@ -1,0 +1,22 @@
+{
+  "case": "explicit_platform_typo",
+  "duration_ms": 1732,
+  "latency_ms": 1733,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.9,
+        "project_id": "MegaPlus Platform"
+      }
+    ],
+    "confidence": 0.9,
+    "intent": "investigate",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "MegaPlus Platform"
+  },
+  "text": "{\"intent\":\"investigate\",\"project_id\":\"MegaPlus Platform\",\"candidates\":[{\"project_id\":\"MegaPlus Platform\",\"confidence\":0.9}],\"confidence\":0.9,\"needs_fresh\":false,\"is_new_project\":false}"
+}

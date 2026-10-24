@@ -452,8 +452,9 @@ async def test_a_correction_that_replies_moves_that_projects_work(dev_deps: DevD
 
 # --- retention ------------------------------------------------------------------------------------------------------
 async def test_retention_drops_old_rows_and_never_an_open_question(dev_deps: DevDeps, fakes: Fakes) -> None:
-    await service.route_burst(dev_deps, await _burst(dev_deps, fakes, "BonviHR'da login tuzat"))
+    # The question first: asked right after a BonviHR route, the unsure BonviHR pick would continue BonviHR (T26).
     await _ask_two(dev_deps, fakes)
+    await service.route_burst(dev_deps, await _burst(dev_deps, fakes, "BonviHR'da login tuzat"))
     async with dev_deps.db.uow() as s:
         await store.add_clarification(
             s, burst_id=None, kind="which_project", candidates=[], status="resolved", asked_at=fakes.clock.now()

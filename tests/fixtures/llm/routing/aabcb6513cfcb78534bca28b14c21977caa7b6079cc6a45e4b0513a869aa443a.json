@@ -1,0 +1,26 @@
+{
+  "case": "content_desktop_voice_assistant",
+  "duration_ms": 2281,
+  "latency_ms": 2282,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.85,
+        "project_id": "AI"
+      },
+      {
+        "confidence": 0.07,
+        "project_id": "AI-Phone"
+      }
+    ],
+    "confidence": 0.85,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "AI"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"AI\",\"candidates\":[{\"project_id\":\"AI\",\"confidence\":0.85},{\"project_id\":\"AI-Phone\",\"confidence\":0.07}],\"confidence\":0.85,\"needs_fresh\":false,\"is_new_project\":false}"
+}

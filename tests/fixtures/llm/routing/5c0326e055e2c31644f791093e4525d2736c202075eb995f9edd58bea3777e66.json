@@ -1,0 +1,26 @@
+{
+  "case": "explicit_voice_russian_spelling",
+  "duration_ms": 2218,
+  "latency_ms": 2219,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.85,
+        "project_id": "WunderkindLMS"
+      },
+      {
+        "confidence": 0.05,
+        "project_id": "WunderkindLC"
+      }
+    ],
+    "confidence": 0.85,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "WunderkindLMS"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"WunderkindLMS\",\"candidates\":[{\"project_id\":\"WunderkindLMS\",\"confidence\":0.85},{\"project_id\":\"WunderkindLC\",\"confidence\":0.05}],\"confidence\":0.85,\"needs_fresh\":false,\"is_new_project\":false}"
+}

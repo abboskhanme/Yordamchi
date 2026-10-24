@@ -1,0 +1,22 @@
+{
+  "case": "explicit_report",
+  "duration_ms": 2089,
+  "latency_ms": 2090,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.98,
+        "project_id": "ClaudeManager"
+      }
+    ],
+    "confidence": 0.98,
+    "intent": "report_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "ClaudeManager"
+  },
+  "text": "{\"intent\":\"report_project\",\"project_id\":\"ClaudeManager\",\"candidates\":[{\"project_id\":\"ClaudeManager\",\"confidence\":0.98}],\"confidence\":0.98,\"needs_fresh\":false,\"is_new_project\":false}"
+}

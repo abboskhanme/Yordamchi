@@ -1,0 +1,26 @@
+{
+  "case": "ambiguous_two_recent",
+  "duration_ms": 1800,
+  "latency_ms": 1801,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.6,
+        "project_id": "BonviHR"
+      },
+      {
+        "confidence": 0.25,
+        "project_id": "TezTel"
+      }
+    ],
+    "confidence": 0.6,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "BonviHR"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"BonviHR\",\"candidates\":[{\"project_id\":\"BonviHR\",\"confidence\":0.6},{\"project_id\":\"TezTel\",\"confidence\":0.25}],\"confidence\":0.6,\"needs_fresh\":false,\"is_new_project\":false}"
+}

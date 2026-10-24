@@ -1,15 +1,20 @@
-"""The LLM route on replayed answers (CONVENTIONS §11): each scenario's routing ask is answered from
+"""The LLM route on a given answer: each scenario scripts what the routing model says, so every branch of the
+decision is reached on purpose (a confident pick, a small margin, a pick outside the family, a worktree in context,
+a projectless intent). These answers were authored for T20.
+
+What the real model says is the routing eval's job (T26, `tests/eval/routing/`): its answers are recorded live into
 `tests/fixtures/llm/routing/<fixture_key(request)>.json`, keyed by the system prompt, the input, the model and the
-schema. A changed prompt or input is a stale key and fails loudly; `pytest -m live --record-llm` (T26) re-records.
-The answers in this suite were authored for T20 (`"source"` in each file); T26 records them live with the owner's
-real registry.
+schema. A changed prompt or input is a stale key and fails loudly (the last test here); `pytest -m live --record-llm
+tests/eval/routing` re-records.
 """
 
 import json
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
+import yaml
 
 from tests.factories import (
     ROUTING_FIXTURES,
@@ -34,6 +39,7 @@ DESCRIPTIONS = {
     "OvozYoz": "O'zbekcha ovozni matnga aylantiruvchi ilova.",
 }
 PROJECTS = (*DESCRIPTIONS, "HRMentor-wt-agent-api")
+EVAL_CASES = Path(__file__).resolve().parents[3] / "eval" / "routing" / "cases.yaml"
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,8 +155,10 @@ def replay(fakes: Fakes) -> Fakes:
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[scenario.id for scenario in SCENARIOS])
-async def test_the_llm_route_on_a_recorded_answer(dev_deps: DevDeps, replay: Fakes, scenario: Scenario) -> None:
-    routed = await run_scenario(dev_deps, replay, scenario)
+async def test_the_llm_route_on_a_scripted_answer(dev_deps: DevDeps, fakes: Fakes, scenario: Scenario) -> None:
+    fakes.assistant.reply_with("routing", scenario.answer)
+
+    routed = await run_scenario(dev_deps, fakes, scenario)
 
     assert routed is not None
     decision = routed.decision
@@ -162,14 +170,19 @@ async def test_the_llm_route_on_a_recorded_answer(dev_deps: DevDeps, replay: Fak
     if scenario.outcome is Outcome.ASK:
         assert set(scenario.candidates) <= set(decision.candidate_ids)
         assert len(decision.candidate_ids) <= domain.MAX_CANDIDATES
-    [request] = replay.assistant.requests
+    [request] = fakes.assistant.requests
     assert request.kind == "routing"
 
 
-def test_each_scenario_has_exactly_one_recorded_answer() -> None:
-    """A fixture no scenario asks for is stale (its prompt or input changed); every file says which case it is."""
-    cases = sorted(json.loads(path.read_text(encoding="utf-8"))["case"] for path in ROUTING_FIXTURES.glob("*.json"))
-    assert cases == sorted(scenario.id for scenario in SCENARIOS)
+def test_every_routing_recording_is_live_and_names_its_eval_case() -> None:
+    """The recordings are the real model's answers to the routing eval (T26), never authored ones: each file says it
+    was recorded live and which case asked it. The eval itself checks that no recording is stale."""
+    cases = yaml.safe_load(EVAL_CASES.read_text(encoding="utf-8"))["cases"]
+    case_ids = {str(case["id"]) for case in cases}
+    recordings = [json.loads(path.read_text(encoding="utf-8")) for path in ROUTING_FIXTURES.glob("*.json")]
+    assert len(recordings) == len(case_ids)
+    assert all(str(data["source"]).startswith("live") for data in recordings)
+    assert {data["case"] for data in recordings} == case_ids
 
 
 async def test_a_changed_input_is_a_stale_key_and_fails_loudly(dev_deps: DevDeps, replay: Fakes) -> None:

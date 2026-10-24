@@ -1,7 +1,13 @@
 # Routing eval cases, dev bot (UC-10; SPEC §3.2.6). Seeded by T20 with 48 owner-style messages over the owner's real
-# folder names (a read-only listing of ~/Documents/Projects, 2026-10-24). T26 grows the set to >= 120 (80 explicit or
-# content-clear, 20 context follow-ups, 20 genuinely ambiguous, >= 15 projects: tests/eval/thresholds.toml [routing]),
-# adds the runner and records the live LLM answers in tests/fixtures/llm/routing/. No case uses a reply (UC-10 AC).
+# folder names (a read-only listing of ~/Documents/Projects, 2026-10-24); T26 grew the set past 120 (80 explicit or
+# content-clear, 20 context follow-ups, 20 genuinely ambiguous, >= 15 projects: tests/eval/thresholds.toml [routing]).
+# No case uses a Telegram reply (UC-10 AC). The runner is test_routing_eval.py; the registry it routes over, with the
+# descriptions the real scan builds, is registry.json; the model answers it replays are tests/fixtures/llm/routing/.
+#
+# Grading (test_routing_eval.py): `project` is correct when routed (or merged into the running turn) to X without a
+# question; `ask` when one question names at least those; `no_project` when nothing is routed and, with `intent`, the
+# intent matches. A silent wrong route is a route without a question anywhere else: to another project, or to any
+# project when a question or no project was expected.
 #
 #   projects       the registry, every folder name exactly. `*-wt-*` is a worktree and `… Archive` is archived: both
 #                  answer only to their exact name.
@@ -15,7 +21,7 @@
 #                    project: X               routed to X without a question
 #                    ask: [X, Y]              one question that names at least these
 #                    no_project: true         a projectless intent (report_all, server_status, new_project)
-#     intent       optional: the expected intent (default instruct_project)
+#     intent       optional: the expected intent, graded with the route; without it only the route is graded
 #
 # tests/unit/dev/routing/test_eval_seed.py checks the format, and that the deterministic layer alone (names, context,
 # the LLM unavailable) never routes a case to the wrong project without asking.
@@ -118,6 +124,142 @@ cases:
     category: explicit
     text: "HRMentor'dagi login kodini BonviHR'ga ko'chir"
     expect: {project: BonviHR}
+  # T26: every folder, the look-alike traps spelled out, typos, voice transcripts, Russian and English terms.
+  - {id: explicit_hrmentor_citations, category: explicit, text: "HRMentor'da iqtibos linklari ochilmayapti", expect: {project: HRMentor}}
+  - id: explicit_worktree_lowercase
+    category: explicit
+    text: "hrmentor-wt-agent-api'ga yangi endpoint qo'sh"
+    expect: {project: HRMentor-wt-agent-api}
+  - id: explicit_archive_lowercase
+    category: explicit
+    text: "bonvicall clone archive'dan eski README'ni ko'rib chiq"
+    expect: {project: BonviCall Clone Archive}
+  - {id: explicit_bonvicall_recordings, category: explicit, text: "BonviCall'da qo'ng'iroq yozuvlari saqlanmayapti", expect: {project: BonviCall}}
+  - {id: explicit_imzo_typo, category: explicit, text: "BonviImza'da PDF imzolash tugmasi ko'rinmayapti", expect: {project: BonviImzo}}
+  - {id: explicit_import_typo, category: explicit, text: "BonviImpott'da bojxona statusi yangilanmayapti", expect: {project: BonviImport}}
+  - id: explicit_imzo_apart
+    category: explicit
+    text: "Bonvi Imzo'da sertifikat muddati tugaganini ko'rsat"
+    expect: {project: BonviImzo}
+  - id: explicit_erp_swapped_letters
+    category: explicit
+    text: "MegaPlus EPR'da kassa smenasini yopishda xato"
+    expect: {project: MegaPlus ERP}
+  - id: explicit_platform_typo
+    category: explicit
+    text: "MegaPlus Platfrom'da mini app ochilmayapti"
+    expect: {project: MegaPlus Platform}
+  - id: explicit_megaplus_two_named
+    category: explicit
+    text: "MegaPlus ERP'dagi qoldiqlar API'sini MegaPlus Platform botiga ula"
+    expect: {project: MegaPlus Platform}
+  - id: explicit_lms_apart
+    category: explicit
+    text: "Wunderkind LMS'da baholar jurnali sekin ochilyapti"
+    expect: {project: WunderkindLMS}
+  - id: explicit_test_portal
+    category: explicit
+    text: "WunderkindTestPortal'ga yangi test turini qo'sh"
+    expect: {project: WunderkindTestPortal}
+  - id: explicit_ai_agent_bare
+    category: explicit
+    text: "WunderkindAIAgent instagram DM'larga javob bermayapti"
+    expect: {project: WunderkindAIAgent}
+  - {id: explicit_lms_typo, category: explicit, text: "WunderkidLMS'da dars jadvali buzildi", expect: {project: WunderkindLMS}}
+  - id: explicit_olympics_unquoted
+    category: explicit
+    text: "wunderkindolympicsda landing sahifasini yangila"
+    expect: {project: WunderkindOlympics}
+  - id: explicit_employees_typo
+    category: explicit
+    text: "WunderkindEmploeesBot'da CV yuklash ishlamayapti"
+    expect: {project: WunderkindEmployeesBot}
+  - {id: explicit_ai_short, category: explicit, text: "AI'da Gemini Live ulanishini qayta yoz", expect: {project: AI}}
+  - {id: explicit_aiagents, category: explicit, text: "AIAgents'da Hermes konfiguratsiyasini yangila", expect: {project: AIAgents}}
+  - {id: explicit_agentsroom, category: explicit, text: "AgentsRoom'da agent statusi yangilanmayapti", expect: {project: AgentsRoom}}
+  - id: explicit_bonvi_platform
+    category: explicit
+    text: "Bonvi-platform'da jarayon aniqlash moduliga test yoz"
+    expect: {project: Bonvi-platform}
+  - {id: explicit_bonviagi, category: explicit, text: "BonviAGI'ga boshlang'ich README va SPEC yoz", expect: {project: BonviAGI}}
+  - id: explicit_bonvifinance
+    category: explicit
+    text: "BonviFinance'da oylik hisobot eksportini qo'sh"
+    expect: {project: BonviFinance}
+  - {id: explicit_bonvigo, category: explicit, text: "BonviGo'da buyurtma statuslari ko'rinmayapti", expect: {project: BonviGo}}
+  - {id: explicit_brokerapp, category: explicit, text: "BrokerApp'da e'lon qo'shish formasini tuzat", expect: {project: BrokerApp}}
+  - id: explicit_factoryincome_russian
+    category: explicit
+    text: "FactoryIncome'da парсер Далолатнома faylini o'qiyolmayapti"
+    expect: {project: FactoryIncome}
+  - {id: explicit_nur_project, category: explicit, text: "NUR-Project'da servis bo'limiga yangi status qo'sh", expect: {project: NUR-Project}}
+  - id: explicit_privatebusiness
+    category: explicit
+    text: "PrivateBusiness'dagi kontekst faylini yangila"
+    expect: {project: PrivateBusiness}
+  - id: explicit_russian_speaking
+    category: explicit
+    text: "Russian-Speaking'da talaffuz bahosi noto'g'ri chiqyapti"
+    expect: {project: Russian-Speaking}
+  - id: explicit_claudemanager_voice
+    category: explicit
+    voice: true
+    text: "ClaudeManager'da tray ikonkasi yo'qolib qolyapti shuni tuzatib qo'y"
+    expect: {project: ClaudeManager}
+  - {id: explicit_teztel_typo, category: explicit, text: "TezTell'da ombor qoldig'i xato chiqyapti", expect: {project: TezTel}}
+  - id: explicit_gasstation_lowercase
+    category: explicit
+    text: "gasstation'ga kunlik smena hisobotini qo'sh"
+    expect: {project: GasStation}
+  - {id: explicit_bs_ning, category: explicit, text: "BS'ning bosh sahifasini qayta yoz", expect: {project: BS}}
+  - id: explicit_zinnur_ning
+    category: explicit
+    text: "zinnur-v2'ning Application qatlamiga yangi use case qo'sh"
+    expect: {project: zinnur-v2}
+  - id: explicit_yordamchi_report
+    category: explicit
+    text: "Yordamchi qanday? testlar o'tdimi?"
+    expect: {project: Yordamchi}
+    intent: report_project
+  - id: explicit_voice_fillers
+    category: explicit
+    voice: true
+    text: "ee OvozYoz'da anuu hotkey bosilganda ba'zan ishlamayapti"
+    expect: {project: OvozYoz}
+  - {id: explicit_russian_terms, category: explicit, text: "BonviHR'da отпуск arizalari approve bo'lmayapti", expect: {project: BonviHR}}
+  - {id: explicit_wooden_russian, category: explicit, text: "Wooden'da накладная PDF'ini chiqar", expect: {project: Wooden}}
+  - id: explicit_name_is_also_a_word
+    category: explicit
+    text: "BonviHR'da yordamchi funksiya yozib sanalarni bir xil formatla"
+    expect: {project: BonviHR}
+  - {id: explicit_hrmentor_swapped, category: explicit, text: "HRMentro'da hujjat yuklashda xato chiqyapti", expect: {project: HRMentor}}
+  - {id: explicit_ai_phone_apart, category: explicit, text: "AI Phone'da qo'ng'iroq paytida ovoz uzilyapti", expect: {project: AI-Phone}}
+  - id: explicit_move_between_named
+    category: explicit
+    text: "BonviImport'dagi Excel parserini FactoryIncome'ga ko'chir"
+    expect: {project: FactoryIncome}
+  - id: explicit_alias_voice
+    category: explicit
+    voice: true
+    text: "HR da ishga qabul buyrug'i shablonini qo'sh"
+    expect: {project: BonviHR}
+  - {id: explicit_bonvihr_apart, category: explicit, text: "Bonvi HR'da xodimlar ro'yxati sekin yuklanyapti", expect: {project: BonviHR}}
+  - id: explicit_voice_spaced_name
+    category: explicit
+    voice: true
+    text: "Mega Plus ERP da kassir smenasi yopilmayapti"
+    expect: {project: MegaPlus ERP}
+  - {id: explicit_russian_sentence, category: explicit, text: "в BonviHR надо исправить экспорт табеля", expect: {project: BonviHR}}
+  - {id: explicit_doubled_word, category: explicit, text: "BonviHR'da sessiya tez-tez uzilib qolyapti", expect: {project: BonviHR}}
+  - id: explicit_first_letter_changed
+    category: explicit
+    text: "VunderkindLC'da guruh jadvalini yangila"
+    expect: {project: WunderkindLC}
+  - id: explicit_voice_russian_spelling
+    category: explicit
+    voice: true
+    text: "Vunderkind LMS da baholar sahifasi ochilmayapti"
+    expect: {project: WunderkindLMS}
 
   # --- content-clear: no name, the subject decides --------------------------------------------------------------------
   - {id: content_candidates_form, category: content, text: "nomzodlar anketasi saqlanmayapti", expect: {project: BonviHR}}
@@ -142,6 +284,137 @@ cases:
     text: "yangi loyiha: kafe uchun buyurtma boti"
     expect: {no_project: true}
     intent: new_project
+  # T26: the subject matches one project's description (registry.json), often with a look-alike nearby.
+  - id: content_hrmentor_citations
+    category: content
+    text: "xodim savoliga javobda ichki hujjatdan iqtibos va manba linki chiqmayapti"
+    expect: {project: HRMentor}
+  - id: content_ovozyoz_dictation
+    category: content
+    text: "diktovka qilganda matn kursor turgan oynaga yozilmayapti"
+    expect: {project: OvozYoz}
+  - id: content_teztel_landed_cost
+    category: content
+    text: "AED'dagi xaridlardan USD tannarx noto'g'ri hisoblanyapti"
+    expect: {project: TezTel}
+  - id: content_import_transit
+    category: content
+    text: "yuk chegarada avto almashtirilgandan keyin tranzit statusi yangilanmayapti"
+    expect: {project: BonviImport}
+  - id: content_wooden_bookkeeping
+    category: content
+    text: "yog'och mahsulotlari firmasining buxgalteriya botida xarajat qo'shilmayapti"
+    expect: {project: Wooden}
+  - id: content_broker_notifications
+    category: content
+    text: "dehqon e'lon qo'yganda oluvchiga bildirishnoma kelmayapti"
+    expect: {project: BrokerApp}
+  - id: content_factory_receipts
+    category: content
+    text: "ta'minot guruhidan kelgan Далолатнома excel fayllari parse bo'lmayapti"
+    expect: {project: FactoryIncome}
+  - id: content_china_parts_agents
+    category: content
+    text: "Xitoy zavodlaridan ehtiyot qism qidiradigan agentlar shortlistni noto'g'ri tuzyapti"
+    expect: {project: ImportAgents}
+  - id: content_supermarket_pos
+    category: content
+    text: "supermarket kassasida internet yo'qligida chek chiqmayapti"
+    expect: {project: MegaPlus ERP}
+  - id: content_supermarket_mini_app
+    category: content
+    text: "supermarket uchun Telegram Mini App ochilmayapti"
+    expect: {project: MegaPlus Platform}
+  - id: content_russian_pronunciation
+    category: content
+    text: "rus tili mashqlarida talaffuz bahosi va leaderboard yangilanmayapti"
+    expect: {project: Russian-Speaking}
+  - id: content_desktop_voice_assistant
+    category: content
+    text: "kompyuterdagi ovozli assistent Gemini Live orqali buyruqni bajarmayapti"
+    expect: {project: AI}
+  - id: content_phone_call_assistant
+    category: content
+    text: "telefonda boshqa odam bilan gaplashadigan assistent suhbatni bo'lib qo'yyapti"
+    expect: {project: AI-Phone}
+  - id: content_agents_dashboard
+    category: content
+    text: "Claude Code agentlarini kuzatadigan desktop oynada savolga tugma bilan javob berib bo'lmayapti"
+    expect: {project: AgentsRoom}
+  - id: content_school_sales_agent
+    category: content
+    text: "maktab Instagram kommentlariga javob beradigan sotuv agenti suhbatni intervyuga olib bormayapti"
+    expect: {project: WunderkindAIAgent}
+  - id: content_school_job_bot
+    category: content
+    text: "maktabga ishga ariza topshirish botida nomzod fan tanlay olmayapti"
+    expect: {project: WunderkindEmployeesBot}
+  - id: content_olympiad_registration
+    category: content
+    text: "olimpiada landing sahifasidagi ro'yxatdan o'tish boti ishlamayapti"
+    expect: {project: WunderkindOlympics}
+  - id: content_lc_leads
+    category: content
+    text: "lidlar CRM'ida call-center operatoriga lid biriktirilmayapti"
+    expect: {project: WunderkindLC}
+  - id: content_nur_supply
+    category: content
+    text: "NUR TECHNO GROUP tizimida ta'minot bo'limi so'rovlari ko'rinmayapti"
+    expect: {project: NUR-Project}
+  - id: content_platform_processes
+    category: content
+    text: "Telegram guruhlardagi muloqotdan biznes-jarayonni aniqlash moduli xato qilyapti"
+    expect: {project: Bonvi-platform}
+  - id: content_claude_accounts_voice
+    category: content
+    voice: true
+    text: "claude akkauntlarini almashtiradigan tray ilovasi limitga yetganda keyingisiga o'tmayapti"
+    expect: {project: ClaudeManager}
+  - id: content_bonvihr_payroll
+    category: content
+    text: "MBF kompaniyasi xodimlarining ish haqi varaqasi chiqmayapti"
+    expect: {project: BonviHR}
+  - id: content_server_disk_voice
+    category: content
+    voice: true
+    text: "bonvi serverda disk to'lib qoldimi bilib ber"
+    expect: {no_project: true}
+    intent: server_status
+  - id: content_report_yesterday
+    category: content
+    text: "kecha qaysi loyihalarda nima qilindi?"
+    expect: {no_project: true}
+    intent: report_all
+  - id: content_new_project_voice
+    category: content
+    voice: true
+    text: "yangi loyiha ochamiz: kafe uchun stol band qilish boti"
+    expect: {no_project: true}
+    intent: new_project
+  - id: content_wholesale_russian
+    category: content
+    text: "оптовые продажи bo'limida foyda hisobi xato chiqyapti"
+    expect: {project: TezTel}
+  - id: content_dictation_typo
+    category: content
+    text: "dikotvka paytida matn yozilmayapti, shortcut ham ishlamayapti"
+    expect: {project: OvozYoz}
+  - id: content_e_signature
+    category: content
+    text: "elektron imzo bilan hujjat imzolash sahifasi ochilmayapti"
+    expect: {project: BonviImzo}
+  - id: content_lc_debtors
+    category: content
+    text: "o'quv markazidagi moliya bo'limida qarzdorlar ro'yxati chiqmayapti"
+    expect: {project: WunderkindLC}
+  - id: content_dev_bot_routing
+    category: content
+    text: "dev bot guruhdagi xabarni noto'g'ri loyihaga yuboryapti"
+    expect: {project: Yordamchi}
+  - id: content_iphone_is_no_ai_phone
+    category: content
+    text: "iPhone 15 Pro'ning tannarxini USD'da qayta hisobla"
+    expect: {project: TezTel}
 
   # --- context follow-ups: within 15 min of that project's activity ---------------------------------------------------
   - id: context_tests
@@ -171,6 +444,112 @@ cases:
     text: "mobil versiyada ham shunday qil"
     recent: [{project: TezTel, minutes_ago: 8, kind: spoken}]
     expect: {project: TezTel}
+  # T26: short follow-ups with no subject of their own, one project active, every kind of activity.
+  - id: context_readme
+    category: context
+    text: "README'ni ham yangilab qo'y"
+    recent: [{project: BonviImzo, minutes_ago: 4, kind: spoken}]
+    expect: {project: BonviImzo}
+  - id: context_same_bug_elsewhere
+    category: context
+    text: "xuddi shu xatoni boshqa sahifalarda ham tuzat"
+    recent: [{project: MegaPlus ERP, minutes_ago: 7, kind: spoken}]
+    expect: {project: MegaPlus ERP}
+  - id: context_deploy_voice
+    category: context
+    voice: true
+    text: "endi buni serverga deploy qilib yubor"
+    recent: [{project: Wooden, minutes_ago: 10, kind: spoken}]
+    expect: {project: Wooden}
+  - id: context_why_after_report
+    category: context
+    text: "nega bunday bo'ldi? logni ko'rib chiq"
+    recent: [{project: ClaudeManager, minutes_ago: 1, kind: reported}]
+    expect: {project: ClaudeManager}
+  - id: context_tests_passed_running
+    category: context
+    text: "testlar o'tdimi?"
+    recent: [{project: BrokerApp, minutes_ago: 2, kind: running}]
+    expect: {project: BrokerApp}
+  - id: context_commit_after_report
+    category: context
+    text: "ok endi commit qil"
+    recent: [{project: FactoryIncome, minutes_ago: 2, kind: reported}]
+    expect: {project: FactoryIncome}
+  - id: context_date_format
+    category: context
+    text: "yana: sanani dd.mm.yyyy formatida chiqar"
+    recent: [{project: WunderkindOlympics, minutes_ago: 12, kind: spoken}]
+    expect: {project: WunderkindOlympics}
+  - id: context_typos
+    category: context
+    text: "testlrni yurgz"
+    recent: [{project: Russian-Speaking, minutes_ago: 3, kind: spoken}]
+    expect: {project: Russian-Speaking}
+  - id: context_redo_voice
+    category: context
+    voice: true
+    text: "haligi narsani qaytadan qil lekin bu safar dark mode bilan"
+    recent: [{project: NUR-Project, minutes_ago: 6, kind: spoken}]
+    expect: {project: NUR-Project}
+  - id: context_open_pr
+    category: context
+    text: "PR och"
+    recent: [{project: BonviGo, minutes_ago: 2, kind: spoken}]
+    expect: {project: BonviGo}
+  - id: context_migration
+    category: context
+    text: "migratsiyasini ham yoz"
+    recent: [{project: zinnur-v2, minutes_ago: 8, kind: spoken}]
+    expect: {project: zinnur-v2}
+  - id: context_russian_refactor
+    category: context
+    text: "давай, endi рефакторинг qil"
+    recent: [{project: AgentsRoom, minutes_ago: 4, kind: spoken}]
+    expect: {project: AgentsRoom}
+  - id: context_linter
+    category: context
+    text: "linterni ham to'g'irla"
+    recent: [{project: ImportAgents, minutes_ago: 3, kind: reported}]
+    expect: {project: ImportAgents}
+  - id: context_spec_update
+    category: context
+    text: "endi docs/SPEC.md'ni yangilab qo'y"
+    recent: [{project: Bonvi-platform, minutes_ago: 11, kind: spoken}]
+    expect: {project: Bonvi-platform}
+  - id: context_still_broken
+    category: context
+    text: "xato hali ham bor"
+    recent: [{project: BonviCall, minutes_ago: 5, kind: reported}]
+    expect: {project: BonviCall}
+  - id: context_english
+    category: context
+    text: "also add tests for it"
+    recent: [{project: Yordamchi, minutes_ago: 3, kind: spoken}]
+    expect: {project: Yordamchi}
+  - id: context_running_voice
+    category: context
+    voice: true
+    text: "yana bitta narsa, tugmani kattaroq qil"
+    recent: [{project: GasStation, minutes_ago: 0, kind: running}]
+    expect: {project: GasStation}
+  - id: context_spoken_then_reported
+    category: context
+    text: "shu ishni tugatib push qil"
+    recent:
+      - {project: AIAgents, minutes_ago: 9, kind: spoken}
+      - {project: AIAgents, minutes_ago: 2, kind: reported}
+    expect: {project: AIAgents}
+  - id: context_after_options
+    category: context
+    text: "ikkala variant ham bo'lmaydi, uchinchisini qil"
+    recent: [{project: BonviFinance, minutes_ago: 1, kind: reported}]
+    expect: {project: BonviFinance}
+  - id: context_word_hints_another_project
+    category: context
+    text: "claude CLI'ni yangi versiyaga ko'tar"
+    recent: [{project: Yordamchi, minutes_ago: 4, kind: spoken}]
+    expect: {project: Yordamchi}
 
   # --- genuinely ambiguous: one question naming the candidates --------------------------------------------------------
   - {id: ambiguous_login, category: ambiguous, text: "login sahifasini tuzat", expect: {ask: [BonviHR, HRMentor]}}
@@ -203,3 +582,76 @@ cases:
       - {project: TezTel, minutes_ago: 6, kind: spoken}
     expect: {ask: [BonviHR, TezTel]}
   - {id: ambiguous_bare_ai, category: ambiguous, text: "AI agent qo'sh", expect: {ask: [AI, AIAgents]}}
+  # T26: look-alikes written another way, families of two, content two projects share, two active projects.
+  - id: ambiguous_worktree_dash
+    category: ambiguous
+    text: "HRMentor-wt'da testlarni yurgiz"
+    expect: {ask: [HRMentor, HRMentor-wt-agent-api]}
+  - id: ambiguous_worktree_tail
+    category: ambiguous
+    text: "HRMentor agent-api'da yangi endpoint qo'sh"
+    expect: {ask: [HRMentor, HRMentor-wt-agent-api]}
+  - id: ambiguous_archive_english
+    category: ambiguous
+    text: "BonviCall archive'dan eski konfiguratsiyani ol"
+    expect: {ask: [BonviCall, BonviCall Clone Archive]}
+  - {id: ambiguous_imzo_import_prefix, category: ambiguous, text: "BonviIm'da xato chiqyapti", expect: {ask: [BonviImport, BonviImzo]}}
+  - id: ambiguous_lms_lc_typo
+    category: ambiguous
+    text: "WunderkindLM'da dars jadvalini tuzat"
+    expect: {ask: [WunderkindLMS, WunderkindLC]}
+  - id: ambiguous_students_attendance
+    category: ambiguous
+    text: "o'quvchilar davomati hisobotida xato bor"
+    expect: {ask: [WunderkindLC, WunderkindLMS]}
+  - id: ambiguous_two_recent_deploy
+    category: ambiguous
+    text: "endi deploy qil"
+    recent:
+      - {project: WunderkindLC, minutes_ago: 5, kind: spoken}
+      - {project: MegaPlus ERP, minutes_ago: 3, kind: reported}
+    expect: {ask: [WunderkindLC, MegaPlus ERP]}
+  - id: ambiguous_both_named
+    category: ambiguous
+    text: "BonviHR va HRMentor'da parol tiklash sahifasini bir xil qilib chiq"
+    expect: {ask: [BonviHR, HRMentor]}
+  - id: ambiguous_megaplus_prices
+    category: ambiguous
+    text: "MegaPlus'da narxlar noto'g'ri ko'rinyapti"
+    expect: {ask: [MegaPlus ERP, MegaPlus Platform]}
+  - id: ambiguous_candidates_cv
+    category: ambiguous
+    text: "nomzodlar CV yuklay olmayapti"
+    expect: {ask: [BonviHR, WunderkindEmployeesBot]}
+  - id: ambiguous_two_recent_voice
+    category: ambiguous
+    voice: true
+    text: "davomat jadvaliga excel eksport qo'shib qo'y"
+    recent:
+      - {project: WunderkindLMS, minutes_ago: 6, kind: spoken}
+      - {project: WunderkindLC, minutes_ago: 9, kind: spoken}
+    expect: {ask: [WunderkindLMS, WunderkindLC]}
+  - id: ambiguous_dubai_goods
+    category: ambiguous
+    text: "Dubaydan kelgan tovarlar ro'yxatida xato bor"
+    expect: {ask: [TezTel, BonviImport]}
+  - id: ambiguous_running_and_spoken
+    category: ambiguous
+    text: "tugmalar rangini ko'k qil"
+    recent:
+      - {project: BonviGo, minutes_ago: 3, kind: running}
+      - {project: TezTel, minutes_ago: 2, kind: spoken}
+    expect: {ask: [BonviGo, TezTel]}
+  - id: ambiguous_china_parts
+    category: ambiguous
+    text: "Xitoydan ehtiyot qism buyurtmasi statusini yangila"
+    expect: {ask: [ImportAgents, BonviImport]}
+  - id: ambiguous_megaplus_voice
+    category: ambiguous
+    voice: true
+    text: "anovi mega plyusda kecha qilgan narsani qaytar"
+    expect: {ask: [MegaPlus ERP, MegaPlus Platform]}
+  - id: ambiguous_gemini_live
+    category: ambiguous
+    text: "Gemini Live ulanishi tez-tez uzilib qolyapti"
+    expect: {ask: [AI, AI-Phone]}

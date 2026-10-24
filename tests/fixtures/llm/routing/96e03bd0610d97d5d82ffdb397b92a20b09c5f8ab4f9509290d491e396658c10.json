@@ -1,0 +1,26 @@
+{
+  "case": "content_bonvihr_payroll",
+  "duration_ms": 2004,
+  "latency_ms": 2004,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.8,
+        "project_id": "BonviHR"
+      },
+      {
+        "confidence": 0.1,
+        "project_id": "BonviFinance"
+      }
+    ],
+    "confidence": 0.8,
+    "intent": "investigate",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "BonviHR"
+  },
+  "text": "{\"intent\":\"investigate\",\"project_id\":\"BonviHR\",\"candidates\":[{\"project_id\":\"BonviHR\",\"confidence\":0.8},{\"project_id\":\"BonviFinance\",\"confidence\":0.1}],\"confidence\":0.8,\"needs_fresh\":false,\"is_new_project\":false}"
+}

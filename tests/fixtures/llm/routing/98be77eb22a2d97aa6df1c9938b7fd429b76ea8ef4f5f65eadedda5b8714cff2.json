@@ -1,0 +1,22 @@
+{
+  "case": "explicit_zinnur_ning",
+  "duration_ms": 1613,
+  "latency_ms": 1614,
+  "model": "haiku",
+  "provider": "claude",
+  "source": "live: claude 2.1.310, models.routing=haiku, effort low",
+  "structured": {
+    "candidates": [
+      {
+        "confidence": 0.97,
+        "project_id": "zinnur-v2"
+      }
+    ],
+    "confidence": 0.97,
+    "intent": "instruct_project",
+    "is_new_project": false,
+    "needs_fresh": false,
+    "project_id": "zinnur-v2"
+  },
+  "text": "{\"intent\":\"instruct_project\",\"project_id\":\"zinnur-v2\",\"candidates\":[{\"project_id\":\"zinnur-v2\",\"confidence\":0.97}],\"confidence\":0.97,\"needs_fresh\":false,\"is_new_project\":false}"
+}
