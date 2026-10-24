@@ -125,7 +125,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - use `timeouts.<kind>_s` and `models.<kind>`.
 - [ ] Settings: add `models.routing_effort` (default `low`). One cold routing ask at default effort took 7 s.
 - [ ] Executor: switch to `adapters/claude/cli.py` (`probe`, `user_content`) to remove duplicated code (C7 keeps `assistant.py` from importing `executor.py`).
-- [ ] P3 personal `qa` kind:
+- [x] P3 personal `qa` kind: built in T72, wired in T77 (`bots/personal`).
   - options: WebSearch/WebFetch + SDK servers, `--restricted`, the allowlist hook, `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION`;
   - pool per conversation.
 
@@ -257,7 +257,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - "ha"/"yo'q" go through `gate.answer_decision` (settings decisions are in `pending_items`).
 - [ ] T34 assistant pools: size them from `assistant.warm_clients`, and re-warm after `models.*` / `assistant.warm_clients` changes. T34: a kind at "0" is not warmed, and every kind re-warms after any settings change; the 1-vs-2 (spare) count needs an adapter option (see From T34).
 - [ ] T20 follow-up: pass `models.routing_effort` as `effort=` on routing asks; route the settings intent to `handle_request`. T34b: pre-parse takes the clear cues ("sozlama…", `/sozlamalar <request>`, "javoblaringni …", "ovozingni …", "o'zingni …"); routing's own `change_setting` intent is still open (From T34b).
-- [ ] P3: a conversational `AskOwner` for the personal bot (stores `PendingChange.to_json()`, then `apply_pending_change`).
+- [x] P3: a conversational `AskOwner` for the personal bot. Done in T77: `bots/personal/pipeline.ask_change` keeps the change in memory, the next "ha" applies it (`settings.confirm_change`), anything else drops it.
 - [ ] SPEC §4.3: add `timeouts.settings_s`, `assistant.warm_clients`, `models.routing_effort` and the `DictOf` check; mention `prompts/dev/settings_context.md` in §3.2.15.
 
 ## From T24 (turns)
@@ -368,7 +368,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
 
 ## From T51 (cost)
 - [x] T34b: "xarajat?" / `/xarajat` → `cost.service.show_cost(deps, chat_id=…, ref=…, reply_to=…)` (an early command, answered as a reply to the question), and `aio.forever("cost", lambda: cost.service.run_cost_watch(deps))` in the dev bot (the 80 %/100 % cap notices, the optional daily summary).
-- [ ] P3: the same loop in the personal bot (both bots write their own ledger; the caps are one budget).
+- [x] P3: the same loop in the personal bot. Done in T77 (each bot keeps its own `cap_notices`, so a crossed cap may be told once in each chat).
 
 ## From T34 (dev bot wiring)
 - [x] T33 in the dev bot: `IncomingUpdate(forward=inbox.domain.forward_of(message.model_dump(mode="json")))`; commands, interrupts and the revert answer read `TurnInput.own_text` (`RevertReply.of`); `settings.handle_request(…, item.own_text, …)`. `dev/questions` still builds `DecisionReply(…)` from `answer_text` (forwarded parts left out) rather than `DecisionReply.of`: a T29 follow-up, same effect.
@@ -378,7 +378,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Files other than photos (documents, video, audio) sent with an instruction: saved nowhere the agent may read (the gate forbids DATA). Decide a project-local inbox folder or adapter-side attachments.
 - [ ] T24 `domain.title_of`: a burst that starts with a photo gets the title "[image]" (reports show «[image]»); skip bare part labels.
 - [ ] P2: the control socket's `selftest` and `headers`, the probation peek poller (`app._probation` only waits for the flag now), and `status.drained`.
-- [ ] P3: the personal bot's `bots/personal/{app,telegram,intents}.py`, on the same `common` pieces.
+- [x] P3: the personal bot's `bots/personal/{app,telegram,intents}.py`, on the same `common` pieces. Done in T77 (plus `runtime.py`, `pipeline.py`, `jobs.py`, `control_socket.py`, as in the dev bot).
 - [ ] SPEC §6.1 / QOLLANMA (T46): QOLLANMA part done in T46 (§3, §5–§7) and T34b (§2 "kut" and typing, §3 "yangi sessiya", §5 "xarajat?", §7 settings in plain words); SPEC §6.1 still open: the early commands before binding, "sozlama: …" and the cue words for a settings change by chat, "X serverini kuzat" / "X'ni kuzatma", `/hisobot [X]`, `/stop`.
 
 ## From T34b (natural talk)
@@ -426,3 +426,22 @@ The outbox now renders a Markdown subset (`**bold**`, `` `code` ``, `#` title li
 - [ ] `dev/digest/domain.assistant_report` always puts the project's live-turn line above the report model's answer,
       even when the question was not about that project; `report_system.md` now tells the model not to add project
       status, but this framing line is code.
+## From T77 (personal bot wiring)
+- [ ] **Speech keys across the bots** (T19's "P3 cross-bot speech keys"): the personal bot reads only its own vault,
+      so the owner pastes a Gemini or OpenRouter key into the personal DM once (QOLLANMA §11). The SPEC §2.3 path is
+      the bridge reading the dev bot's `vault_secrets` rows assigned to `personal` (the dev bot assigns none today).
+- [ ] **Installer, SPEC §9.3 step 6 (P3)**: `playwright install chromium` is not run by `scripts/install.py`; until it
+      is, a screenshot answers "chromium … topilmadi". One-off by hand:
+      `"~/Library/Application Support/Yordamchi/releases/current/.venv/bin/python" -m playwright install chromium`.
+- [ ] **UC-31 latency**: a bare link (or a bare video) waits `burst.after_media_s` (10 s) for a question before
+      "Ko'ryapman", over the "≤ 2 s" of UC-31 (measured from the last part). T79 latency: a shorter window for
+      link-only messages in the personal bot, or "Ko'ryapman" at intake.
+- [ ] SPEC §3.2.13 step 7 is not built: a message sent while an answer is being written waits for it and gets its own
+      answer (the worker answers in arrival order); it does not join the running ask as `priority: "next"`.
+- [ ] The weakening-change confirm lives in memory: a restart forgets it, and the owner says the change again.
+- [ ] The control socket (`run/personal.sock`) serves `status` only; `selftest` and the probation peek poller are P2,
+      as in the dev bot.
+- [ ] SPEC §3.2.14 "a page goes to `WebFetch`": a link-only message is read by `personal/media` (`read_page`, T73)
+      before the ask; a link inside a question is the assistant's (`WebFetch`, or `analyze_video` for a video).
+- [ ] T78: the UC-30 eval drives `qa.service` directly; an eval over the whole pipeline (media first, then the ask)
+      can reuse `tests/integration/personal_bot_harness.py`.

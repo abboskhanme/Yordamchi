@@ -12,8 +12,10 @@ What it checks:
 - `~/.local/bin/claude`, and `claude auth status` reporting `authMethod: "claude.ai"` (only that field is shown);
 - no refused credential source in the environment or in `~/.claude/settings.json` (`core.proc`'s refuse-list);
 - `claude`, `git`, `gh`, `ffmpeg`, `node` on the bots' search path (`core.proc.build_search_path`);
-- the LaunchAgents are loaded (`uz.yordamchi.personal` stays unloaded until P3, which is not an error);
-- heartbeats: the supervisor's must be fresh; a bot's must be fresh once the bot has written one;
+- the LaunchAgents are loaded. The personal bot counts once it is enabled (`scripts/install.py --enable-personal`
+  put its plist in `~/Library/LaunchAgents`); before that, unloaded is not an error;
+- heartbeats: the supervisor's must be fresh; a bot's must be fresh once the bot has written one (the personal
+  bot's only while it is enabled: a file left from before it was switched off is not judged);
 - `OWNER_ID` and a `-100…` supergroup `DEV_GROUP_ID` are set;
 - Telegram setup (X01), through the Bot API with each bot's token read from the Keychain item its env file names
   (a plaintext token is not used): privacy off for the dev
@@ -75,7 +77,8 @@ FILE_MODE: Final = 0o600
 SUPERVISOR_HEARTBEAT_MAX_AGE_S: Final = 60.0
 BOT_HEARTBEAT_MAX_AGE_S: Final = 120.0
 CHECKED_BINARIES: Final = ("claude", "git", "gh", "ffmpeg", "node")
-LOADED_LABELS: Final[tuple[ProcessName, ...]] = ("dev", "supervisor")  # personal: only from P3
+LOADED_LABELS: Final[tuple[ProcessName, ...]] = ("dev", "supervisor")  # personal: once enabled
+ENABLE_PERSONAL_HINT: Final = "python scripts/install.py --enable-personal"
 SUPERGROUP_ID: Final = re.compile(r"-100\d{5,}")
 _ENV_VALUE_FORBIDDEN: Final = re.compile(r"[\s\"'#]")
 EXIT_OK: Final = 0
@@ -557,14 +560,20 @@ async def _loaded(ctx: Context, process: ProcessName) -> bool | None:
     return None if result.returncode is None else result.returncode == 0
 
 
+def personal_enabled(paths: Paths) -> bool:
+    """The installer put the personal bot's plist in `~/Library/LaunchAgents` (`--enable-personal`): from then on it
+    must be loaded and its heartbeat fresh, like the dev bot's."""
+    return plist_path(paths, "personal").exists()
+
+
 async def check_launchd(ctx: Context) -> list[Line]:
     lines: list[Line] = []
     for process in ("dev", "supervisor", "personal"):
         plist = plist_path(ctx.paths, process)
         loaded = await _loaded(ctx, process)
         name = label(process)
-        if process == "personal" and not loaded:
-            lines.append(info(f"{name}: yuklanmagan (P3 gacha shunday)"))
+        if process == "personal" and not loaded and not personal_enabled(ctx.paths):
+            lines.append(info(f"{name}: yoqilmagan", ENABLE_PERSONAL_HINT))
         elif loaded is None:
             lines.append(fail(f"{name}: launchctl javob bermadi"))
         elif loaded:
@@ -579,6 +588,8 @@ async def check_launchd(ctx: Context) -> list[Line]:
 def _heartbeat_line(ctx: Context, process: ProcessName) -> Line:
     path = ctx.paths.run / f"{process}.heartbeat.json"
     max_age = SUPERVISOR_HEARTBEAT_MAX_AGE_S if process == "supervisor" else BOT_HEARTBEAT_MAX_AGE_S
+    if process == "personal" and not personal_enabled(ctx.paths):
+        return info("personal bot heartbeat: bot yoqilmagan", ENABLE_PERSONAL_HINT)
     try:
         age = ctx.now - path.stat().st_mtime
     except FileNotFoundError:

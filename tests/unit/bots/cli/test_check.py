@@ -43,9 +43,12 @@ def fixture_keychain() -> FakeSecurity:
 @dataclass
 class FakeRunner:
     """`launchctl print` answers from `loaded`; `security` from `keychain`; every other command from `answers` (by
-    argv[0] basename + argv[1])."""
+    argv[0] basename + argv[1]). The fixture Mac has all three plists installed (`--enable-personal`), so all three
+    jobs are loaded by default."""
 
-    loaded: set[str] = field(default_factory=lambda: {"uz.yordamchi.dev", "uz.yordamchi.supervisor"})
+    loaded: set[str] = field(
+        default_factory=lambda: {"uz.yordamchi.dev", "uz.yordamchi.supervisor", "uz.yordamchi.personal"}
+    )
     answers: dict[str, RunResult] = field(default_factory=dict)
     calls: list[tuple[str, ...]] = field(default_factory=list)
     keychain: FakeSecurity = field(default_factory=fixture_keychain)
@@ -385,12 +388,37 @@ async def test_a_missing_claude_binary_is_red(mac: Mac) -> None:
 
 
 # --- launchd and heartbeats ------------------------------------------------------------------------------------------
-async def test_unloaded_jobs_are_red_but_personal_waits_for_p3(mac: Mac) -> None:
+async def test_unloaded_jobs_are_red_but_a_personal_bot_not_enabled_is_not(mac: Mac) -> None:
+    check.plist_path(mac.paths, "personal").unlink()  # the installer ran without --enable-personal
     mac.runner.loaded = {"uz.yordamchi.dev"}
     report = await mac.report()
     assert "uz.yordamchi.supervisor: yuklanmagan" in failures(report)
-    assert "uz.yordamchi.personal: yuklanmagan (P3 gacha shunday)" in texts(report, Level.INFO)
+    assert "uz.yordamchi.personal: yoqilmagan" in texts(report, Level.INFO)
     assert ("/bin/launchctl", "print", "gui/501/uz.yordamchi.dev") in mac.runner.calls
+
+
+async def test_an_enabled_personal_bot_must_be_loaded(mac: Mac) -> None:
+    """T77: once `--enable-personal` installed its plist, an unloaded personal bot is red, like the dev bot."""
+    mac.runner.loaded = {"uz.yordamchi.dev", "uz.yordamchi.supervisor"}
+    report = await mac.report()
+    assert "uz.yordamchi.personal: yuklanmagan" in failures(report)
+    mac.runner.loaded = {"uz.yordamchi.dev", "uz.yordamchi.supervisor", "uz.yordamchi.personal"}
+    assert "uz.yordamchi.personal: launchd'da yuklangan" in texts(await mac.report(), Level.OK)
+
+
+async def test_an_enabled_personal_bot_s_heartbeat_is_judged_like_the_dev_bot_s(mac: Mac) -> None:
+    heartbeat(mac.paths, "personal", age_s=200)
+    assert "personal heartbeat: eskirgan (200 s oldin, chegara 120 s)" in failures(await mac.report())
+    heartbeat(mac.paths, "personal", age_s=15)
+    assert "personal heartbeat: yangi (15 s oldin)" in texts(await mac.report(), Level.OK)
+
+
+async def test_a_personal_heartbeat_left_from_before_it_was_switched_off_is_not_judged(mac: Mac) -> None:
+    check.plist_path(mac.paths, "personal").unlink()
+    heartbeat(mac.paths, "personal", age_s=86_400)
+    report = await mac.report()
+    assert not [text for text in failures(report) if text.startswith("personal")]
+    assert "personal bot heartbeat: bot yoqilmagan" in texts(report, Level.INFO)
 
 
 async def test_a_missing_plist_is_red(mac: Mac) -> None:

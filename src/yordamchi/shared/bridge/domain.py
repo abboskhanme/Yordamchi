@@ -72,6 +72,14 @@ class ProjectRef:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectName:
+    """A project as the speech vocabulary takes it (`voice.domain.Named`): its name; the bridge reads no aliases."""
+
+    id: str
+    aliases: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class CommitView:
     subject: str = field(repr=False)
     at: datetime | None = None

@@ -34,7 +34,7 @@ from yordamchi.core.text import BotText
 from yordamchi.persistence.uow import Database
 from yordamchi.ports.assistant import AssistantTool, AssistantToolset, ToolOutput
 from yordamchi.shared.bridge import domain, store
-from yordamchi.shared.bridge.domain import ProjectRef, ProjectStatus, ServerView
+from yordamchi.shared.bridge.domain import ProjectName, ProjectRef, ProjectStatus, ServerView
 from yordamchi.shared.deps import SharedDeps
 
 log = get_log(__name__)
@@ -175,6 +175,19 @@ async def server_checks(deps: SharedDeps, *, timeout: float) -> tuple[ServerView
         ServerView(host=host, at=at, ok=ok, summary=domain.summary_of(summary), error_code=error_code)
         for host, at, ok, summary, error_code in rows
     )
+
+
+async def project_names(deps: SharedDeps, *, timeout: float) -> tuple[ProjectName, ...]:
+    """The dev bot's project names for the speech vocabulary (T77: "BonviHR qanday?" said aloud is spelled right).
+    Best effort: no bridge, or a bridge that does not answer, gives none (a voice note never fails for it)."""
+    if deps.peer_db is None:
+        return ()
+    try:
+        projects = await list_projects(deps, timeout=timeout)
+    except (BridgeUnavailable, BridgeNotReadOnly) as error:
+        log.warning("bridge_names_unread", error_code=error.code.value)
+        return ()
+    return tuple(ProjectName(id=project.project_id) for project in projects if not project.missing)
 
 
 # --- UC-36: the fast path -------------------------------------------------------------------------------------------

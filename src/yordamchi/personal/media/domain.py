@@ -6,7 +6,8 @@ What the owner sends becomes a `MediaRequest` (`request_for_part`, `request_for_
 - a YouTube link → `YOUTUBE`, normalised to its watch URL (the form both Gemini routes accept);
 - a link to a video file (`.mp4`, `.webm`, …) → `VIDEO_LINK`: fetched under the same size cap, then read as a file;
 - any other link → `PAGE`: its readable text, which the assistant reads itself.
-Images are not handled here: the assistant takes them as image blocks (T72).
+Images are not read here: the assistant takes them as image blocks (T72); `image_parts` only says which parts to save
+for it (T77).
 
 Videos are read by the `MediaAnalyzer` of the first usable provider (`pick_video`: under `auto` Google, then
 OpenRouter; a failure that the other may not share moves on, `voice.domain.falls_back`). The reader answers in JSON,
@@ -175,6 +176,53 @@ def request_for_part(part: BurstPart, *, chat_id: int) -> MediaRequest | None:
     if part.kind is UpdateKind.LINK and (url := first_url(part.text)) is not None:
         return request_for_url(url, chat_id=chat_id, ref=str(part.update_id), reply_to=part.message_id)
     return None
+
+
+# --- images (T77: the assistant reads them as image blocks) ---------------------------------------------------------
+MAX_IMAGES: Final = 5  # SPEC §5.1: one input carries at most five images
+IMAGE_MAX_BYTES: Final = 20 * MIB  # Telegram gives bots files up to 20 MB
+# The image types Claude reads; a photo always arrives as JPEG.
+IMAGE_SUFFIXES: Final[Mapping[str, str]] = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
+def image_suffix(kind: UpdateKind, mime: str | None) -> str | None:
+    """The file suffix of a part the assistant sees as an image (a photo, or an image sent as a file), else None."""
+    if kind is UpdateKind.PHOTO:
+        return IMAGE_SUFFIXES["image/jpeg"]
+    if kind is UpdateKind.DOCUMENT:
+        return IMAGE_SUFFIXES.get((mime or "").lower())
+    return None
+
+
+def image_parts(parts: Sequence[BurstPart]) -> tuple[tuple[BurstPart, str], ...]:
+    """The parts to save as images, with their suffix, in order; at most `MAX_IMAGES`."""
+    found = [
+        (part, suffix)
+        for part in parts
+        if part.content.attachment is not None
+        and (suffix := image_suffix(part.kind, part.content.attachment.mime)) is not None
+    ]
+    return tuple(found[:MAX_IMAGES])
+
+
+def words_beside(parts: Sequence[BurstPart], media_update_ids: Iterable[int]) -> bool:
+    """Whether the burst says anything besides the media it carries: a part that is no media request and no image
+    (a text, a voice note, a forwarded message) with words in it. Without such words, a media reading that failed
+    is the whole answer (UC-31 F)."""
+    taken = set(media_update_ids)
+    return any(
+        (part.text or "").strip()
+        for part in parts
+        if part.update_id not in taken
+        and not (
+            part.content.attachment is not None and image_suffix(part.kind, part.content.attachment.mime) is not None
+        )
+    )
 
 
 # --- limits ---------------------------------------------------------------------------------------------------------

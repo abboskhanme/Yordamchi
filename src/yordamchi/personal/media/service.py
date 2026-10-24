@@ -25,11 +25,24 @@ the cap (raising it is a settings change, one question).
 
 Expected failures never raise: they are a `MediaFailure`. Logs carry kinds, codes, providers, sizes and durations,
 never a URL, a title or content.
+
+**A burst, for the assistant (T77).** `read_burst(deps, item)` reads every video and link-only message of one closed
+burst into material (each with its "Ko'ryapman"), and saves its photos (and images sent as files, at most
+`domain.MAX_IMAGES`) for the assistant's image blocks. A failed reading is the owner's message; when the burst says
+nothing besides the media that failed, that message is the whole answer (`BurstMedia.only_failed`, UC-31 F).
+
+**The `yordamchi_media` tools (SPEC §3.2.14).** `toolset(deps, …)` gives the assistant `analyze_video(url)` (answered
+in the ask: the material is the tool result) and `screenshot`, `fetch_file`, `download_video` (each started as a
+background job through the caller's `start`, because a download may take minutes: the file, or why it could not
+come, follows the answer through the outbox). A tool result is data for the model, never an instruction.
 """
 
 import asyncio
+import json
 import os
 import secrets
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
@@ -47,8 +60,12 @@ from yordamchi.core.errors import (
     WebUrlInvalid,
     YordamchiError,
 )
+from yordamchi.core.json_value import JsonObject, JsonValue
 from yordamchi.core.log import get_log
+from yordamchi.core.text import BotText
 from yordamchi.personal.artefacts import domain as artefacts
+from yordamchi.personal.artefacts import service as artefacts_service
+from yordamchi.personal.artefacts.service import ArtefactReply
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.personal.media import domain
 from yordamchi.personal.media.domain import (
@@ -61,7 +78,10 @@ from yordamchi.personal.media.domain import (
     MediaOutcome,
     MediaRequest,
 )
+from yordamchi.ports.assistant import AssistantTool, AssistantToolset, ToolHandler, ToolOutput
 from yordamchi.ports.media import MediaAnalysis, VideoSource
+from yordamchi.ports.web import Clip
+from yordamchi.shared.burst.domain import TurnInput
 from yordamchi.shared.cost import domain as cost_domain
 from yordamchi.shared.cost import service as cost
 from yordamchi.shared.cost.domain import PAYABLE, Allowance, Provider
@@ -80,6 +100,49 @@ PROMPT_SYSTEM: Final = "personal/media_video_system"
 PROMPT_REQUEST: Final = "personal/media_video_request"
 PROMPT_MATERIAL: Final = "personal/media_material"
 NO_QUESTION: Final = "(none)"
+SERVER: Final = "yordamchi_media"
+ANALYZE_TOOL: Final = "analyze_video"
+SCREENSHOT_TOOL: Final = "screenshot"
+FETCH_TOOL: Final = "fetch_file"
+DOWNLOAD_TOOL: Final = "download_video"
+TOOL_PROMPTS: Final = {
+    ANALYZE_TOOL: "personal/media_tool_analyze_video",
+    SCREENSHOT_TOOL: "personal/media_tool_screenshot",
+    FETCH_TOOL: "personal/media_tool_fetch_file",
+    DOWNLOAD_TOOL: "personal/media_tool_download_video",
+}
+# A started job answers the model at once; this bounds only that answer (the job has its own settings).
+START_TIMEOUT_S: Final = 5.0
+# What `analyze_video` adds to `timeouts.media_s` before the adapter gives up on the tool call.
+ANALYZE_MARGIN_S: Final = 5.0
+URL_SCHEMA: Final[JsonObject] = {"type": "string", "minLength": 8, "maxLength": artefacts.URL_MAX_CHARS}
+AS_FILE_SCHEMA: Final[JsonObject] = {"type": "boolean"}
+ANALYZE_SCHEMA: Final[JsonObject] = {
+    "type": "object",
+    "properties": {"url": URL_SCHEMA},
+    "required": ["url"],
+    "additionalProperties": False,
+}
+FILE_SCHEMA: Final[JsonObject] = {
+    "type": "object",
+    "properties": {"url": URL_SCHEMA, "as_file": AS_FILE_SCHEMA},
+    "required": ["url"],
+    "additionalProperties": False,
+}
+VIDEO_SCHEMA: Final[JsonObject] = {
+    "type": "object",
+    "properties": {
+        "url": URL_SCHEMA,
+        "start_s": {"type": "number", "minimum": 0},
+        "end_s": {"type": "number", "minimum": 0},
+        "as_file": AS_FILE_SCHEMA,
+    },
+    "required": ["url"],
+    "additionalProperties": False,
+}
+
+# Runs one background job of the bot (`bots/personal`: under `guarded()`, so a failure is told, never raised).
+type StartJob = Callable[[str, Coroutine[object, object, None]], None]
 
 
 # --- the ack ---------------------------------------------------------------------------------------------------------
@@ -330,3 +393,187 @@ def _write_private(path: Path, data: bytes) -> None:
 
 def _ms_since(deps: PersonalDeps, started: datetime) -> int:
     return max(0, round((deps.clock.now() - started).total_seconds() * 1000))
+
+
+# --- a burst, for the assistant (T77) ------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class BurstMedia:
+    """What one burst's media gives the assistant: the material read from its videos and links, the saved images, and
+    the owner's message for each reading that failed. `only_failed`: nothing to answer from and nothing else asked,
+    so the failure messages are the whole reply (UC-31 F)."""
+
+    material: tuple[str, ...] = ()
+    images: tuple[Path, ...] = ()
+    failures: tuple[BotText, ...] = ()
+    only_failed: bool = False
+
+
+async def save_images(deps: PersonalDeps, item: TurnInput) -> tuple[tuple[Path, ...], tuple[BotText, ...]]:
+    """The burst's photos and images sent as files, downloaded into this request's media folder (0700/0600, purged
+    after `media.retention_days`) for the assistant's image blocks: at most `domain.MAX_IMAGES`, each within
+    `timeouts.media_s`. A download that fails is the owner's message, not a raise."""
+    wanted = domain.image_parts(item.parts)
+    if not wanted:
+        return (), ()
+    snap = await settings.snapshot(deps)
+    folder = await _request_folder(deps, snap)
+    saved: list[Path] = []
+    failed: list[BotText] = []
+    for part, suffix in wanted:
+        attachment = part.content.attachment
+        if attachment is None:
+            continue
+        try:
+            data = await deps.messenger.download(
+                attachment.file_id, max_bytes=domain.IMAGE_MAX_BYTES, timeout=snap[defaults.TIMEOUTS_MEDIA_S]
+            )
+        except ExternalError as error:
+            log.warning("media_image_unsaved", update_id=part.update_id, error_code=error.code.value)
+            failed.append(S.MEDIA_DOWNLOAD_FAILED())
+            continue
+        path = folder / f"image-{part.update_id}{suffix}"
+        await asyncio.to_thread(_write_private, path, data)
+        saved.append(path)
+    log.info("media_images_saved", burst_id=item.burst_id, images=len(saved), failed=len(failed))
+    return tuple(saved), tuple(dict.fromkeys(failed))
+
+
+async def read_burst(deps: PersonalDeps, item: TurnInput) -> BurstMedia:
+    """Every media request of the burst (`domain.request_for_part`: a video, a link-only message) read in order, each
+    announced with "Ko'ryapman", and the images saved (module docstring)."""
+    material: list[str] = []
+    failures: list[BotText] = []
+    requested: list[int] = []
+    for part in item.parts:
+        request = domain.request_for_part(part, chat_id=item.chat_id)
+        if request is None:
+            continue
+        requested.append(part.update_id)
+        outcome = await analyze_media(deps, request)
+        if isinstance(outcome, MediaBrief):
+            material.append(outcome.material)
+        else:
+            failures.append(outcome.text)
+    images, unsaved = await save_images(deps, item)
+    failures.extend(unsaved)
+    nothing = not material and not images and not domain.words_beside(item.parts, requested)
+    return BurstMedia(
+        material=tuple(material),
+        images=images,
+        failures=tuple(failures),
+        only_failed=bool(failures) and nothing,
+    )
+
+
+# --- the `yordamchi_media` tools (SPEC §3.2.14) --------------------------------------------------------------------
+def _json_output(payload: JsonObject, *, error: bool = False) -> ToolOutput:
+    return ToolOutput(text=redact.scrubbed(json.dumps(payload, ensure_ascii=False, sort_keys=True)), is_error=error)
+
+
+def _url(arguments: Mapping[str, JsonValue]) -> str | None:
+    """The link argument, if it is one this bot opens (http or https, a host); else None."""
+    raw = arguments.get("url")
+    if not isinstance(raw, str):
+        return None
+    try:
+        return artefacts.check_url(raw)
+    except WebUrlInvalid:
+        return None
+
+
+def _seconds(arguments: Mapping[str, JsonValue], name: str) -> float | None:
+    value = arguments.get(name)
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def _clip(arguments: Mapping[str, JsonValue]) -> Clip | None:
+    start, end = _seconds(arguments, "start_s"), _seconds(arguments, "end_s")
+    if start is None and end is None:
+        return None
+    return Clip(start_s=start or 0.0, end_s=end if end is not None else 0.0)
+
+
+async def _send_artefact(deps: PersonalDeps, reply: ArtefactReply, *, chat_id: int, ref: str) -> None:
+    """One artefact, or why it did not come, queued for the owner (after the answer that asked for it)."""
+    snap = await settings.snapshot(deps)
+    async with deps.db.uow() as s:
+        await artefacts_service.enqueue_reply(
+            s, reply, chat_id=chat_id, ref=ref, at=deps.clock.now(), max_parts=snap[defaults.OUTBOX_MAX_PARTS]
+        )
+    log.info("media_artefact_queued", kind=reply.kind.value, ok=reply.ok, files=len(reply.attachments))
+
+
+def toolset(deps: PersonalDeps, *, chat_id: int, ref: str, start: StartJob, media_timeout_s: float) -> AssistantToolset:
+    """The assistant's media tools for one answer (module docstring). `ref` keys what they queue, `start` runs the
+    artefact jobs, `media_timeout_s` is this turn's `timeouts.media_s`."""
+    calls = 0
+
+    def next_ref(tool: str) -> str:
+        nonlocal calls
+        calls += 1
+        return f"{ref}-{tool}-{calls}"
+
+    def started(tool: str, url: str, work: Callable[[str], Awaitable[ArtefactReply]]) -> ToolOutput:
+        job_ref = next_ref(tool)
+
+        async def job() -> None:
+            await _send_artefact(deps, await work(url), chat_id=chat_id, ref=job_ref)
+
+        start(f"media_{tool}", job())
+        log.info("media_tool_started", tool=tool)
+        return _json_output({"status": "started", "tool": tool, "site": artefacts.site_of(url)})
+
+    async def analyze(arguments: Mapping[str, JsonValue]) -> ToolOutput:
+        url = _url(arguments)
+        if url is None:
+            return _json_output({"status": "refused", "error": ErrorCode.WEB_URL_INVALID.value}, error=True)
+        request = domain.request_for_url(url, chat_id=chat_id, ref=next_ref(ANALYZE_TOOL), announce=False)
+        outcome = await analyze_media(deps, request)
+        if isinstance(outcome, MediaBrief):
+            return ToolOutput(text=outcome.material)
+        return _json_output({"status": "failed", "error": outcome.code.value, "tell_owner": outcome.text}, error=True)
+
+    async def screenshot(arguments: Mapping[str, JsonValue]) -> ToolOutput:
+        url = _url(arguments)
+        if url is None:
+            return _json_output({"status": "refused", "error": ErrorCode.WEB_URL_INVALID.value}, error=True)
+        as_file = arguments.get("as_file") is True
+        return started(
+            SCREENSHOT_TOOL, url, lambda link: artefacts_service.take_screenshot(deps, link, as_file=as_file)
+        )
+
+    async def fetch(arguments: Mapping[str, JsonValue]) -> ToolOutput:
+        url = _url(arguments)
+        if url is None:
+            return _json_output({"status": "refused", "error": ErrorCode.WEB_URL_INVALID.value}, error=True)
+        as_file = arguments.get("as_file") is True
+        return started(FETCH_TOOL, url, lambda link: artefacts_service.fetch_file(deps, link, as_file=as_file))
+
+    async def download(arguments: Mapping[str, JsonValue]) -> ToolOutput:
+        url = _url(arguments)
+        if url is None:
+            return _json_output({"status": "refused", "error": ErrorCode.WEB_URL_INVALID.value}, error=True)
+        as_file, clip = arguments.get("as_file") is True, _clip(arguments)
+        return started(
+            DOWNLOAD_TOOL, url, lambda link: artefacts_service.download_video(deps, link, clip=clip, as_file=as_file)
+        )
+
+    def tool(name: str, schema: JsonObject, handler: ToolHandler) -> AssistantTool:
+        bound = media_timeout_s + ANALYZE_MARGIN_S if name == ANALYZE_TOOL else START_TIMEOUT_S
+        return AssistantTool(
+            name=name,
+            description=prompts.render(TOOL_PROMPTS[name]),
+            input_schema=schema,
+            timeout_s=bound,
+            handler=handler,
+        )
+
+    return AssistantToolset(
+        server=SERVER,
+        tools=(
+            tool(ANALYZE_TOOL, ANALYZE_SCHEMA, analyze),
+            tool(SCREENSHOT_TOOL, FILE_SCHEMA, screenshot),
+            tool(FETCH_TOOL, FILE_SCHEMA, fetch),
+            tool(DOWNLOAD_TOOL, VIDEO_SCHEMA, download),
+        ),
+    )

@@ -398,6 +398,7 @@ WRITERS: tuple[Writer, ...] = (
     service.change_setting,
     service.apply_proposals,
     service.apply_pending_change,
+    service.confirm_change,  # the personal bot's "ha" to a waiting weakening change (T77)
     service.revert_setting,
     service.handle_request,
     service.show_settings,

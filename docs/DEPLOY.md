@@ -82,6 +82,22 @@ Steps:
 Rollback of a first install: §4.3 (stop and remove the jobs). Nothing outside DATA, the three Keychain items, the
 logs and the three plists is created (`~/.config/yordamchi` stays as an empty 0700 dir).
 
+### 1.0 Enabling the personal bot (P3, T77)
+
+```sh
+~/.local/bin/python3.12 -I scripts/install.py --dry-run --enable-personal     # first: temp HOME, nothing loaded
+~/.local/bin/python3.12 -I scripts/install.py --release <commit> --enable-personal
+"$DATA/releases/current/.venv/bin/python" -m playwright install chromium   # once: screenshots (SPEC §9.3 step 6)
+```
+- The installer asks for the personal bot token (hidden) if `personal.env` has none, puts it in the Keychain
+  (`personal-bot-token`), copies `uz.yordamchi.personal.plist` to `~/Library/LaunchAgents` and loads it. From then
+  on the check script requires it loaded and its heartbeat fresh, like the dev bot's.
+- At every start the bot asks Claude one short throwaway question with the exact tool list of an answer
+  (NFR-SEC-08). A session whose tools are not the allowlist refuses the start (exit 78, `run/personal.lasterror`,
+  one message to the owner per 6 h); that refusal is remembered in `run/personal.tools-refused.json` per release and
+  `claude` version, so launchd's restarts ask no model until a new release, a `claude` update or 6 h.
+- Speech keys are per bot: paste a Gemini or OpenRouter key into the personal DM once (QOLLANMA §11).
+
 ### 1.1 Finding OWNER_ID and DEV_GROUP_ID
 
 1. Stop the dev bot if it is running (`launchctl bootout gui/$UID/uz.yordamchi.dev`), or `getUpdates` answers
@@ -98,7 +114,7 @@ logs and the three plists is created (`~/.config/yordamchi` stays as an empty 07
 | Job | Program | Plist | Logs |
 |---|---|---|---|
 | `uz.yordamchi.dev` | `DATA/releases/current/.venv/bin/python -I -m yordamchi.bots.dev.app` | `~/Library/LaunchAgents/uz.yordamchi.dev.plist` | `LOGS/dev.jsonl` (+ `.1`–`.3`), `LOGS/uz.yordamchi.dev.launchd.log` |
-| `uz.yordamchi.personal` (P3) | `… -m yordamchi.bots.personal.app` | staged in `DATA/launchd/` until P3 | `LOGS/personal.jsonl`, `LOGS/uz.yordamchi.personal.launchd.log` |
+| `uz.yordamchi.personal` (P3) | `… -m yordamchi.bots.personal.app` | `~/Library/LaunchAgents/` with `--enable-personal` (§1.0), else staged in `DATA/launchd/` | `LOGS/personal.jsonl`, `LOGS/uz.yordamchi.personal.launchd.log` |
 | `uz.yordamchi.supervisor` | `DATA/supervisor/current/.venv/bin/python -I -m yordamchi_supervisor` | `~/Library/LaunchAgents/uz.yordamchi.supervisor.plist` | `LOGS/supervisor.jsonl` (+ `.1`), `LOGS/uz.yordamchi.supervisor.launchd.log` |
 
 Plist facts (SPEC §9.1): `KeepAlive` and `RunAtLoad` true, `ThrottleInterval` 10, `ExitTimeOut` 20 for the bots

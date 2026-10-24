@@ -8,7 +8,7 @@ Telefonda o'qish uchun. Qo'shtirnoq ichidagi bot javoblari — botning aynan o'z
 ## 1. Boshlash
 
 - **Dev bot** — `@OrvionXBot`. U faqat **"OrvionX Projects"** yopiq guruhida ishlaydi.
-- **Shaxsiy bot** — `@OrvionX_AI_Bot`. U keyinroq, P3 bosqichida ishga tushadi.
+- **Shaxsiy bot** — `@OrvionX_AI_Bot`. U siz bilan shaxsiy chatda gaplashadi (11-bo'lim).
 - Botlardan **faqat siz** foydalana olasiz. Boshqa odamning xabari e'tiborsiz qoladi.
 - Guruhda **anonim admin** sifatida yozmang: unda xabar sizdan emas, `GroupAnonymousBot`dan
   kelgandek ko'rinadi va bot uni tashlab yuboradi.
@@ -239,4 +239,36 @@ hech qaysi loyihaga yubormaydi:
 - loyihani yopib turish va qaytarish: `BonviHR'ni yopib tur`, `BonviHR'ni davom ettiramiz`;
 - botni o'zini yangilash: `o'zingga … qo'sh`.
 
-**Shaxsiy bot** `@OrvionX_AI_Bot` va uning imkoniyatlari — P3 bosqichida.
+**Shaxsiy bot** `@OrvionX_AI_Bot` — 11-bo'limda.
+
+---
+
+## 11. Shaxsiy bot (`@OrvionX_AI_Bot`)
+
+Shaxsiy chatda yozing yoki ovozli xabar yuboring — guruh shart emas. Bot faqat sizga javob beradi.
+
+- **Istalgan savol** — matn yoki ovoz bilan. Avval matnli javob keladi (yozilayotganda "yozmoqda…" va
+  javob qismlari ko'rinib turadi), keyin ~20–30 soniyalik ovozli xulosa.
+  - Javob qisqartirilgan bo'lsa, oxirida "To'liq javob uchun: «to'liqroq»" turadi — `to'liqroq` deb yozing.
+  - `yangi suhbat` — oldingi mavzularni unutib, yangidan boshlaydi.
+  - `to'xta` — yozilayotgan javobni (va uning ovozini) to'xtatadi.
+- **Rasm yoki skrinshot** — yuboring (izoh bilan yoki izohsiz): bot rasmni ko'rib javob beradi.
+- **Havola, YouTube, video (≤ 20 MB)** — bot avval "Ko'ryapman…" deydi, keyin nima ekanini, asosiy
+  fikrlarini va o'z fikrini aytadi. Faqat havolaning o'zini yuborsangiz, bot ~10 soniya kutadi:
+  ortidan savol yozishingiz mumkin. Login yoki pullik sahifani ko'ra olmasa, shuni aytadi.
+- **Skrinshot va fayllar**: "example.com saytining skrinshoti", "shu sahifadagi rasmni yubor",
+  "shu videoni yubor" (YouTube ham) — bot faylni tayyorlab, javobdan keyin yuboradi (≤ 50 MB).
+- **Loyiha holati**: "BonviHR qanday?" — dev botning ma'lumotidan o'qiydi, oxirida "Ma'lumot: … oldin".
+  Shaxsiy bot loyihalarda hech narsa o'zgartira olmaydi va dev botga buyruq bera olmaydi.
+- `holat?`, `sozlamalaring qanday?`, `xarajat?` — dev botdagidek.
+- **Sozlamalar so'z bilan**: "javoblaring qisqaroq bo'lsin", "ovozingni erkakka o'zgartir", "ovozni o'chir",
+  "sozlama: …", "oldingi holatiga qaytar". Himoyani susaytiradigan o'zgarish (masalan qimmat model) uchun
+  bot bitta savol beradi — `ha` yoki `yo'q` deb javob bering.
+- **Kalit**: Gemini (`AIza…`) yoki OpenRouter (`sk-or-v1-…`) kalitini **shu chatga** bir marta yuboring —
+  bot xabarni o'chiradi, kalitni saqlaydi va ovozni sozlaydi. Shaxsiy bot dev botning kalitlarini
+  ko'rmaydi: ovozli savollar, video tahlili va zaxira model uchun kalit shu yerda kerak. Kalitsiz ham
+  matnli savol-javob ishlaydi, ovozli xulosa esa bepul Edge ovozi bilan keladi.
+- **Claude ishlamasa** (limit tugagan va h.k.) javob "(zaxira model) …" deb boshlanadi.
+
+Hali yo'q ("Bu imkoniyat hali yo'q — P3 bosqichida qo'shiladi."): `bugungi yangiliklar` va
+boshqa yangiliklar so'rovlari, `integratsiyalar` / `X'ga ulan: …`, `ovozing yoqmadi` (ovoz namunalari).

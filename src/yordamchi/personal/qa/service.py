@@ -16,10 +16,12 @@
 5. **The answer**: `domain.parse_answer` → the Telegram text within `text.max_chars` / `text.max_lines` (a shortened
    answer keeps its full version for "to'liqroq"), the voice script within `voice.max_words`. One unit of work stores
    the `answers` row, updates the conversation, queues the text and records the usage.
-6. **Claude unavailable** (rate limit, login refused, CLI missing, broken or silent): the fallback model
+6. **Start-up check** (`verify_tools`, NFR-SEC-08): one throwaway ask with the same tools, so a session whose tool
+   list differs from the allowlist refuses the bot's start instead of an answer.
+7. **Claude unavailable** (rate limit, login refused, CLI missing, broken or silent): the fallback model
    (`deps.fallback_assistant`, Gemini) answers, its text headed "(zaxira model) …" (Q4). A refused tool list
    (`PersonalToolsMismatch`, NFR-SEC-08) is never answered around: it propagates, and `guarded()` tells the owner.
-7. **Voice**: once the text is queued, `voice.service.send_voice` (T71) turns the voice script into the voice note
+8. **Voice**: once the text is queued, `voice.service.send_voice` (T71) turns the voice script into the voice note
    under the same ref, after the text; `answers.voice_status` records sent, skipped, failed or off.
 
 Nothing here can write to dev.db or reach the dev executor: there is no such handle (C7, UC-36), and model output is
@@ -69,6 +71,7 @@ FALLBACK_PROMPT: Final = "personal/qa_fallback_system"
 CONTEXT_PROMPT: Final = "personal/qa_context"
 EXTRA_PROMPT: Final = "personal/qa_context_extra"
 PREVIOUS_PROMPT: Final = "personal/qa_context_previous"
+PROBE_PROMPT: Final = "personal/qa_probe"
 REPLY_KIND: Final = Kind.RESULT
 USAGE_SOURCE: Final = "qa"
 BRIDGE_PROVIDER: Final = "bridge"
@@ -260,19 +263,51 @@ async def new_conversation(deps: PersonalDeps, chat_id: int) -> BotText:
     return text
 
 
-async def warm_conversation(deps: PersonalDeps, chat_id: int) -> None:
+async def warm_conversation(deps: PersonalDeps, chat_id: int, *, toolsets: Sequence[AssistantToolset] = ()) -> None:
     """Start the warm session of this chat's conversation before its next question (startup, after "yangi suhbat").
-    Best effort: a failure only means the next ask starts cold."""
+    `toolsets` are the ones its answers get (`answer`'s), so the warm session is the one they use. Best effort: a
+    failure only means the next ask starts cold."""
     snap = await settings.snapshot(deps)
     now = deps.clock.now()
     conversation = await _conversation(deps, snap, chat_id, now=now)
     question = QaQuestion(chat_id=chat_id, own_text="")
-    toolsets = _toolsets(deps, snap, bridge.ToolLog(), ())
+    toolsets = _toolsets(deps, snap, bridge.ToolLog(), toolsets)
     request = _request(snap, question, conversation, now=now, images=(), toolsets=toolsets)
     try:
         await deps.assistant.warm(request.profile, timeout=snap[defaults.TIMEOUTS_SESSION_OPEN_S])
     except YordamchiError as error:
         log.warning("qa_warm_failed", code=error.code.value)
+
+
+async def verify_tools(deps: PersonalDeps, *, toolsets: Sequence[AssistantToolset] = ()) -> bool:
+    """NFR-SEC-08 at start-up (SPEC §5.3 personal "start check", spike S5): one short ask in a throwaway conversation
+    with exactly the tools a real answer gets (the bridge's, then `toolsets`), so the adapter holds the session's
+    `init` tool and MCP list against the allowlist. A mismatch raises `PersonalToolsMismatch`: the caller refuses to
+    start. True when the session passed; False when Claude could not be reached (a usage limit, the login, the
+    network): then the first real ask makes the same check, and a mismatched session is refused there too."""
+    snap = await settings.snapshot(deps)
+    conversation = _Conversation(row_id=0, session_id=str(uuid.uuid4()), resume=False)
+    question = QaQuestion(chat_id=0, own_text=prompts.render(PROBE_PROMPT))
+    request = _request(
+        snap,
+        question,
+        conversation,
+        now=deps.clock.now(),
+        images=(),
+        toolsets=_toolsets(deps, snap, bridge.ToolLog(), toolsets),
+    )
+    try:
+        await deps.assistant.ask(request, timeout=snap[defaults.TIMEOUTS_SESSION_OPEN_S])
+    except PersonalToolsMismatch:
+        log.error("qa_tools_refused", toolsets=len(request.toolsets))
+        raise
+    except ExternalError as error:
+        log.warning("qa_tools_unverified", code=error.code.value)
+        return False
+    finally:
+        await _end_session(deps, snap, conversation.session_id)
+    log.info("qa_tools_verified", toolsets=len(request.toolsets))
+    return True
 
 
 # --- streaming drafts ------------------------------------------------------------------------------------------------

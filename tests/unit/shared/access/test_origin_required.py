@@ -187,6 +187,59 @@ async def _intake_accepted(deps: DevDeps, fakes: Fakes) -> object:
     return None
 
 
+async def _personal_incoming_of(deps: DevDeps, fakes: Fakes) -> object:
+    """The personal bot's Telegram translation (T77): a lookalike origin never becomes an update."""
+    from aiogram.types import Message
+
+    from tests.factories import TELEGRAM_DATE, tg_chat, tg_user
+    from yordamchi.bots.personal import telegram
+
+    del deps, fakes
+    raw = {"message_id": 1, "date": TELEGRAM_DATE, "chat": tg_chat(OWNER_ID), "from": tg_user(OWNER_ID), "text": "ha"}
+    return telegram.incoming_of(FAKE, Message.model_validate(raw))
+
+
+async def _personal_member_of(deps: DevDeps, fakes: Fakes) -> object:
+    from aiogram.types import ChatMemberUpdated
+
+    from tests.factories import tg_member_change
+    from yordamchi.bots.personal import telegram
+
+    del deps, fakes
+    raw = tg_member_change(1, user_id=OWNER_ID, chat_id=OWNER_ID)["my_chat_member"]
+    return telegram.member_of(FAKE, ChatMemberUpdated.model_validate(raw))
+
+
+async def _personal_intake_accepted(deps: DevDeps, fakes: Fakes) -> object:
+    """The personal bot's intake hook (T77): a lookalike origin wakes nothing and starts no speech-key job."""
+    import asyncio
+
+    from tests.factories import make_personal_deps
+    from yordamchi.bots.personal.runtime import Intake
+    from yordamchi.shared.health import service as health
+    from yordamchi.shared.inbox.domain import Accepted
+
+    personal = make_personal_deps(db=deps.db, paths=deps.paths, fakes=fakes)
+    intake = Intake(deps=personal, health=health.new_state(personal, version="test"), wake=asyncio.Event())
+    try:
+        intake.accepted(FAKE, Accepted(update_id=1, duplicate=False))
+    finally:
+        assert not intake.wake.is_set()
+    return None
+
+
+async def _confirm_change(deps: DevDeps, fakes: Fakes) -> object:
+    """The personal bot's "ha" to a waiting weakening change (T77): refused before the change is written."""
+    del fakes
+    change = PendingChange(
+        reason="change",
+        items=(ChangeItem(key=defaults.GATE_SECRET_SCAN_ENABLED.key, value=False, old=True),),
+        restated="gate.secret_scan_enabled: yoqilgan → o'chirilgan",
+        origin_update_id=1,
+    )
+    return await settings.confirm_change(deps, FAKE, change)
+
+
 ENTRIES: Final[dict[str, Entry]] = {
     "yordamchi.shared.inbox.domain.require_matching_origin": _require_matching_origin,
     "yordamchi.shared.settings.service.record_version": lambda deps, _: settings.record_version(
@@ -257,6 +310,10 @@ ENTRIES: Final[dict[str, Entry]] = {
     "yordamchi.bots.dev.telegram.incoming_of": _incoming_of,
     "yordamchi.bots.dev.telegram.member_of": _member_of,
     "yordamchi.bots.dev.runtime.accepted": _intake_accepted,
+    "yordamchi.bots.personal.telegram.incoming_of": _personal_incoming_of,
+    "yordamchi.bots.personal.telegram.member_of": _personal_member_of,
+    "yordamchi.bots.personal.runtime.accepted": _personal_intake_accepted,
+    "yordamchi.shared.settings.service.confirm_change": _confirm_change,
 }
 
 

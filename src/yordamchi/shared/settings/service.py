@@ -306,6 +306,24 @@ async def apply_pending_change(
     return tuple(written)
 
 
+async def confirm_change(deps: SharedDeps, origin: OwnerOrigin, change: PendingChange) -> SettingsOutcome:
+    """The personal bot's conversational confirm (SPEC §3.2.15 step 3): the owner answered "ha" to the one question
+    its asker posted. The change and its one-line restatement commit in one unit of work; a value today's registry
+    refuses raises before anything is stored. `origin` is the update that said "ha"."""
+    owner = _owner_origin(origin, deps.bot)
+    snap = await snapshot(deps)
+    reply = (
+        S.SETTING_REVERTED(change=change.restated)
+        if change.reason == "revert"
+        else S.SETTING_CHANGED(change=change.restated)
+    )
+    now = deps.clock.now()
+    async with deps.db.uow() as s:
+        keys = await apply_pending_change(s, bot=deps.bot, origin=owner, change=change, at=now, decision_id=None)
+        await _tell(s, deps, owner, reply, at=now, max_parts=snap[defaults.OUTBOX_MAX_PARTS])
+    return SettingsOutcome(OutcomeKind.APPLIED, reply, keys)
+
+
 # --- revert ---------------------------------------------------------------------------------------------------------
 async def revert_setting(
     deps: SharedDeps, origin: OwnerOrigin, key: str | None = None, *, ask: AskOwner

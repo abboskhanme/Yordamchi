@@ -1112,6 +1112,30 @@ ERR_BRIDGE_NOT_READ_ONLY = Msg(
     "O'rnatishni tekshirish kerak."
 )
 
+# --- personal bot ---
+# T77 (`bots/personal`): the bot's own frames around the assistant. `/start` (Telegram sends it when the chat is first
+# opened) and `/yordam` get the hello: what the owner can say.
+PERSONAL_HELLO = Msg(
+    "Salom! Men shaxsiy yordamchingizman. Savolni matn yoki ovoz bilan bering: avval matn, keyin qisqa ovozli "
+    "xulosa yuboraman.\n"
+    "• Rasm, video, havola yoki YouTube yuboring — nima ekanini, asosiy fikrlarini va o'z fikrimni aytaman.\n"
+    "• «example.com saytining skrinshoti», «shu videoni yubor» — faylini yuboraman.\n"
+    "• «BonviHR qanday?» — loyiha holatini dev botdan o'qiyman (faqat o'qiyman).\n"
+    "• «to'liqroq», «yangi suhbat», «holat?», «sozlamalaring qanday?», «xarajat?», «to'xta»."
+)
+# "to'xta" stops the answer being written (its voice note too); with nothing being written it says so.
+PERSONAL_STOPPED = Msg("To'xtatdim.")
+PERSONAL_NOTHING_TO_STOP = Msg("Hozir hech narsa yozmayapman — to'xtatadigan narsa yo'q.")
+# A weakening settings change waits for one "ha" in the chat (SPEC §3.2.15 step 3); anything else drops it.
+PERSONAL_CHANGE_DROPPED = Msg("Sozlamalar · #{number} qo'llanmadi: javob «ha» emas edi. Kerak bo'lsa, qaytadan ayting.")
+# NFR-SEC-08 at start-up: the session's tool list is not the allowlist, so the bot does not start (exit 78). It
+# checks again after a release or `claude` update, or after 6 h.
+PERSONAL_STARTUP_TOOLS_REFUSED = Msg(
+    "Shaxsiy bot ishga tushmadi: Claude sessiyasi ruxsat etilmagan vositalar bilan ochildi (xavfsizlik tekshiruvi). "
+    "Claude CLI yangilangan bo'lishi mumkin — Mac'da `claude --version` ni tekshiring. Yangi versiya yoki 6 soatdan "
+    "keyin o'zim qayta tekshiraman."
+)
+
 # --- qa ---
 # UC-30: the personal assistant. Its answers are model output (`redact.scrubbed`); these are the frames around them.
 # Q4: while Claude is unavailable a plain question is answered by the fallback model, labelled first.
