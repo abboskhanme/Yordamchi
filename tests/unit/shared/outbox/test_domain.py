@@ -361,6 +361,12 @@ def test_typing_is_deduped_for_4_s_and_repeats_up_to_60_s() -> None:
     assert domain.next_typing_at(_at(56), until) is None
 
 
+def test_a_progress_line_is_no_answer_and_keeps_typing() -> None:
+    """T34b: with `ack.typing_for_work` on, a turn's steps keep "typing…" up; its progress line must not end it."""
+    assert not domain.ends_typing(Op.SEND_TEXT, Kind.PROGRESS)
+    assert domain.ends_typing(Op.SEND_TEXT, Kind.ECHO)  # "→ BonviHR" is an answer
+
+
 def test_a_reply_ends_typing_but_an_ack_does_not() -> None:
     assert domain.ends_typing(Op.SEND_TEXT, Kind.RESULT)
     assert domain.ends_typing(Op.SEND_VOICE, Kind.VOICE)

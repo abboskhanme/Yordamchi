@@ -296,11 +296,44 @@ def test_kut_while_assembling_joins_as_a_hold() -> None:
     assert (placement.into, placement.part.role) == (Into.CURRENT, PartRole.HOLD)
 
 
-def test_kut_with_nothing_assembling_is_an_interrupt() -> None:
+def test_kut_with_nothing_assembling_opens_a_hold_for_the_next_part_and_stops_nothing() -> None:
     kut = make_part(2, at_s=WS.after_text_s + 1, text="kut")
-    assert domain.place(kut, [], WS).into is Into.ALONE
-    stale = domain.place(kut, [make_part(1, at_s=0, text="tuzat")], WS)
-    assert (stale.into, stale.close_current, stale.part.role) == (Into.ALONE, CloseReason.QUIET, PartRole.CONTENT)
+    alone = domain.place(kut, [], WS)
+    assert (alone.into, alone.part.role, alone.close_current, alone.close_alone) == (
+        Into.NEW,
+        PartRole.HOLD,
+        None,
+        None,
+    )
+    window = domain.window([alone.part], WS)
+    assert window == domain.Window(
+        kut.at + timedelta(seconds=WS.hold_max_s), CloseReason.HOLD_EXPIRED, HoldReason.OWNER
+    )
+    stale = domain.place(kut, [make_part(1, at_s=0, text="tuzat")], WS)  # the old burst's window had ended
+    assert (stale.into, stale.close_current, stale.part.role) == (Into.NEW, CloseReason.QUIET, PartRole.HOLD)
+
+
+def test_the_part_after_a_lone_kut_joins_its_burst_and_the_window_follows_that_part() -> None:
+    kut = hold(1, at_s=0)
+    photo = make_part(2, at_s=60)
+    placement = domain.place(photo, [kut], WS)
+    assert placement.into is Into.CURRENT
+    parts = domain.joined([kut], placement)
+    assert closes(parts) == 60 + WS.after_media_s  # the hold is over: the photo's own quiet window
+    assert [part.update_id for part in turn(parts).parts] == [2]  # the "kut" never reaches the turn
+
+
+def test_a_lone_kut_has_no_content_and_a_stop_after_it_is_still_an_interrupt() -> None:
+    assert not domain.has_content([hold(1, at_s=0)])
+    assert domain.has_content([hold(1, at_s=0), make_part(2, at_s=1)])
+    stop = domain.place(make_part(2, at_s=5, text="to'xta"), [hold(1, at_s=0)], WS)
+    assert (stop.into, stop.close_alone, stop.close_current) == (
+        Into.ALONE,
+        CloseReason.INTERRUPT,
+        CloseReason.INTERRUPTED,
+    )
+    with pytest.raises(ValueError, match="lapses"):
+        turn([hold(1, at_s=0)])
 
 
 def test_an_edit_replaces_its_part_in_place() -> None:
@@ -352,6 +385,12 @@ def test_a_voice_stop_that_is_the_only_content_is_the_interrupt_itself() -> None
     outcome = domain.apply_transcript((voice(1, at_s=0),), 1, text="to'xta", ok=True, at=at(1))
     assert (len(outcome.parts), outcome.alone, outcome.close_now) == (1, None, CloseReason.INTERRUPT)
     assert turn(outcome.parts, reason=CloseReason.INTERRUPT).interrupt is InterruptKind.STOP
+
+
+def test_a_voice_kut_that_is_the_only_content_holds_and_stops_nothing() -> None:
+    outcome = domain.apply_transcript((voice(1, at_s=0),), 1, text="Kut.", ok=True, at=at(1))
+    assert (outcome.alone, outcome.close_now, outcome.parts[0].role) == (None, None, PartRole.HOLD)
+    assert domain.window(outcome.parts, WS).hold is HoldReason.OWNER
 
 
 def test_a_voice_kut_among_content_holds_the_burst() -> None:

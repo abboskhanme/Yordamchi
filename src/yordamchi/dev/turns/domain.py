@@ -44,6 +44,7 @@ LIMIT_RETRY_EVERY: Final = timedelta(minutes=10)  # §5.6: a usage-limited turn 
 LIMIT_ROTATION_DELAY: Final = timedelta(seconds=40)  # §5.6: … and this long after ClaudeManager switched account
 INVESTIGATION_MAX_STEPS: Final = 60  # §5.3 investigation: `max_turns=60`, wall 3 min
 INVESTIGATION_WALL: Final = timedelta(minutes=3)
+CODING_SESSION: Final[SessionKind] = "coding"  # the session "X yangi sessiya" renews (SPEC §6)
 SMOKE_WALL: Final = timedelta(minutes=5)  # §5.3 smoke: wall 5 min, model haiku
 SMOKE_MODEL: Final = "haiku"
 SMOKE_START_BUDGET: Final = timedelta(minutes=2)  # the smoke turn's queue, session open and result grace, on top
@@ -749,6 +750,11 @@ def commit_line(facts: WorkFacts, *, push_missed: bool) -> BotText:
 
 def minutes_of(seconds: float) -> int:
     return max(0, round(seconds / 60))
+
+
+def checking_text(project: str) -> BotText:
+    """ "BonviHR · Tekshiryapman (~3 daqiqa)": an investigation turn's first word, its wall clock as the estimate."""
+    return S.CHECKING(project=project, minutes=minutes_of(INVESTIGATION_WALL.total_seconds()))
 
 
 def result_text(

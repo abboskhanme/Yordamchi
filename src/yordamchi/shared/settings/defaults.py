@@ -113,6 +113,23 @@ UI_SEEN_REACTION = Setting(
     bots=BOTH,
     doc="Reaction put on each owner message as the 'seen' ack (SPEC §3.2.1).",
 )
+UI_HOLD_REACTION = Setting(
+    "ui.hold_reaction",
+    str,
+    "\U0001f44c",
+    check=MaxLen(8),
+    group=Group.PERSONA,
+    bots=BOTH,
+    doc="Reaction put on a 'kut': the bot waits for the next part and stops nothing (UC-03).",
+)
+ACK_TYPING_FOR_WORK = Setting(
+    "ack.typing_for_work",
+    bool,
+    False,
+    group=Group.LIMITS,
+    bots=DEV,
+    doc="Show 'typing…' while a project turn works too; off: only until a message is routed to a turn.",
+)
 
 # --- audit ---
 # --- vault ---

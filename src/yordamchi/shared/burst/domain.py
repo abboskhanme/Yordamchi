@@ -6,7 +6,8 @@ into one turn:
 2. `place` decides where it goes: into the chat's assembling burst, into a new one, or alone — an interrupt word
    ("to'xta") or the supervisor's self-test closes at once and is never merged;
 3. `window` says when the burst closes if nothing else arrives, or that it holds (a transcript is pending, or the
-   owner said "kut");
+   owner said "kut": "wait, more is coming", never "stop"; with nothing assembling it opens a burst that holds for
+   the next part);
 4. at close its content parts become one `TurnInput` for pre-parse and routing;
 5. `decide_dev_follow_up` / `decide_personal_follow_up` say whether a burst that closed while a turn was already
    working belongs to that turn (UC-02).
@@ -48,7 +49,7 @@ class BurstStatus(StrEnum):
     CLOSED = "closed"  # one turn input, waiting for pre-parse and routing
     ROUTED = "routed"
     MERGED = "merged"  # delivered into a turn that was already working (UC-02 follow-up)
-    CANCELLED = "cancelled"
+    CANCELLED = "cancelled"  # handled by the bot itself, or a "kut" hold that nothing followed
 
 
 ASSEMBLING: Final = frozenset({BurstStatus.OPEN, BurstStatus.HOLDING})
@@ -67,12 +68,12 @@ class CloseReason(StrEnum):
 
 class HoldReason(StrEnum):
     TRANSCRIPT = "transcript"  # a voice part is being transcribed
-    OWNER = "owner"  # the owner said "kut" while the burst was assembling
+    OWNER = "owner"  # the owner said "kut": more is coming
 
 
 class PartRole(StrEnum):
     CONTENT = "content"
-    HOLD = "hold"  # a "kut" said while assembling: it holds the window and never reaches the turn
+    HOLD = "hold"  # a "kut": it holds the window for the next part and never reaches the turn
 
 
 class TranscriptState(StrEnum):
@@ -86,7 +87,7 @@ class InterruptKind(StrEnum):
     STOP = "stop"
     STOP_ALL = "stop_all"
     REDIRECT = "redirect"
-    HOLD = "hold"  # "kut": holds an assembling burst; with nothing assembling it stops the running turn (§3.2.5)
+    HOLD = "hold"  # "kut": holds the window for the next part; it never stops anything (T34b)
 
 
 # --- parts --------------------------------------------------------------------------------------------------------
@@ -266,7 +267,7 @@ def window(parts: Sequence[BurstPart], settings: WindowSettings) -> Window:
     """SPEC §4.4, in order:
     - a part still being transcribed → HOLD until its transcript, at most `hold_max_s` after that part arrived. The
       hard cap does not cut it: closing then would hand the turn a voice note nobody has read;
-    - the last part a "kut" → HOLD for at most `hold_max_s`;
+    - the last part a "kut" → HOLD for at most `hold_max_s` (also when the "kut" is all the burst holds yet);
     - else quiet after the last part: `after_complete_text_s` after a complete text, `after_text_s` after other text,
       `after_media_s` after a bare photo, file or link (or a text ending in ":"), and an album as one unit, at least
       `album_gap_s` after its last item; and `after_voice_s` after each transcript;
@@ -316,7 +317,8 @@ def normalise(text: str) -> str:
 
 
 def interrupt_of(text: str) -> InterruptKind | None:
-    """The interrupt a message is (SPEC §3.2.5, §6.1), or None.
+    """The interrupt a message is (SPEC §3.2.5, §6.1), or None. `HOLD` ("kut") is the one that stops nothing: it
+    holds the window for the next part (`place`).
 
     Only a whole phrase counts, or a phrase as the first comma-separated clause ("kut, rasm yuboraman"), or a
     redirect prefix ("yo'q, boshqacha qil: …"). "serverni to'xtat" is an instruction for a project, not an interrupt:
@@ -372,9 +374,12 @@ def place(part: BurstPart, assembling: Sequence[BurstPart], settings: WindowSett
     """Where a newly received part goes, given the parts of the chat's assembling burst (empty if there is none).
 
     - The self-test stands alone with window 0 and leaves the owner's burst alone.
-    - An interrupt word stands alone, closed at once, and closes the assembling burst at once too (`interrupted`) —
-      unless that burst still waits for a transcript, which keeps its window rather than lose the voice note.
-    - "kut" while a burst assembles joins it as a hold; with nothing assembling it is an interrupt.
+    - "kut" means "wait, more is coming", never "stop": it joins the assembling burst as a hold, or, with nothing
+      assembling, opens a burst that holds for the next part (at most `hold_max_s`). Nothing is closed for it but a
+      burst whose window had already ended.
+    - Any other interrupt word stands alone, closed at once, and closes the assembling burst at once too
+      (`interrupted`) — unless that burst still waits for a transcript, which keeps its window rather than lose the
+      voice note.
     - A part received after the assembling burst's window ended opens a new burst, and the old one closes for its
       own reason first: the rule decides by arrival time, so a late timer or a restart changes nothing.
     - An edit of a message in the assembling burst replaces that part; any other part joins.
@@ -385,8 +390,9 @@ def place(part: BurstPart, assembling: Sequence[BurstPart], settings: WindowSett
     still_open = current is not None and current.admits(part.at)
     ended = current.reason if current is not None and not still_open else None
     interrupt = interrupt_of_part(part)
-    if interrupt is InterruptKind.HOLD and still_open:
-        return Placement(Into.CURRENT, replace(part, role=PartRole.HOLD))
+    if interrupt is InterruptKind.HOLD:
+        held = replace(part, role=PartRole.HOLD)
+        return Placement(Into.CURRENT, held) if still_open else Placement(Into.NEW, held, close_current=ended)
     if interrupt is not None:
         keeps_window = current is not None and current.hold is HoldReason.TRANSCRIPT
         close = CloseReason.INTERRUPTED if still_open and not keeps_window else ended
@@ -442,9 +448,10 @@ def apply_transcript(
 ) -> TranscriptOutcome:
     """The burst once the transcript of part `update_id` arrived at `at` (`ok=False`: `text` is the failure marker).
 
-    A short transcript that is an interrupt word is handled like the typed word (SPEC §3.2.5): a "kut" among other
-    content becomes a hold; any other interrupt leaves the burst, which closes at once (`interrupted`) unless another
-    transcript is still pending; a voice note that is the burst's only content makes the burst the interrupt itself.
+    A short transcript that is an interrupt word is handled like the typed word (SPEC §3.2.5): a "kut" becomes a hold,
+    whatever else the burst holds; any other interrupt leaves the burst, which closes at once (`interrupted`) unless
+    another transcript is still pending; a voice note that is the burst's only content makes the burst the interrupt
+    itself.
     """
     index = _pending_index(parts, update_id)
     if index is None:
@@ -457,15 +464,20 @@ def apply_transcript(
     interrupt = interrupt_of_part(voice)
     if interrupt is None:
         return TranscriptOutcome(with_voice)
-    if not any(part.role is PartRole.CONTENT for part in others):
-        return TranscriptOutcome(with_voice, close_now=CloseReason.INTERRUPT)
     if interrupt is InterruptKind.HOLD:
         return TranscriptOutcome((*parts[:index], replace(voice, role=PartRole.HOLD), *parts[index + 1 :]))
+    if not has_content(others):
+        return TranscriptOutcome(with_voice, close_now=CloseReason.INTERRUPT)
     still_pending = any(part.transcript is TranscriptState.PENDING for part in others)
     return TranscriptOutcome(others, alone=voice, close_now=None if still_pending else CloseReason.INTERRUPTED)
 
 
 # --- the turn input -----------------------------------------------------------------------------------------------
+def has_content(parts: Iterable[BurstPart]) -> bool:
+    """The burst holds something for a turn: a "kut" hold alone is no input (it lapses, `cancelled`)."""
+    return any(part.role is PartRole.CONTENT for part in parts)
+
+
 @dataclass(frozen=True, slots=True)
 class TurnInput:
     """One closed burst, as pre-parse, routing and the turn see it (SPEC §4.4 "burst end → one TurnInput")."""
@@ -537,7 +549,7 @@ def turn_input(
 ) -> TurnInput:
     content = tuple(part for part in parts if part.role is PartRole.CONTENT)
     if not content:
-        msg = f"burst {burst_id} has no content part"
+        msg = f"burst {burst_id} has no content part: a lone hold lapses (`has_content`), it has no turn input"
         raise ValueError(msg)
     return TurnInput(burst_id, chat_id, content, opened_at=opened_at, closed_at=closed_at, close_reason=reason)
 

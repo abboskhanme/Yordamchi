@@ -221,8 +221,12 @@ async def test_the_scripted_conversation_runs_end_to_end_on_fakes() -> None:  # 
         took = await bot.within(3, lambda: bool(bot.posted("Holat · dev bot")), what="holat")
         assert took <= 3
 
-        # --- later-phase intents answer "not yet", never become work ----------------------------------------------
+        # --- "xarajat?" answers the cost report from local data (UC-07, T51) -----------------------------------
         await bot.say("xarajat?")
+        await bot.within(5, lambda: bool(bot.posted(S.COST_HEAD())), what="the cost report")
+
+        # --- later-phase intents answer "not yet", never become work ----------------------------------------------
+        await bot.say("integratsiyalar")
         await bot.within(5, lambda: bool(bot.posted(S.NOT_YET(phase="P2"))), what="not yet")
 
         # --- no button, keyboard or menu, ever (D8); every message went to the dev group ----------------------

@@ -12,4 +12,4 @@ Sozlamalar · dev bot: 15 ta, 13 guruh; standartdan farqli — 8 ta.
 • Limitlar (xarajat, parallel ish) — 1 ta: hammasi standart
 • Cheklovlar (matn, fayl, xotira) — 1 ta: hammasi standart
 • Serverlar — 1 ta: servers.hosts = bonvi-srv
-To'liq ro'yxat — faylda. O'zgartirish uchun shunchaki ayting, masalan: «rasmdan keyin 15 soniya kut»; bekor qilish: «oldingi holatiga qaytar».
+To'liq ro'yxat — faylda. O'zgartirish uchun «sozlama:» bilan boshlang, masalan: «sozlama: rasmdan keyin 15 soniya kut»; bekor qilish: «oldingi holatiga qaytar».

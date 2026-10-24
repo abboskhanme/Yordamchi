@@ -25,6 +25,28 @@ from yordamchi.bots.dev.intents import EARLY, NOT_BUILT, Command, Intent, comman
             "sozlama: javoblar qisqaroq bo'lsin",
             Command(Intent.CHANGE_SETTING, argument="sozlama: javoblar qisqaroq bo'lsin"),
         ),
+        ("Settings: answer in Russian", Command(Intent.CHANGE_SETTING, argument="Settings: answer in Russian")),
+        (
+            "/sozlamalar rasmdan keyin 15 soniya kut",
+            Command(Intent.CHANGE_SETTING, argument="rasmdan keyin 15 soniya kut"),
+        ),
+        # settings in natural language (T34b): the owner speaking to the bot about itself, anywhere in the message
+        (
+            "ovozingni ayolga o'zgartir",
+            Command(Intent.CHANGE_SETTING, argument="ovozingni ayolga o'zgartir", implicit=True),
+        ),
+        (
+            "Javoblaringni qisqaroq qil.",
+            Command(Intent.CHANGE_SETTING, argument="Javoblaringni qisqaroq qil", implicit=True),
+        ),
+        (
+            "iltimos, gaplaringni iliqroq qil",
+            Command(Intent.CHANGE_SETTING, argument="iltimos, gaplaringni iliqroq qil", implicit=True),
+        ),
+        (
+            "o’zingni qisqaroq tut",  # a curly apostrophe, as a phone keyboard types it
+            Command(Intent.CHANGE_SETTING, argument="o'zingni qisqaroq tut", implicit=True),
+        ),
         # projects (UC-18)
         ("loyihalar", Command(Intent.LIST_PROJECTS)),
         ("/loyihalar", Command(Intent.LIST_PROJECTS)),
@@ -49,9 +71,10 @@ from yordamchi.bots.dev.intents import EARLY, NOT_BUILT, Command, Intent, comman
         # servers (T31)
         ("bonvi-srv serverini kuzat", Command(Intent.WATCH_SERVER, argument="bonvi-srv")),
         ("bonvi-srv'ni kuzatma", Command(Intent.UNWATCH_SERVER, argument="bonvi-srv")),
-        # later phases answer S.NOT_YET
+        # cost (UC-07, T51)
         ("xarajat?", Command(Intent.SHOW_COST)),
         ("/xarajat", Command(Intent.SHOW_COST)),
+        # later phases answer S.NOT_YET
         ("integratsiyalar", Command(Intent.INTEGRATIONS)),
         ("Bonvi HR'ga ulan: https://hr.example.uz/mcp", Command(Intent.INTEGRATIONS)),
         ("yangi loyiha: maktab uchun bot", Command(Intent.NEW_PROJECT)),
@@ -72,6 +95,10 @@ def test_each_phrase_names_its_intent(text: str, expected: Command) -> None:
     [
         "BonviHR'da login sahifasini tuzat",
         "BonviHR'ning sozlamalar sahifasini tuzat",  # "sozlama" inside work for a project
+        "sozlamalar sahifasiga dark mode qo'sh",  # a part of some app, not the bot's settings
+        "Settings page'dagi tugmani tuzat",
+        "rasmdan keyin 15 soniya kut",  # no cue: routing's `change_setting` intent decides it
+        "xatoni o'zing top va tuzat",  # "do it yourself" is an instruction
         "holatni tekshir va testlarni ishga tushir",
         "/start",
         "ha",
@@ -93,7 +120,6 @@ def test_only_commands_that_can_never_be_an_answer_come_before_binding() -> None
 
 def test_every_later_phase_intent_is_answered_not_yet() -> None:
     later = {
-        Intent.SHOW_COST,
         Intent.INTEGRATIONS,
         Intent.NEW_PROJECT,
         Intent.MAC_HANDOFF,
@@ -102,7 +128,12 @@ def test_every_later_phase_intent_is_answered_not_yet() -> None:
         Intent.SELF_UPDATE,
     }
     assert later <= NOT_BUILT
-    assert not Command(Intent.SHOW_COST).built
-    assert Command(Intent.SHOW_COST).phase == "P2"
-    assert Command(Intent.NEW_SESSION).phase == "P1"  # a P1 row whose turns API is still to come
+    assert not Command(Intent.SELF_UPDATE).built  # its drain and probation are wired in P2
+    assert Command(Intent.SELF_UPDATE).phase == "P2"
     assert Command(Intent.SHOW_HEALTH).built
+
+
+def test_the_cost_report_and_a_new_session_are_wired() -> None:
+    assert Command(Intent.SHOW_COST).built
+    assert Command(Intent.SHOW_COST).early  # "xarajat?" can never answer an agent's question
+    assert Command(Intent.NEW_SESSION, project="BonviHR").built

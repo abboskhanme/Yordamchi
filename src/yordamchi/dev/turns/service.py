@@ -13,7 +13,11 @@ How the pieces fit:
 - **Sessions.** One live executor session per (project, kind), held in `TurnsState` (memory) and `agent_sessions`
   (its id, so it resumes after an idle close or a crash). Its `SessionSpec` follows SPEC §5.3; its guard is the
   gate's (`gate.service.make_guard`), closed while the turn stops; its `context_provider` returns the current owner
-  instructions (`prompts/dev/turn_context.md`), recomputed before every delivery (SPEC §5.4).
+  instructions (`prompts/dev/turn_context.md`), recomputed before every delivery (SPEC §5.4). "X yangi sessiya"
+  (`new_session`) retires the coding session: the next turn opens a fresh one, seeded with the latest handoff note.
+- **Typing.** The inbox shows "typing…" from the moment an update is accepted (a quick answer keeps it until it is
+  sent). Work is long and has its own progress line, so a burst routed to a turn stops it in the same unit of work;
+  `ack.typing_for_work` keeps it on instead, renewed by the turn's progress.
 - **Events.** One pump per live session reads `AgentRuntime.events` and drives the turn: progress (one line per
   project, coalesced by the outbox), questions, usage limits, the result (complete after `turns.result_grace_s` of
   silence with no input left, SPEC §5.1) and failures. A finished turn gets the finish nudge once if work is left
@@ -169,7 +173,9 @@ class _Live:
     questions: set[str] = field(default_factory=set)
     pending_result: TurnResult | None = None
     seen: int = 0  # events read; the result grace ends the turn only if nothing came after its result
-    seed_note: str | None = None  # a renewed session's first input carries the last handoff note
+    seed_note: str | None = None  # a renewed or fresh session's first input carries the last handoff note
+    seed_prompt: str = "dev/turns_renewed"  # how the note is introduced: a lost transcript, or the owner's new session
+    retired: bool = False  # "yangi sessiya": no new turn goes in; it closes once its turn is over
     last_active: datetime | None = None
     failure: str | None = None
     closing: bool = False
@@ -194,6 +200,7 @@ class TurnsState:
     questions: QuestionHook | None = None
     turn_ended: TurnEndHook | None = None
     tasks: set[asyncio.Task[None]] = field(default_factory=set)  # this feature's background work, for shutdown
+    renewing: set[str] = field(default_factory=set)  # "yangi sessiya" waits for these projects' active turn
 
     def spawn(self, name: str, coro: Coroutine[object, object, None]) -> None:
         """`core.aio.spawn`, remembered until done, so `shutdown_turns` leaves nothing running."""
@@ -206,7 +213,10 @@ class TurnsState:
         self.wake.set()
 
     def ended(self, deps: DevDeps, project_id: str, turn_id: int) -> None:
-        """A turn's end is committed: `turn_ended` (T30's digest refresh) runs in the background."""
+        """A turn's end is committed: `turn_ended` (T30's digest refresh) runs in the background, and a "yangi
+        sessiya" that waited for it is carried out."""
+        if project_id in self.renewing:
+            self.spawn(f"turn_renew_{turn_id}", _renew_after_turn(deps, self, project_id))
         if self.turn_ended is not None:
             self.spawn(f"turn_ended_{turn_id}", self.turn_ended(deps, project_id))
 
@@ -435,6 +445,13 @@ async def _add_delivery(
     return row.id if row is not None else None
 
 
+async def _work_accepted(s: Session, deps: DevDeps, snap: Snapshot) -> None:
+    """A burst became work in a turn: the "typing…" the inbox started at intake stops here, in the same unit of work
+    (the reaction and the progress line say enough), unless `ack.typing_for_work` keeps it on."""
+    if not snap[defaults.ACK_TYPING_FOR_WORK]:
+        await outbox.stop_typing(s, bot=deps.bot, chat_id=_chat(snap))
+
+
 # --- submit (the narrow interface to dev/routing) -------------------------------------------------------------------
 async def _working_turn(s: Session, project_id: str, kind: SessionKind) -> Turn | None:
     rows = await store.list_project_turns(s, project_id, statuses=_RUNNING, limit=5)
@@ -485,9 +502,11 @@ async def submit(s: Session, *, request: TurnRequest, at: datetime) -> Submitted
 
 
 async def submit_turn(deps: DevDeps, state: TurnsState, request: TurnRequest) -> Submitted:
-    """`submit` in its own unit of work, then a scheduler pass."""
+    """`submit` in its own unit of work (and "typing…" stops: `_work_accepted`), then a scheduler pass."""
+    snap = await settings.snapshot(deps)
     async with deps.db.uow() as s:
         submitted = await submit(s, request=request, at=deps.clock.now())
+        await _work_accepted(s, deps, snap)
     log.info(
         "turn_submitted",
         project=request.project_id,
@@ -547,7 +566,11 @@ async def route_turn(
     work, so a burst is never routed without its delivery, nor delivered twice. Routing's follow-up rule reads this
     feature's `running_turns`. A question, a report or a projectless intent writes no delivery: the caller handles
     `routed` (send the question and `set_clarification_message`, answer the report, …). `images` are the burst's
-    photos saved by `save_images`; they go into the delivery."""
+    photos saved by `save_images`; they go into the delivery.
+
+    An investigation gets "X · Tekshiryapman (~3 daqiqa)" in the same unit of work, at the top priority, as the report
+    path sends it (UC-15 F, ≤ 2 s). It names the project, so it takes the place of a bare "→ X"; a voice echo stays
+    first, because it shows what was heard (UC-05)."""
     facts = replace(facts, running=await running_turns(deps))
     planned = await routing.decide_route(deps, item, facts)
     decision = planned.decision
@@ -559,22 +582,39 @@ async def route_turn(
         routed = await routing.record_route(s, bot=deps.bot, planned=planned, at=now)
         submitted: Submitted | None = None
         if routed is not None and kind is not None and to_project is not None:
-            if routed.reply is not None:
+            investigating = kind is TurnKind.INVESTIGATE
+            reply = routed.reply
+            if investigating and reply == S.ROUTED(project=to_project):
+                reply = None  # "X · Tekshiryapman" names the project already
+            if reply is not None:
                 await _tell(
                     s,
                     deps,
                     snap,
-                    routed.reply,
+                    reply,
                     ref=f"route-{routed.route_id}",
                     project_id=to_project,
                     turn_id=None,
                     kind=Kind.ECHO,
+                )
+            if investigating:
+                await _tell(
+                    s,
+                    deps,
+                    snap,
+                    domain.checking_text(to_project),
+                    ref=f"route-{routed.route_id}-checking",
+                    project_id=to_project,
+                    turn_id=None,
+                    kind=Kind.REPORT,
+                    priority=None if reply is not None else outbox_domain.HIGHEST_PRIORITY,
                 )
             merge = decision.outcome is Outcome.MERGE
             request = domain.request_from_input(
                 item, to_project, kind=kind, merge=merge, route_id=routed.route_id, images=images
             )
             submitted = await submit(s, request=request, at=now)
+            await _work_accepted(s, deps, snap)
     if submitted is not None:
         state.poke()
         log.info("turn_routed", project=to_project, turn_id=submitted.turn_id, merged=submitted.merged)
@@ -682,8 +722,9 @@ async def _tend_working(deps: DevDeps, state: TurnsState, snap: Snapshot, now: d
     idle_after = snap[defaults.SESSIONS_IDLE_CLOSE_MIN] * 60
     for live in list(state.live.values()):
         idle = live.turn_id is None and not live.closing and not live.gone
-        if idle and _seconds(live.last_active or now, now) >= idle_after:
-            state.spawn(f"turns_close_{live.agent_session_id}", _close_live(deps, state, live, reason="idle"))
+        if idle and (live.retired or _seconds(live.last_active or now, now) >= idle_after):
+            why = "new_session" if live.retired else "idle"
+            state.spawn(f"turns_close_{live.agent_session_id}", _close_live(deps, state, live, reason=why))
 
 
 async def _retry_limits(deps: DevDeps, state: TurnsState, now: datetime) -> None:
@@ -1008,12 +1049,13 @@ async def _session_for(
     deps: DevDeps, state: TurnsState, snap: Snapshot, project: Project, kind: TurnKind, root: Path
 ) -> _Live:
     """The project's live session of this kind, opened or resumed if there is none. A model change is applied
-    with `set_model`; an effort change (a launch option) closes the session and resumes it (SPEC §5.4)."""
+    with `set_model`; an effort change (a launch option) closes the session and resumes it (SPEC §5.4). A session
+    "yangi sessiya" retired is closed and a fresh one opened."""
     session_kind = domain.session_kind_of(kind)
     model, effort = _model_of(snap, session_kind)
     live = state.live_of(project.id, session_kind)
-    if live is not None and live.effort != effort:
-        await _close_live(deps, state, live, reason="effort_changed")
+    if live is not None and (live.retired or live.effort != effort):
+        await _close_live(deps, state, live, reason="new_session" if live.retired else "effort_changed")
         live = None
     if live is None:
         return await _open_session(deps, state, snap, project, kind, root, model=model, effort=effort)
@@ -1039,6 +1081,12 @@ async def _open_session(
     session_kind = domain.session_kind_of(kind)
     async with deps.db.read() as s:
         row = await store.get_current_session(s, project_id=project.id, executor=domain.EXECUTOR, kind=session_kind)
+        # No current row but an older one: "yangi sessiya" retired it, and the fresh session picks up from its note.
+        earlier = (
+            None
+            if row is not None
+            else await store.find_latest_session(s, project_id=project.id, executor=domain.EXECUTOR, kind=session_kind)
+        )
     resume_id: str | None = None
     renewed = False
     if row is not None:
@@ -1108,9 +1156,11 @@ async def _open_session(
                 turn_id=None,
             )
     live.agent_session_id = session_row_id
-    if renewed:
+    fresh = earlier is not None  # both start from where the work stopped
+    if renewed or fresh:
         note = await latest_handoff(deps, project.id)
         live.seed_note = note.text() if note is not None and note.text() else None
+        live.seed_prompt = "dev/turns_renewed" if renewed else "dev/turns_new_session"
     state.live[session_row_id] = live
     state.tokens[live.token] = session_row_id
     idle_timeout = max(60.0, snap[defaults.SESSIONS_IDLE_CLOSE_MIN] * 60.0)
@@ -1151,7 +1201,10 @@ async def _session_gone(deps: DevDeps, state: TurnsState, live: _Live, *, reason
     now = deps.clock.now()
     _detach(live, now)
     snap = live.snap or await settings.snapshot(deps)
-    status = SessionStatus.LOST if reason == "session_not_found" else SessionStatus.IDLE
+    if reason == "session_not_found":
+        status = SessionStatus.LOST
+    else:  # a retired session is never resumed again
+        status = SessionStatus.CLOSED if live.retired else SessionStatus.IDLE
     async with deps.db.uow() as s:
         await store.set_agent_session(s, live.agent_session_id, status=status.value, last_active_at=now)
         await audit.record_event(
@@ -1240,7 +1293,7 @@ async def _deliver_one(deps: DevDeps, state: TurnsState, live: _Live, row: Turn,
         return True
     text = delivery.text or ""
     if live.seed_note is not None:
-        text = prompts.render("dev/turns_renewed", note=live.seed_note, message=text)
+        text = prompts.render(live.seed_prompt, note=live.seed_note, message=text)
         live.seed_note = None
     mode = domain.send_mode(cli_busy=live.busy)
     media = domain.media_from_json(delivery.media_json)
@@ -1406,6 +1459,10 @@ async def _on_progress(deps: DevDeps, state: TurnsState, live: _Live, event: Pro
             live.project_id, seconds=_seconds(live.started_at, now), steps=live.total_steps, latest=live.recent
         )
         await _show(s, deps, snap, turn_id=turn_id, project_id=live.project_id, text=text)
+        if snap[defaults.ACK_TYPING_FOR_WORK] and not is_hidden(live.project_id):
+            # The owner asked to see "typing…" while work runs: each step renews it (≤ 60 s past the last one).
+            ref = f"turn-{turn_id}-step-{live.total_steps}"
+            await outbox.request_typing(s, bot=deps.bot, chat_id=_chat(snap), ref=ref, at=now)
     limits = _limits(snap, live.turn_kind)
     reason = domain.runaway_of(
         steps=live.run_steps,
@@ -1923,6 +1980,69 @@ async def continue_turn(deps: DevDeps, state: TurnsState, project_id: str) -> Bo
     state.poke()
     log.info("turn_continued", project=project_id, turn_id=row.id)
     return S.TURN_CONTINUED(project=project_id)
+
+
+async def _active_coding_turn(deps: DevDeps, project_id: str) -> bool:
+    """A coding turn of the project is working or waiting (a question, a decision, a limit, a runaway pause): its
+    session still holds the context it needs."""
+    async with deps.db.read() as s:
+        rows = await store.list_project_turns(s, project_id, statuses=[status.value for status in ACTIVE], limit=5)
+    return any(domain.session_kind_of(TurnKind(row.kind)) == domain.CODING_SESSION for row in rows)
+
+
+async def _retire_session(deps: DevDeps, state: TurnsState, project_id: str) -> None:
+    """The coding session stops being current; its process closes now if idle, else once its turn is over."""
+    now = deps.clock.now()
+    async with deps.db.uow() as s:
+        row = await store.get_current_session(
+            s, project_id=project_id, executor=domain.EXECUTOR, kind=domain.CODING_SESSION
+        )
+        if row is not None:
+            await store.retire_agent_session(s, row.id, status=SessionStatus.CLOSED.value, at=now)
+            await audit.record_event(
+                s,
+                bot=deps.bot,
+                at=now,
+                actor=AuditActor.OWNER,
+                kind=AuditKind.SESSION_CLOSED,
+                project_id=project_id,
+                ref_type="agent_session",
+                ref_id=str(row.id),
+                data={"reason": "new_session"},
+            )
+    live = state.live_of(project_id, domain.CODING_SESSION)
+    if live is not None:
+        live.retired = True
+        if live.turn_id is None:
+            await _close_live(deps, state, live, reason="new_session")
+    log.info("turn_session_retired", project=project_id, session=row.id if row is not None else None)
+
+
+async def new_session(deps: DevDeps, state: TurnsState, project_id: str) -> BotText:
+    """ "X yangi sessiya" (SPEC §6): the project's coding session is retired, so its next turn starts in a fresh session
+    seeded with the latest handoff note; its process closes. A turn working or waiting in it is never cut off: the
+    retirement waits until that turn has ended (`TurnsState.ended`; a restart in between forgets it, and the owner may
+    say it again). Returns the one line for the owner. `ProjectNotFound` for an unknown project."""
+    project = await projects.get_project(deps, project_id)
+    live = state.live_of(project.id, domain.CODING_SESSION)
+    if (live is not None and live.turn_id is not None) or await _active_coding_turn(deps, project.id):
+        state.renewing.add(project.id)
+        log.info("turn_session_renew_deferred", project=project.id)
+        return S.NEW_SESSION_AFTER_TURN(project=project.id)
+    await _retire_session(deps, state, project.id)
+    note = await latest_handoff(deps, project.id)
+    if note is not None and note.text():
+        return S.NEW_SESSION_READY(project=project.id)
+    return S.NEW_SESSION_READY_NO_NOTE(project=project.id)
+
+
+async def _renew_after_turn(deps: DevDeps, state: TurnsState, project_id: str) -> None:
+    """A turn of a project whose "yangi sessiya" waited has ended: retire its session now, unless another of its
+    coding turns is still working or waiting."""
+    if project_id not in state.renewing or await _active_coding_turn(deps, project_id):
+        return
+    state.renewing.discard(project_id)
+    await _retire_session(deps, state, project_id)
 
 
 async def retry_delivery(deps: DevDeps, state: TurnsState, project_id: str) -> BotText:

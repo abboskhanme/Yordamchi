@@ -31,10 +31,13 @@ Telefonda o'qish uchun. Qo'shtirnoq ichidagi bot javoblari — botning aynan o'z
 - **Skrinshot + matn + ovoz** ketma-ket yuborilsa, bitta so'rov hisoblanadi.
   - Rasmdan keyin bot taxminan 10 soniya kutadi; matndan keyin 1–2 soniya.
   - Bir so'rov ko'pi bilan 30 soniya yig'iladi.
-- **"kut"** (yoki "kutib tur", "biroz kut"):
-  - xabar yuborayotgan paytingizda aytsangiz, bot so'rovni 2 daqiqagacha ochiq ushlab turadi —
-    keyingi rasm yoki matnni bemalol qo'shasiz;
-  - hech narsa yuborayotgan bo'lmasangiz, "kut" ishlayotgan ishni **to'xtatadi** ("to'xta" kabi).
+- **"kut"** (yoki "kutib tur", "biroz kut") — "hali yana yuboraman" degani, hech qachon "to'xta" emas:
+  - bot keyingi rasm, matn yoki ovozni 2 daqiqagacha kutadi va ularni bitta so'rovga qo'shadi;
+  - bot "kut"ga 👌 reaksiya qo'yadi — kutayotganini shundan bilasiz;
+  - ishlayotgan ish **to'xtamaydi**; 2 daqiqada hech narsa kelmasa, "kut" shunchaki unutiladi.
+  - To'xtatish uchun faqat `to'xta`, `stop`, `bas` (pastdagi jadval).
+- **"Yozmoqda…"** faqat tez javoblarda (hisobot, `holat?`, sozlamalar) javob kelguncha ko'rinadi; loyiha ishida
+  👀 reaksiya va jonli qator yetarli. Ish paytida ham ko'rsin desangiz: `sozlama: ack.typing_for_work true`.
 - **Ovozli xabar** o'zbek, rus va inglizcha aralash bo'lsa ham tushuniladi. Bot uni matnga
   o'girib, aytganingizni qaytaradi: "Ovoz: «…» → {loyiha}".
 - Ovozni tushunmasa: "Ovozli xabarni matnga o'gira olmadim: … Matn bilan yozing yoki qayta yuboring."
@@ -62,11 +65,15 @@ Telefonda o'qish uchun. Qo'shtirnoq ichidagi bot javoblari — botning aynan o'z
 | `BonviHR'ni to'xtat` yoki `/stop BonviHR` | Aynan shu loyiha to'xtaydi |
 | `yo'q, boshqacha qil: <yangi ko'rsatma>` | Joriy ish to'xtaydi, yangi ko'rsatma bilan davom etadi |
 | `hammasini to'xtat` | Hamma ishlar to'xtaydi |
+| `BonviHR yangi sessiya` | "BonviHR: eski sessiyani yopdim — keyingi topshiriq yangi sessiyada, oxirgi eslatma bilan." |
 
 - Bir nechta ish ketayotgan bo'lsa va loyiha aytilmasa: "Bir nechta ish ketyapti: … Qaysi birini
   to'xtatay? Loyiha nomini yozing." Loyiha nomini yozing yoki uning xabariga reply qiling.
 - Hech narsa ishlamayotgan bo'lsa: "Hozir ishlayotgan topshiriq yo'q."
 - Boshqa odamdan **forward qilingan** "to'xta" hech narsani to'xtatmaydi.
+- **Yangi sessiya**: agent chalkashib qolsa, `BonviHR yangi sessiya` deng. Keyingi topshiriq yangi
+  sessiyada, oxirgi ish eslatmasi bilan boshlanadi. Ish ketayotgan bo'lsa, u eski sessiyada tugaydi:
+  "BonviHR: hozirgi ish eski sessiyada tugaydi; keyingi topshiriq yangi sessiyada, oxirgi eslatma bilan."
 
 **Noto'g'ri loyihaga ketdi**
 
@@ -126,14 +133,17 @@ Bir nechta savol bo'lsa — har biriga alohida qatorda javob yozing. Ko'p tanlov
 | `BonviHR qanday?` yoki `/hisobot BonviHR` | Bitta loyiha: hozirgi ish, oxirgi natija, git, bugungi commit'lar |
 | `bugun nima o'zgardi?` yoki `/hisobot` | Bugun o'zgargan hamma loyihalar |
 | `holat?` yoki `/holat` | Botning o'zi: Claude CLI, ClaudeManager, ishlar, navbat, Mac xotirasi va diski, oxirgi xatolar |
+| `xarajat?` yoki `/xarajat` | Bugun / 7 kun / shu oy: pullik API (limitga nisbatan), Claude obunasi (taxmin), eng faol loyihalar |
 
 - Har hisobot oxirida ma'lumot qanchalik yangiligi yoziladi, masalan:
   - "Ma'lumot: 12 daqiqa oldin"
   - "Ma'lumot: eskirgan edi (3 soat oldin) — hozir yangiladim"
 - Hisobot loyiha sessiyasiga tegmaydi va ishlayotgan ishni to'xtatmaydi.
-- **Chuqur savol** ("BonviHR'da login nega ishlamayapti?") — bot avval yozadi:
-  "{loyiha} · Tekshiryapman (~3 daqiqa)", keyin natijani alohida yuboradi.
+- **Chuqur savol** ("BonviHR'da login nega ishlamayapti?", "X'dagi xatoni tekshir") — bot darhol
+  (2 soniya ichida) yozadi: "{loyiha} · Tekshiryapman (~3 daqiqa)", keyin natijani alohida yuboradi.
   Tekshiruv faqat o'qiydi, hech narsani o'zgartirmaydi.
+- **Xarajat limiti**: pullik xizmat oylik limitining 80 % iga yetsa ogohlantiradi; 100 % da uning pullik
+  chaqiruvlarini to'xtatadi va limitni qanday oshirishni aytadi.
 
 ---
 
@@ -155,10 +165,14 @@ Bir nechta savol bo'lsa — har biriga alohida qatorda javob yozing. Ko'p tanlov
 ## 7. Sozlamalar
 
 - **Ko'rish**: `sozlamalaring qanday?` (yoki `/sozlamalar`). Qisqa ro'yxat + to'liq ro'yxat faylda.
-- **O'zgartirish**: gapni `sozlama:` bilan boshlang, masalan:
-  `sozlama: rasmdan keyin 15 soniya kut`
+- **O'zgartirish**: gapni `sozlama:` bilan boshlang (`sozlama: rasmdan keyin 15 soniya kut`) yoki botga
+  "sen" deb, o'zi haqida ayting — loyiha nomisiz: `javoblaringni qisqaroq qil`, `ovozingni ayolga o'zgartir`,
+  `gaplaringni iliqroq qil`. Bunday so'z bo'lmasa (`rasmdan keyin 15 soniya kut`), `sozlama:` qo'shing.
   - Javob: "Sozlama o'zgardi: … Keyingi xabardan kuchga kiradi."
   - Tushunmasa, bitta aniqlashtiruvchi savol beradi.
+  - Loyiha nomi bo'lsa, bu loyiha ishi: `BonviHR'ning sozlamalar sahifasini tuzat` BonviHR'ga ketadi.
+  - Sozlama bilan bo'lmaydigan narsa (yangi imkoniyat) uchun bot P2 bosqichidan keyin
+    `o'zingga … qo'sh` deyishni taklif qiladi.
 - **Qaytarish**: `oldingi holatiga qaytar` (oxirgi o'zgarish) yoki
   `oldingi holatiga qaytar burst.after_media_s` (bitta sozlama).
 - **Himoyani susaytiradigan** o'zgarish bitta savol beradi:
@@ -213,13 +227,10 @@ Vaqt 10 daqiqadan eski bo'lsa — bot ishlamayapti.
 Quyidagilarga bot "Bu imkoniyat hali yo'q — P2 bosqichida qo'shiladi." deb javob beradi va
 hech qaysi loyihaga yubormaydi:
 
-- xarajat hisoboti: `xarajat?`, `/xarajat`;
 - integratsiyalar: `integratsiyalar`, `/integratsiyalar`, `X'ga ulan: <manzil>`;
 - yangi loyiha: `yangi loyiha: …` (shuningdek alohida `yangi loyiha`, `boshla`, `tamom` so'zlari);
 - sessiyani Mac'ga o'tkazish: `/sessiya`, `BonviHR sessiyasi`;
 - loyihani yopib turish va qaytarish: `BonviHR'ni yopib tur`, `BonviHR'ni davom ettiramiz`;
 - botni o'zini yangilash: `o'zingga … qo'sh`.
-
-`BonviHR yangi sessiya` hozircha "Bu imkoniyat hali yo'q — P1 bosqichida qo'shiladi." deydi.
 
 **Shaxsiy bot** `@OrvionX_AI_Bot` va uning imkoniyatlari — P3 bosqichida.

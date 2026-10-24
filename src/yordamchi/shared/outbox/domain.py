@@ -112,8 +112,9 @@ ELLIPSIS: Final = "…"
 
 TYPING_EVERY: Final = timedelta(seconds=4)
 TYPING_FOR: Final = timedelta(seconds=60)
-# Kinds whose message does not end the typing hint: the ack of intake comes before the work it announces.
-KEEPS_TYPING: Final = frozenset({Kind.ACK, Kind.HEARTBEAT})
+# Kinds whose message does not end the typing hint: the ack of intake comes before the work it announces, and a
+# turn's progress line is no answer (with `ack.typing_for_work` on, the turn's steps keep the hint up).
+KEEPS_TYPING: Final = frozenset({Kind.ACK, Kind.HEARTBEAT, Kind.PROGRESS})
 
 # Failure handling. RateLimited never uses up an attempt.
 BACKOFF_BASE: Final = timedelta(seconds=1)

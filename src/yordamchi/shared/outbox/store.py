@@ -98,15 +98,18 @@ async def set_pending_payload(s: AsyncSession, row_id: int, *, payload: JsonValu
     return await bulk.affected_rows(s, statement) == 1
 
 
-async def cancel_pending(s: AsyncSession, *, bot: str, chat_id: int, op: str, code: str) -> int:
-    """Every pending row of one op in one chat → `cancelled` (typing that is no longer wanted)."""
+async def cancel_pending(
+    s: AsyncSession, *, bot: str, chat_id: int, op: str, code: str, in_flight: bool = False
+) -> int:
+    """Every pending row of one op in one chat → `cancelled` (typing that is no longer wanted). `in_flight` also takes
+    a row being sent right now: its call finishes, but it is never re-armed (`set_message_pending` needs `sending`)."""
     statement = (
         update(OutboxMessage)
         .where(
             OutboxMessage.bot == bot,
             OutboxMessage.chat_id == chat_id,
             OutboxMessage.op == op,
-            OutboxMessage.status == _PENDING,
+            OutboxMessage.status.in_(_QUEUED if in_flight else (_PENDING,)),
         )
         .values(status=Status.CANCELLED.value, last_error_code=code)
         .execution_options(synchronize_session=False)

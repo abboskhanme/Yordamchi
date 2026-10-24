@@ -546,6 +546,19 @@ async def test_stop_typing_ends_the_hint(dev_deps: DevDeps, fakes: Fakes) -> Non
     assert {request.chat_id for request in fakes.messenger.sent("chat_action")} == {PRIVATE}
 
 
+async def test_stop_typing_also_ends_a_hint_the_sender_has_in_flight(dev_deps: DevDeps, fakes: Fakes) -> None:
+    """T34b: a burst routed to a turn stops the intake's typing from another task; a hint being sent at that instant
+    finishes its call but is never re-armed (race-free)."""
+    await _typing(dev_deps, "update-1")
+    row = await _row(dev_deps, "ack:update-1:chat_action")
+    async with dev_deps.db.uow() as s:
+        assert await store.claim_message(s, row.id, at=fakes.clock.now()) is not None  # the sender took it
+        assert await service.stop_typing(s, bot=dev_deps.bot, chat_id=GROUP) == 1
+    await drain_outbox(dev_deps, fakes.clock, seconds=20)
+    assert fakes.messenger.sent("chat_action") == []
+    assert (await _row(dev_deps, "ack:update-1:chat_action")).status == "cancelled"
+
+
 # --- deletes, pins, edits by id, files -----------------------------------------------------------------------------
 async def test_the_heartbeat_is_posted_pinned_and_edited_in_place(dev_deps: DevDeps, fakes: Fakes) -> None:
     now = fakes.clock.now()

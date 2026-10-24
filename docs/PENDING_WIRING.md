@@ -256,7 +256,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - "oldingi holatiga qaytar" → `revert_setting(deps, origin, key, ask=…)`;
   - "ha"/"yo'q" go through `gate.answer_decision` (settings decisions are in `pending_items`).
 - [ ] T34 assistant pools: size them from `assistant.warm_clients`, and re-warm after `models.*` / `assistant.warm_clients` changes. T34: a kind at "0" is not warmed, and every kind re-warms after any settings change; the 1-vs-2 (spare) count needs an adapter option (see From T34).
-- [ ] T20 follow-up: pass `models.routing_effort` as `effort=` on routing asks; route the settings intent to `handle_request`.
+- [ ] T20 follow-up: pass `models.routing_effort` as `effort=` on routing asks; route the settings intent to `handle_request`. T34b: pre-parse takes the clear cues ("sozlama…", `/sozlamalar <request>`, "javoblaringni …", "ovozingni …", "o'zingni …"); routing's own `change_setting` intent is still open (From T34b).
 - [ ] P3: a conversational `AskOwner` for the personal bot (stores `PendingChange.to_json()`, then `apply_pending_change`).
 - [ ] SPEC §4.3: add `timeouts.settings_s`, `assistant.warm_clients`, `models.routing_effort` and the `DictOf` check; mention `prompts/dev/settings_context.md` in §3.2.15.
 
@@ -317,7 +317,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - `/hisobot [X]` takes the same path.
 - [ ] T31: provide `latest_checks(deps) -> Sequence[digest.domain.ServerCheck]` and handle `needs_server_check`.
 - [ ] T24 gap: `handoff_json` is written only for turns that end done. `_fail_turn` and `_end_stopped` should write a block-less `HandoffNote`, so interrupted and failed turns are synthesized too.
-- [ ] Routing: `Intent.INVESTIGATE` via `route_turn` sends no "Tekshiryapman" yet.
+- [x] Routing: `Intent.INVESTIGATE` via `route_turn` sends no "Tekshiryapman" yet. Done in T34b (`route_turn` queues `S.CHECKING` with the delivery, priority 0).
 - [ ] Docs:
   - SPEC §4.2: the extra `digests` columns;
   - SPEC §4.3: candidate keys `timeouts.report_budget_s`, `timeouts.digest_refresh_s`, `timeouts.handoff_synthesis_s`, `digest.active_within_days`;
@@ -366,13 +366,23 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [x] T34 poller hook: `health.record_poll(deps, hs, at=tick.at, updates=tick.updates, error=tick.error)`. `error` is now required. Done in T34.
 - [ ] SPEC §2.8: the heartbeat fields `last_poll_attempt_at`, `last_poll_error_kind`, `consecutive_poll_failures`, and the offline rule. SPEC §4.2: the `network_gap` event kind.
 
+## From T51 (cost)
+- [x] T34b: "xarajat?" / `/xarajat` → `cost.service.show_cost(deps, chat_id=…, ref=…, reply_to=…)` (an early command, answered as a reply to the question), and `aio.forever("cost", lambda: cost.service.run_cost_watch(deps))` in the dev bot (the 80 %/100 % cap notices, the optional daily summary).
+- [ ] P3: the same loop in the personal bot (both bots write their own ledger; the caps are one budget).
+
 ## From T34 (dev bot wiring)
 - [x] T33 in the dev bot: `IncomingUpdate(forward=inbox.domain.forward_of(message.model_dump(mode="json")))`; commands, interrupts and the revert answer read `TurnInput.own_text` (`RevertReply.of`); `settings.handle_request(…, item.own_text, …)`. `dev/questions` still builds `DecisionReply(…)` from `answer_text` (forwarded parts left out) rather than `DecisionReply.of`: a T29 follow-up, same effect.
-- [ ] T24: `turns.service.new_session(deps, state, project_id)` for "X yangi sessiya" (SPEC §6, P1): retire the current `agent_sessions` row (`store.retire_agent_session`) and close its live process; until then the intent answers `S.NOT_YET(phase="P1")`.
+- [x] T24: `turns.service.new_session(deps, state, project_id)` for "X yangi sessiya" (SPEC §6, P1): retire the current `agent_sessions` row (`store.retire_agent_session`) and close its live process; until then the intent answers `S.NOT_YET(phase="P1")`. Done in T34b: a working turn finishes in the old session first; the next turn opens a fresh one seeded with the handoff note (`prompts/dev/turns_new_session.md`).
 - [ ] `RouteFacts.reported`: a reader of each project's latest bot message (result, question) from the outbox's `message_links`, for routing's context signal.
 - [ ] T12: `Assistant.warm` takes the spare count from `assistant.warm_clients` ("1" = live client only); the adapter keeps a spare today.
 - [ ] Files other than photos (documents, video, audio) sent with an instruction: saved nowhere the agent may read (the gate forbids DATA). Decide a project-local inbox folder or adapter-side attachments.
 - [ ] T24 `domain.title_of`: a burst that starts with a photo gets the title "[image]" (reports show «[image]»); skip bare part labels.
 - [ ] P2: the control socket's `selftest` and `headers`, the probation peek poller (`app._probation` only waits for the flag now), and `status.drained`.
 - [ ] P3: the personal bot's `bots/personal/{app,telegram,intents}.py`, on the same `common` pieces.
-- [ ] SPEC §6.1 / QOLLANMA (T46): QOLLANMA part done in T46 (§3, §5–§7); SPEC §6.1 still open: the early commands before binding, "sozlama: …" for a settings change by chat, "X serverini kuzat" / "X'ni kuzatma", `/hisobot [X]`, `/stop`.
+- [ ] SPEC §6.1 / QOLLANMA (T46): QOLLANMA part done in T46 (§3, §5–§7) and T34b (§2 "kut" and typing, §3 "yangi sessiya", §5 "xarajat?", §7 settings in plain words); SPEC §6.1 still open: the early commands before binding, "sozlama: …" and the cue words for a settings change by chat, "X serverini kuzat" / "X'ni kuzatma", `/hisobot [X]`, `/stop`.
+
+## From T34b (natural talk)
+- [ ] SPEC §3.2.5 / §6: "kut" with nothing assembling no longer stops the running turn; it opens a burst that holds for the next part (`burst.hold_max_s`), acknowledged with `ui.hold_reaction`; a hold that nothing follows lapses (`cancelled`, no turn input).
+- [ ] SPEC §4.3: `ui.hold_reaction` (👌) and `ack.typing_for_work` (false).
+- [ ] Routing's LLM `change_setting` intent (messages about the bot with no cue word, "rasmdan keyin 15 soniya kut"): built and recorded once in T34b, but that live re-record missed UC-10 (clear 96.3 %, context 85.2 %) on cases it does not touch, so it is held back for the orchestrator's call; its 12 settings and 9 near-miss cases scored 21/21. Until then such a request needs "sozlama: …".
+- [ ] SELF_UPDATE stays `S.NOT_YET` in the dev bot until its P2 drain and probation wiring.

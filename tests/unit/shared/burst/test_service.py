@@ -32,6 +32,8 @@ from yordamchi.shared.burst.models import Burst
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox import store as inbox_store
 from yordamchi.shared.inbox.domain import IncomingUpdate, UpdateKind
+from yordamchi.shared.outbox import store as outbox_store
+from yordamchi.shared.outbox.domain import Op
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 
@@ -234,9 +236,56 @@ async def test_a_kut_hold_ends_after_hold_max(dev_deps: DevDeps, fakes: Fakes) -
     assert (_ids(item), item.close_reason) == ([1], CloseReason.HOLD_EXPIRED)
 
 
-async def test_kut_with_nothing_assembling_is_an_interrupt(dev_deps: DevDeps) -> None:
-    [item] = (await _send(dev_deps, _text(1, "kut"))).closed
-    assert (item.close_reason, item.interrupt) == (CloseReason.INTERRUPT, "hold")
+async def _reactions(deps: Deps) -> list[tuple[object, object]]:
+    """The reactions queued for the owner's messages, in order: (message id, emoji)."""
+    async with deps.db.read() as s:
+        rows = await outbox_store.list_outbox_messages(s, deps.bot.value)
+    payloads = [row.payload_json for row in rows if row.op == Op.REACT.value]
+    return [(payload.get("message_id"), payload.get("emoji")) for payload in payloads if isinstance(payload, dict)]
+
+
+async def test_kut_with_nothing_assembling_holds_for_the_next_burst_and_closes_nothing(
+    dev_deps: DevDeps, fakes: Fakes
+) -> None:
+    assert not await _send(dev_deps, _text(1, "kut"))  # no interrupt: nothing closes, nothing is stopped
+    [row] = await _bursts(dev_deps)
+    assert row.status == BurstStatus.HOLDING
+    seen, held = defaults.UI_SEEN_REACTION.default, defaults.UI_HOLD_REACTION.default
+    assert await _reactions(dev_deps) == [(5001, seen), (5001, held)]  # "seen", then "I am waiting"
+    assert not await _wait(dev_deps, fakes, 90)  # the photo is still being picked
+    await _send(dev_deps, make_media_update(2))
+    await _send(dev_deps, _text(3, "shu xatoni tuzat"))
+    [item] = (await _wait(dev_deps, fakes, WS.after_text_s)).closed
+    assert (_ids(item), item.close_reason, item.interrupt) == ([2, 3], CloseReason.QUIET, None)
+
+
+async def test_a_lone_kut_that_nothing_follows_lapses_without_a_turn(dev_deps: DevDeps, fakes: Fakes) -> None:
+    await _send(dev_deps, _text(1, "kut"))
+    assert not await _wait(dev_deps, fakes, WS.hold_max_s)  # lapsed: no turn input, nothing for the router
+    [row] = await _bursts(dev_deps)
+    assert (row.status, row.close_reason) == (BurstStatus.CANCELLED, CloseReason.HOLD_EXPIRED)
+    assert await service.list_closed_bursts(dev_deps, limit=10) == ()
+    await _send(dev_deps, _text(2, "login sahifasini tuzat"))
+    [item] = (await _wait(dev_deps, fakes, WS.after_text_s)).closed
+    assert _ids(item) == [2]  # the next message is a burst of its own
+
+
+async def test_a_stop_after_a_lone_kut_is_an_interrupt_and_the_hold_lapses(dev_deps: DevDeps, fakes: Fakes) -> None:
+    await _send(dev_deps, _text(1, "kut"))
+    await fakes.clock.advance(5)
+    [stop] = (await _send(dev_deps, _text(2, "to'xta"))).closed
+    assert (_ids(stop), stop.interrupt) == ([2], "stop")
+    statuses = sorted((row.id, row.status) for row in await _bursts(dev_deps))
+    assert [status for _, status in statuses] == [BurstStatus.CANCELLED, BurstStatus.CLOSED]
+
+
+async def test_a_spoken_kut_alone_holds_with_its_reaction(dev_deps: DevDeps, fakes: Fakes) -> None:
+    await _send(dev_deps, make_media_update(1, kind=UpdateKind.VOICE, duration_s=1))
+    await fakes.clock.advance(1)
+    assert not await service.record_transcript(dev_deps, update_id=1, text="kut", ok=True)
+    [row] = await _bursts(dev_deps)
+    assert row.status == BurstStatus.HOLDING
+    assert (5001, defaults.UI_HOLD_REACTION.default) in await _reactions(dev_deps)
 
 
 async def test_a_short_voice_stop_leaves_the_burst_at_once(dev_deps: DevDeps, fakes: Fakes) -> None:

@@ -214,13 +214,46 @@ cases:
         - {parts: [1], closes_t: 1.0, reason: interrupt}
         - {parts: [0], closes_t: 1.0, reason: interrupted}
 
+  # T34b: "kut" means "wait, more is coming", never "stop". With nothing assembling it opens a burst that holds
+  # for the next part (at most burst.hold_max_s); the "kut" itself never reaches the turn.
   - id: kut_with_nothing_assembling
-    labels: [interrupt]
+    labels: [interpretable]
     parts:
       - {t: 0, kind: text, text: "kut"}
+      - {t: 40, kind: photo}
+      - {t: 45, kind: text, text: "shu xatoni tuzat"}
     expect:
       bursts:
-        - {parts: [0], closes_t: 0.0, reason: interrupt}
+        - {parts: [1, 2], closes_t: 47.0, reason: quiet}
+
+  - id: kut_alone_lapses_without_a_turn
+    parts:
+      - {t: 0, kind: text, text: "kutib tur"}
+    expect:
+      bursts: []
+
+  - id: kut_while_a_turn_runs_is_never_a_stop
+    labels: [interpretable]
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat"}
+      - {t: 20, kind: text, text: "kut"}
+      - {t: 50, kind: photo}
+      - {t: 52, kind: text, text: "mana xato:"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+        - {parts: [2, 3], closes_t: 62.0, reason: quiet}
+      follow_up: {running_project: BonviHR, route: {project: BonviHR, confidence: 1.0}, merge: true, reason: confident}
+
+  - id: spoken_kut_alone_holds_for_the_next_part
+    labels: [interpretable]
+    parts:
+      - {t: 0, kind: voice, duration_s: 1, transcript_t: 1.5, transcript: "kut"}
+      - {t: 30, kind: photo}
+      - {t: 31, kind: text, text: "shu sahifada"}
+    expect:
+      bursts:
+        - {parts: [1, 2], closes_t: 33.0, reason: quiet}
 
   - id: stop_all
     labels: [interrupt]

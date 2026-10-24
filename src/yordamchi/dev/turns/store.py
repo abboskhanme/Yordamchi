@@ -33,6 +33,17 @@ async def get_current_session(s: AsyncSession, *, project_id: str, executor: str
     return await s.scalar(query)
 
 
+async def find_latest_session(s: AsyncSession, *, project_id: str, executor: str, kind: str) -> AgentSession | None:
+    """The newest session row of one (project, executor, kind), current or retired."""
+    query = (
+        select(AgentSession)
+        .where(AgentSession.project_id == project_id, AgentSession.executor == executor, AgentSession.kind == kind)
+        .order_by(AgentSession.id.desc())
+        .limit(1)
+    )
+    return await s.scalar(query)
+
+
 async def list_current_sessions(s: AsyncSession, *, statuses: Collection[str]) -> list[AgentSession]:
     query = (
         select(AgentSession)

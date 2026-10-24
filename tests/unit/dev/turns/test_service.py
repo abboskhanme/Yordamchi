@@ -27,15 +27,17 @@ from tests.factories import (
     make_project_folder,
     make_turn,
     make_turn_request,
+    make_voice_part,
     make_window_settings,
     projects_root_of,
+    routing_reply,
     send_outbox,
     write_transcript,
 )
 from tests.fakes.agent import FakeAgentRuntime, Pause, ToolStep, done_result
 from tests.fakes.mac_host import GIB, FakeMacHost
 from yordamchi.core import strings as S
-from yordamchi.core.errors import CallTimedOut, GitFailed, TurnNotFound
+from yordamchi.core.errors import CallTimedOut, GitFailed, ProjectNotFound, TurnNotFound
 from yordamchi.core.paths import Paths
 from yordamchi.dev.deps import DevDeps
 from yordamchi.dev.gate import service as gate
@@ -63,6 +65,7 @@ from yordamchi.ports.git import Commit, FileChange, GitStatus
 from yordamchi.ports.mac_host import ClaudeAccount, ClaudeManagerState
 from yordamchi.shared.burst.domain import CloseReason, RouteHint, TurnInput, decide_dev_follow_up, turn_input
 from yordamchi.shared.cost import store as cost_store
+from yordamchi.shared.outbox import service as outbox_service
 from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.models import OutboxMessage
 
@@ -1383,3 +1386,192 @@ async def _text_only(deps: DevDeps) -> TurnInput:
 
     async with deps.db.uow() as s:
         return await make_closed_burst(s, make_part(9, text="faqat matn"))
+
+
+# --- an investigation routed to a project says "Tekshiryapman" first (T34b, UC-15 F) ------------------------------
+async def test_an_investigation_says_tekshiryapman_at_once_in_place_of_a_bare_route(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    fakes.assistant.reply_with("routing", routing_reply(PROJECT, 0.95, intent="investigate"))
+    async with dev_deps.db.uow() as s:
+        item = await make_closed_burst(s, make_part(1, text="BonviHR'da login nega ishlamayapti?"))
+    fakes.agents.script_turn(Pause())
+
+    routed = await service.route_turn(dev_deps, state, item)
+
+    assert routed.submitted is not None
+    assert (await turn(dev_deps, routed.submitted.turn_id)).kind == TurnKind.INVESTIGATE.value
+    [checking] = await messages(dev_deps)  # queued with the delivery, in one unit of work: no bare "→ BonviHR"
+    assert text_of(checking) == "BonviHR · Tekshiryapman (~3 daqiqa)"
+    assert (checking.kind, checking.priority) == ("report", 0)
+
+
+async def test_a_spoken_investigation_keeps_its_voice_echo_then_says_tekshiryapman(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    fakes.assistant.reply_with("routing", routing_reply(PROJECT, 0.95, intent="investigate"))
+    async with dev_deps.db.uow() as s:
+        item = await make_closed_burst(s, make_voice_part(1, at_s=0, transcript="BonviHR'da xato nega chiqyapti"))
+    fakes.agents.script_turn(Pause())
+
+    await service.route_turn(dev_deps, state, item)
+
+    echo, checking = await messages(dev_deps)
+    assert text_of(echo).startswith("Ovoz: «BonviHR'da xato nega chiqyapti» → BonviHR")
+    assert text_of(checking) == domain.checking_text(PROJECT)
+    assert checking.priority == echo.priority  # the echo first: it shows what was heard
+
+
+# --- "yozmoqda…": quick answers keep it, long work does not (T34b, owner 2026-10-24) -----------------------------
+async def _typing(deps: DevDeps) -> list[OutboxMessage]:
+    return [row for row in await messages(deps) if row.op == "chat_action"]
+
+
+async def _intake_typing(deps: DevDeps, fakes: Fakes, *, sending: bool = False) -> None:
+    """The inbox's "typing…" for the message, as intake queues it; `sending`: the sender has it in flight."""
+    async with deps.db.uow() as s:
+        await outbox_service.request_typing(s, bot=deps.bot, chat_id=DEV_GROUP_ID, ref="update-1", at=fakes.clock.now())
+    if sending:
+        [row] = await _typing(deps)
+        async with deps.db.uow() as s:
+            assert await outbox_store.claim_message(s, row.id, at=fakes.clock.now()) is not None
+
+
+@pytest.mark.parametrize("sending", [False, True], ids=["pending", "in_flight"])
+async def test_a_burst_routed_to_a_turn_stops_the_intake_typing(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState, sending: bool
+) -> None:
+    await _intake_typing(dev_deps, fakes, sending=sending)
+    async with dev_deps.db.uow() as s:
+        item = await make_closed_burst(s, make_part(1, text="BonviHR'da login sahifasini tuzat"))
+    fakes.agents.script_turn(Pause())
+
+    await service.route_turn(dev_deps, state, item)
+
+    [typing] = await _typing(dev_deps)
+    assert (typing.status, typing.last_error_code) == ("cancelled", "typing_ended")  # never re-armed, even in flight
+
+
+async def test_a_report_question_routes_without_stopping_the_typing(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    await _intake_typing(dev_deps, fakes)
+    fakes.assistant.reply_with("routing", routing_reply(PROJECT, 0.95, intent="report_project"))
+    async with dev_deps.db.uow() as s:
+        item = await make_closed_burst(s, make_part(1, text="BonviHR qanday?"))
+
+    routed = await service.route_turn(dev_deps, state, item)
+
+    assert routed.submitted is None  # the digest answers it; its reply ends the typing when it is sent
+    [typing] = await _typing(dev_deps)
+    assert typing.status == "pending"
+
+
+async def test_with_typing_for_work_on_the_typing_stays_and_each_step_renews_it(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    await add_setting_row(dev_deps.db, "ack.typing_for_work", True, at=fakes.clock.now())
+    await _intake_typing(dev_deps, fakes)
+    async with dev_deps.db.uow() as s:
+        item = await make_closed_burst(s, make_part(1, text="BonviHR'da login sahifasini tuzat"))
+    fakes.agents.script_turn(ToolStep("Read", {"file_path": "README.md"}), Pause())
+
+    await service.route_turn(dev_deps, state, item)
+    assert [row.status for row in await _typing(dev_deps)] == ["pending"]  # not stopped at routing
+    await service.schedule_turns(dev_deps, state)
+
+    async def renewed() -> bool:
+        return any(row.dedupe_key.startswith("ack:turn-") for row in await _typing(dev_deps))
+
+    await until(renewed, what="typing renewed by the step")
+
+
+async def test_with_typing_for_work_off_a_working_turn_never_asks_for_typing(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    fakes.agents.script_turn(ToolStep("Read", {"file_path": "README.md"}), ToolStep("Grep", {"pattern": "x"}), Pause())
+    turn_id = await start(dev_deps, state)
+
+    async def two_steps() -> bool:
+        return (await turn(dev_deps, turn_id)).steps == 2
+
+    await until(two_steps, what="two steps recorded")
+    assert await _typing(dev_deps) == []
+
+
+# --- "X yangi sessiya" (SPEC §6, T34b) --------------------------------------------------------------------------
+async def test_yangi_sessiya_closes_the_idle_session_and_the_next_turn_starts_fresh_with_the_note(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    fakes.agents.script_turn(result())
+    first = await start(dev_deps, state)
+    await finish(dev_deps, fakes, first)
+    old_session = session_of(fakes)
+
+    reply = await service.new_session(dev_deps, state, PROJECT)
+
+    assert reply == S.NEW_SESSION_READY(project=PROJECT)
+    await until(lambda: fakes.agents.closed == [old_session], what="the old process closed")
+    async with dev_deps.db.read() as s:
+        old = await store.find_latest_session(s, project_id=PROJECT, executor=domain.EXECUTOR, kind="coding")
+    assert old is not None
+    assert (old.is_current, old.status) == (False, "closed")  # never resumed again
+    write_transcript(dev_deps.paths.home, old_session)  # even with its transcript still on disk
+
+    fakes.agents.script_turn(Pause())
+    await start(dev_deps, state, make_turn_request(text="endi testlarni yoz"))
+    assert fakes.agents.opened[-1][1] is None  # a new session, not a resume
+    assert session_of(fakes) != old_session
+    seeded = fakes.agents.sends[-1][1].text
+    assert seeded.startswith("[Yordamchi] This is a new session: the owner asked to start afresh")
+    assert "Goal: fix login" in seeded
+    assert seeded.rstrip().endswith("endi testlarni yoz")
+    assert S.SESSION_RENEWED(project=PROJECT) not in await texts(dev_deps)  # the owner was told once, by the reply
+
+
+async def test_yangi_sessiya_lets_a_working_turn_finish_in_the_old_session(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    fakes.agents.script_turn(Pause(), result())
+    first = await start(dev_deps, state)
+    old_session = session_of(fakes)
+
+    assert await service.new_session(dev_deps, state, PROJECT) == S.NEW_SESSION_AFTER_TURN(project=PROJECT)
+    assert fakes.agents.closed == []  # the work is never cut off
+    assert [row.is_current for row in await sessions(dev_deps)] == [True]  # it waits for the turn to end
+    await fakes.agents.release(old_session)
+    await finish(dev_deps, fakes, first)
+    await service.schedule_turns(dev_deps, state)
+    await until(lambda: fakes.agents.closed == [old_session], what="closed once its turn ended")
+
+    fakes.agents.script_turn(Pause())
+    await start(dev_deps, state, make_turn_request(text="keyingisi"))
+    assert fakes.agents.opened[-1][1] is None
+    assert session_of(fakes) != old_session
+
+
+async def test_yangi_sessiya_waits_for_a_turn_waiting_on_the_owner(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    """A turn waiting for a decision continues in the session that holds its context: the renewal waits for it."""
+    fakes.agents.script_turn(result())
+    first = await start(dev_deps, state)
+    await finish(dev_deps, fakes, first)
+    async with dev_deps.db.uow() as s:
+        await make_turn(s, PROJECT, status=TurnStatus.WAITING_DECISION, at=fakes.clock.now())
+
+    assert await service.new_session(dev_deps, state, PROJECT) == S.NEW_SESSION_AFTER_TURN(project=PROJECT)
+    assert fakes.agents.closed == []
+    assert [row.is_current for row in await sessions(dev_deps)] == [True]
+    assert state.renewing == {PROJECT}
+
+
+async def test_yangi_sessiya_with_no_session_yet_says_the_next_turn_starts_one(
+    dev_deps: DevDeps, folders: dict[str, Path], state: TurnsState
+) -> None:
+    assert await service.new_session(dev_deps, state, PROJECT) == S.NEW_SESSION_READY_NO_NOTE(project=PROJECT)
+
+
+async def test_yangi_sessiya_for_an_unknown_project_raises(dev_deps: DevDeps, state: TurnsState) -> None:
+    with pytest.raises(ProjectNotFound):
+        await service.new_session(dev_deps, state, "NoSuchProject")

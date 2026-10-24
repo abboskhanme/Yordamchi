@@ -3,16 +3,19 @@ then routing (SPEC §3.2.1 steps 6–7, §3.2.2–§3.2.6; UC-02, UC-03, UC-10, 
 
 Each burst takes exactly one of these paths, first match wins:
 1. the self-test (a synthetic update: P2 probation; recorded, nothing else) and the interrupt words — "to'xta",
-   "hammasini to'xtat", "kut", "yo'q, boshqacha qil: …" — which skip the window and every model (≤ 3 s);
-2. commands that can never be an answer ("holat?", "/sozlamalar", "loyihalar": `intents.EARLY`);
+   "stop", "bas", "hammasini to'xtat", "yo'q, boshqacha qil: …" — which skip the window and every model (≤ 3 s).
+   "kut" is none of them: it never stops anything, it holds the burst window for the next part (`shared/burst`);
+2. commands that can never be an answer ("holat?", "/sozlamalar", "loyihalar", "xarajat?": `intents.EARLY`);
 3. `routing.answer_clarification`: the answer to "BonviHR'gami yoki HRMentor'gami?";
 4. `turns.answer_revert`, then `questions.answer_owner`: a wrong-target revert offer, a gate decision, an agent
    question (in that order, so a bare "ha" binds to at most one of them);
-5. the other typed aliases and exact phrases of `bots/dev/intents.py`;
+5. the other typed aliases and exact phrases of `bots/dev/intents.py`, the clear settings cues among them
+   ("sozlama: …", "javoblaringni …", "ovozingni …"; one that names a project is work for it) and "X yangi sessiya";
 6. `routing.correct_route`: "bu HRMentor uchun edi";
-7. `turns.route_turn`: the work goes to a project, or the report intents to `digest.answer_report` (≤ 4 s, never
-   through the turn scheduler), or one routing question is asked. Words naming a watched server go to
-   `dev/servers` instead: its status (a background job) or a read-only server investigation (T31).
+7. `turns.route_turn`: the work goes to a project (an investigation with "Tekshiryapman" first), or the report
+   intents to `digest.answer_report` (≤ 4 s, never through the turn scheduler), or one routing question is asked.
+   Words naming a watched server go to `dev/servers` instead: its status (a background job) or a read-only server
+   investigation (T31).
 
 Commands, interrupts and answers read only the owner's own words (`TurnInput.own_text`): a message he forwarded is
 material, never an order (T33). Steps that need the owner's authority (4, 5) get the `OwnerOrigin` intake stored
@@ -58,6 +61,7 @@ from yordamchi.dev.turns.service import RevertOutcome, RevertReply, TurnsState
 from yordamchi.shared.access.domain import OwnerOrigin
 from yordamchi.shared.burst import service as burst
 from yordamchi.shared.burst.domain import InterruptKind, TurnInput
+from yordamchi.shared.cost import service as cost
 from yordamchi.shared.health import service as health
 from yordamchi.shared.health.service import HealthState
 from yordamchi.shared.inbox import service as inbox
@@ -243,6 +247,8 @@ class Pipeline:
     async def _interrupt(self, item: TurnInput, kind: InterruptKind) -> None:
         if not await burst.cancel_burst(self.deps, item.burst_id):
             return  # another pass handled it
+        if kind is InterruptKind.HOLD:
+            return  # a "kut" an older release closed as an interrupt (routed after the update): it stops nothing
         text = item.own_text  # an interrupt is the owner's own words (a forwarded "to'xta" is none, T33)
         if kind is InterruptKind.STOP_ALL:
             stopped = await turns.stop_all(self.deps, self.turns)
@@ -258,8 +264,7 @@ class Pipeline:
                 return
             target = working[0] if working else None
         if target is None:
-            if kind is not InterruptKind.HOLD:  # "kut" with nothing assembling or working: nothing to hold
-                await self._reply(item, S.STOP_ALL_NOTHING(), kind=Kind.NOTICE)
+            await self._reply(item, S.STOP_ALL_NOTHING(), kind=Kind.NOTICE)
             return
         if kind is InterruptKind.REDIRECT and instruction:
             request = TurnRequest(project_id=target, text=instruction, burst_id=item.burst_id)
@@ -283,7 +288,8 @@ class Pipeline:
 
     async def _command(self, item: TurnInput, command: Command, origin: OwnerOrigin | None) -> bool:
         """Carry out one recognised command. False when it does not apply after all (the project it names is not
-        one of ours, or it needs the owner's authority and there is none): the burst goes on down the path."""
+        one of ours, a settings cue sits in work for a named project, or it needs the owner's authority and there
+        is none): the burst goes on down the path."""
         project: str | None = None
         if command.project is not None:
             project = await self._named(command.project)
@@ -291,8 +297,10 @@ class Pipeline:
                 project = command.project  # `/hisobot Foo`: digest says no such project
             elif project is None:
                 return False  # "serverni to'xtat" names no project: an instruction for routing
+        # "OvozYoz'da ovozingni …": a cue word in work for a project, which routing sends there.
+        named_work = command.implicit and await self._names_a_project(item.own_text)
         needs_origin = command.intent in _OWNER_ONLY
-        if needs_origin and origin is None:
+        if named_work or (needs_origin and origin is None):
             return False
         if not await burst.cancel_burst(self.deps, item.burst_id):
             return True
@@ -313,6 +321,13 @@ class Pipeline:
             await self._reply(item, text)
         elif intent is Intent.LIST_PROJECTS:
             await self._reply(item, await projects.show_projects(deps))
+        elif intent is Intent.SHOW_COST:  # "xarajat?" (UC-07): queued as a reply to the question itself
+            await cost.show_cost(
+                deps, chat_id=item.chat_id, ref=f"burst-{item.burst_id}", reply_to=item.parts[0].message_id
+            )
+        elif intent is Intent.NEW_SESSION and project is not None:
+            text = await turns.new_session(deps, self.turns, project)
+            await self._reply(item, text, kind=Kind.NOTICE, project=project)
         elif intent is Intent.REPORT:
             await self._report(item, project or "", project, Routed.REPORT if project else Routed.REPORT_ALL)
         elif intent is Intent.STOP_PROJECT:
@@ -338,8 +353,8 @@ class Pipeline:
         ask = partial(gate.ask_setting_change, deps)
         if intent is Intent.SHOW_SETTINGS:
             await settings.show_settings(deps, origin)  # queues the summary and the full list itself
-        elif intent is Intent.CHANGE_SETTING:
-            await settings.handle_request(deps, origin, item.own_text, ask=ask)  # queues its reply itself
+        elif intent is Intent.CHANGE_SETTING:  # queues its reply itself; `/sozlamalar <request>` hands over the request
+            await settings.handle_request(deps, origin, command.argument or item.own_text, ask=ask)
         elif intent is Intent.REVERT_SETTING:
             await settings.revert_setting(deps, origin, command.argument or None, ask=ask)
         elif intent is Intent.ADD_TERM:
@@ -359,6 +374,9 @@ class Pipeline:
             await self._reply(item, await servers.add_server_host(deps, origin, command.argument), kind=Kind.NOTICE)
         elif intent is Intent.UNWATCH_SERVER:
             await self._reply(item, await servers.remove_server_host(deps, origin, command.argument), kind=Kind.NOTICE)
+
+    async def _names_a_project(self, text: str) -> bool:
+        return bool(routing_domain.find_mentions(text, await projects.list_projects(self.deps)).named)
 
     # --- 3. a clarification answered ----------------------------------------------------------------------------
     async def _resolved(self, item: TurnInput, resolution: Resolution) -> None:

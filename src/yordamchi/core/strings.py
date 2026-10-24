@@ -372,11 +372,12 @@ SETTING_CHANGE_DECLINED = Msg("Sozlamalar · #{decision_id} bekor qilindi, o'zga
 SETTINGS_CLARIFY = Msg("Aniqlashtiring, qaysi birini nazarda tutdingiz: {options}? Aniqroq qilib ayting.")
 SETTINGS_CLARIFY_OPTION = Msg("{number}) {change}")
 SETTINGS_UNCLEAR = Msg(
-    "Qaysi sozlamani o'zgartirishni tushunmadim. Aniqroq ayting, masalan: «rasmdan keyin 15 soniya kut». "
+    "Qaysi sozlamani o'zgartirishni tushunmadim. Aniqroq ayting, masalan: «sozlama: rasmdan keyin 15 soniya kut». "
     "Hammasini ko'rish: «sozlamalaring qanday?»."
 )
+# Self-update by chat ("o'zingga … qo'sh") is wired in P2 (its drain and probation).
 SETTINGS_NEEDS_CODE = Msg(
-    "Buni sozlama bilan qilib bo'lmaydi — kod o'zgarishi kerak. «Yordamchi'da … o'zgartir» deb ayting, "
+    "Buni sozlama bilan qilib bo'lmaydi — kod o'zgarishi kerak. P2 bosqichidan keyin «o'zingga … qo'sh» deb ayting: "
     "o'z-o'zini yangilash (self-update) orqali qilaman."
 )
 # Values as the owner reads them.
@@ -409,8 +410,8 @@ SETTINGS_LIST_GROUP = Msg("• {group} — {count} ta: {items}")
 SETTINGS_LIST_DEFAULTS = Msg("hammasi standart")
 SETTINGS_LIST_ITEM = Msg("{key} = {value}")
 SETTINGS_LIST_FOOT = Msg(
-    "To'liq ro'yxat — faylda. O'zgartirish uchun shunchaki ayting, masalan: «rasmdan keyin 15 soniya kut»; "
-    "bekor qilish: «oldingi holatiga qaytar»."
+    "To'liq ro'yxat — faylda. O'zgartirish uchun «sozlama:» bilan boshlang, masalan: «sozlama: rasmdan keyin 15 "
+    "soniya kut»; bekor qilish: «oldingi holatiga qaytar»."
 )
 SETTINGS_FILE_HEAD = Msg("Sozlamalar · {bot} bot — to'liq ro'yxat ({total} ta)")
 SETTINGS_FILE_GROUP = Msg("## {group}")
@@ -490,6 +491,12 @@ TURN_CREDENTIALS_REFUSED = Msg(
     "{project}: sessiyani ochmadim — loyiha sozlamalarida begona Claude kirish manbai bor ({what}). Uni olib tashlang."
 )
 SESSION_RENEWED = Msg("{project}: eski sessiya o'chgan (30 kun) — eslatma bilan yangi sessiya boshladim")
+# "X yangi sessiya" (SPEC §6): one line; the fresh session opens with the next turn.
+NEW_SESSION_READY = Msg("{project}: eski sessiyani yopdim — keyingi topshiriq yangi sessiyada, oxirgi eslatma bilan.")
+NEW_SESSION_READY_NO_NOTE = Msg("{project}: eski sessiyani yopdim — keyingi topshiriq yangi sessiyada boshlanadi.")
+NEW_SESSION_AFTER_TURN = Msg(
+    "{project}: hozirgi ish eski sessiyada tugaydi; keyingi topshiriq yangi sessiyada, oxirgi eslatma bilan."
+)
 # Wrong target (UC-10 F): the routing block holds the offer and the outcome; this is the failed revert.
 WRONG_TARGET_REVERT_FAILED = Msg(
     "{project}: o'zgarishlarni qaytarib bo'lmadi ({operation}). Fayllar o'z holicha qoldi."

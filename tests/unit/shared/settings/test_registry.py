@@ -126,6 +126,10 @@ SPEC_KEYS.extend(["tts.segment_words", "tts.female_voice", "tts.male_voice", "tt
 SPEC_KEYS.extend(["integrations.refresh_every_s", "integrations.refresh_lead_min", "integrations.refresh_failures_max"])
 # A4 bounds every port call; the GitHub port's calls take theirs from TIMEOUTS (T52, used by the new-project flow).
 SPEC_KEYS.append("timeouts.github_s")
+# T34b: "kut" never stops anything; it holds the window for the next part, acknowledged with its own reaction.
+SPEC_KEYS.append("ui.hold_reaction")
+# T34b (owner, 2026-10-24): "typing…" for quick answers only; long work has its reaction and progress line instead.
+SPEC_KEYS.append("ack.typing_for_work")
 
 # T70: the bridge read bound (UC-36 "≤ 4 s"). T72: the personal assistant's bounds (SPEC §3.2.13: whole answer,
 # stream silence, the fallback model, one draft) and the WebSearch cap and rotation point SPEC §3.2.13 step 10 and

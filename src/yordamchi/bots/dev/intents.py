@@ -15,6 +15,13 @@ lives in `bots/dev/router.py`; this table only says what each phrase means:
 A phrase that needs a project (`X'ni to'xtat`) carries the name as written; the router resolves it against the
 registry and lets the message through to routing when it names no project ("serverni to'xtat" is an instruction).
 Later-phase intents are recognised here and answered with `S.NOT_YET`, never sent to a project as work.
+
+A settings request is recognised by its clear cues only (SPEC §6 `change_setting`, UC-09): a message that starts with
+"sozlama…" / "settings" (not "sozlamalar sahifasi…": a page of some app), `/sozlamalar <request>`, or the owner speaking
+to the bot about itself anywhere in it ("javoblaringni qisqaroq qil", "ovozingni ayolga o'zgartir", "o'zingni …").
+Such a cue is `implicit`: when the message also names a project it is work for that project, and the router lets it
+through. A request with no cue ("rasmdan keyin 15 soniya kut") still goes to routing, which has no settings intent
+yet (docs/PENDING_WIRING.md, From T34b): say it with "sozlama: …".
 """
 
 import re
@@ -53,22 +60,19 @@ class Intent(StrEnum):
     SELF_UPDATE = "self_update"
 
 
-CURRENT_PHASE: Final = "P1"
 LATER_PHASE: Final = "P2"
 # Answered before open items are offered the message (module docstring).
 EARLY: Final = frozenset({Intent.SHOW_HEALTH, Intent.SHOW_SETTINGS, Intent.LIST_PROJECTS, Intent.SHOW_COST})
-# Not built in P1: each is answered with `S.NOT_YET`. `new_session` is a P1 row of SPEC §6 whose turns API is still
-# to come (docs/PENDING_WIRING.md, T34 open items); until then it is answered the same way.
+# Not wired in the dev bot yet: each is answered with `S.NOT_YET`. `self_update` waits for P2's drain and probation
+# wiring (docs/PENDING_WIRING.md, T56/T57).
 NOT_BUILT: Final = frozenset(
     {
-        Intent.SHOW_COST,
         Intent.INTEGRATIONS,
         Intent.NEW_PROJECT,
         Intent.MAC_HANDOFF,
         Intent.PARK_PROJECT,
         Intent.RESUME_PROJECT,
         Intent.SELF_UPDATE,
-        Intent.NEW_SESSION,
     }
 )
 
@@ -76,11 +80,14 @@ NOT_BUILT: Final = frozenset(
 @dataclass(frozen=True, slots=True)
 class Command:
     """One recognised message. `project` is a project name as written (unresolved); `argument` the rest the intent
-    needs (a term, an alias, a description, a setting key), with the owner's spelling kept."""
+    needs (a term, an alias, a description, a setting key, a settings request), with the owner's spelling kept.
+    `implicit`: a settings request read from a cue word rather than said outright; one that names a project is work
+    for it (the router checks the registry)."""
 
     intent: Intent
     project: str | None = None
     argument: str = ""
+    implicit: bool = False
 
     @property
     def early(self) -> bool:
@@ -92,8 +99,8 @@ class Command:
 
     @property
     def phase(self) -> str:
-        """When a not-built intent arrives (SPEC §7): `new_session` is a P1 row still to wire, the rest are P2."""
-        return CURRENT_PHASE if self.intent is Intent.NEW_SESSION else LATER_PHASE
+        """When a not-built intent arrives (SPEC §7): every one left is P2."""
+        return LATER_PHASE
 
 
 # --- normalising ----------------------------------------------------------------------------------------------------
@@ -133,6 +140,8 @@ def _alias_of(raw: str) -> Command | None:
     if intent is None:
         return None
     rest = _tidy(match.group(2) or "")
+    if intent is Intent.SHOW_SETTINGS and rest:  # `/sozlamalar rasmdan keyin 15 soniya kut`: a request, said outright
+        return Command(Intent.CHANGE_SETTING, argument=rest)
     return Command(intent, project=rest or None)
 
 
@@ -154,8 +163,14 @@ _PHRASES: Final[dict[str, Intent]] = {
 _SETTING_KEY: Final = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+")
 _REVERT: Final = re.compile(r"(?:sozlamani\s+)?oldingi\s+holat(?:i|ig)a\s+qaytar(?:ing)?(?:\s+(?P<key>\S+))?")
 # A message that starts with the word "sozlama…" ("sozlama: javoblar qisqaroq", "sozlamani o'zgartir …"). Only at the
-# start: "BonviHR'ning sozlamalar sahifasini tuzat" is work for a project.
-_SETTINGS_REQUEST: Final = re.compile(r"(?:bot\s+)?(?:sozlama\w*|settings?)\b.*", re.DOTALL)
+# start, and not as the name of a part of some app ("sozlamalar sahifasiga dark mode qo'sh"): "BonviHR'ning sozlamalar
+# sahifasini tuzat" is work for a project.
+_APP_PARTS: Final = r"(?:sahifa|bo'lim|menyu|ekran|oyna|tugma|forma|panel|fayl|page|screen|menu|tab|button|file)"
+_SETTINGS_REQUEST: Final = re.compile(rf"(?:bot\s+)?(?:sozlama\w*|settings?)\b(?!\s+{_APP_PARTS}).*", re.DOTALL)
+# The owner speaking to the bot about itself, anywhere in the message: "javoblaringni qisqaroq qil", "ovozingni
+# ayolga o'zgartir", "gaplaringni iliqroq qil", "sozlamalaringda …", "o'zingni …" (never "o'zing tekshir": do it
+# yourself is an instruction).
+_SELF_CUE: Final = re.compile(r"\b(?:ovozing|javoblaring|javobing|gaplaring|sozlamalaring|o'zingni)\w*")
 _TERM: Final = re.compile(r"(?:bu\s+)?so'zni\s+to'g'ri\s+yoz(?:ing)?\s*:\s*(?P<term>.+)", re.IGNORECASE | re.DOTALL)
 _NAME: Final = r"(?P<name>[^\s'][^']*?|[^\s']+)"
 _OBJECT: Final = _NAME + r"'?ni"  # "BonviHR'ni", "BonviHRni"
@@ -206,8 +221,15 @@ def _phrase_of(raw: str) -> Command | None:
         return command
     if _SELF_UPDATE.fullmatch(folded) is not None:
         return Command(Intent.SELF_UPDATE)
+    return _settings_request_of(raw, folded)
+
+
+def _settings_request_of(raw: str, folded: str) -> Command | None:
+    """ "sozlama: …" said outright, or a cue word anywhere (`implicit`: the router checks it names no project)."""
     if _SETTINGS_REQUEST.fullmatch(folded) is not None:
         return Command(Intent.CHANGE_SETTING, argument=_tidy(raw))
+    if _SELF_CUE.search(folded) is not None:
+        return Command(Intent.CHANGE_SETTING, argument=_tidy(raw), implicit=True)
     return None
 
 

@@ -340,9 +340,10 @@ async def request_typing(s: Session, *, bot: BotName, chat_id: int, ref: str, at
 
 
 async def stop_typing(s: Session, *, bot: BotName, chat_id: int) -> int:
-    """No more work for this chat: the typing hint stops repeating. Returns how many hints were cancelled."""
+    """No more typing for this chat (the work ended, or it is long work with its own progress line): the hint stops
+    repeating, even one the sender is sending this instant (race-free). Returns how many hints were cancelled."""
     return await store.cancel_pending(
-        s, bot=bot.value, chat_id=chat_id, op=Op.CHAT_ACTION.value, code=Code.TYPING_ENDED.value
+        s, bot=bot.value, chat_id=chat_id, op=Op.CHAT_ACTION.value, code=Code.TYPING_ENDED.value, in_flight=True
     )
 
 

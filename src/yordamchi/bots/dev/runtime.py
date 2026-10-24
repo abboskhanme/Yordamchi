@@ -9,9 +9,9 @@ here; tests build the same `DevApp` on fakes. Nothing here imports a vendor SDK.
   unasked questions, then the loops, each under `core.aio.forever` (a failing body is logged and restarted with
   backoff; siblings never share a TaskGroup).
 - **Loops**: poller · burst timers · router (`bots/dev/pipeline.py`) · turn scheduler · outbox sender · digest
-  refresher · server checks · heartbeat writer · "Onlayn" pin · self-checks (+ disk guard, CLI smoke) · project
-  scan · maintenance (clarification expiry, unasked decisions, assistant re-warm, vault republish) · daily
-  retention · control socket.
+  refresher · server checks · cost watch (the 80 %/100 % cap notices and the optional daily summary, T51) ·
+  heartbeat writer · "Onlayn" pin · self-checks (+ disk guard, CLI smoke) · project scan · maintenance
+  (clarification expiry, unasked decisions, assistant re-warm, vault republish) · daily retention · control socket.
   Every one-off job inside them runs under `common.guarded()` (`bots/dev/jobs.py`).
 - **Stop** (`stop`, SIGTERM): stop polling and the loops (no new turns), `turns.shutdown_turns` (guards deny-all,
   interrupt, `interrupted`), flush outbox priority 0–1 for ≤ 5 s, close the adapters, write `run/dev.clean`.
@@ -155,6 +155,7 @@ class DevApp:
             "maintenance": self._maintain,
             "retention": self._retain,
             "servers": partial(servers.run_server_checks, deps),
+            "cost": partial(cost.run_cost_watch, deps),
             "control_socket": self.socket.serve,
         }
         if polling and self.bot is not None:
