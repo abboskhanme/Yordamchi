@@ -328,3 +328,23 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - SPEC §3.2.2: the binding order;
   - the prompt `questions_answer.md`;
   - QOLLANMA: how to answer ("2", option text, own words, voice, reply, "BonviHR 2").
+
+## From T31 (servers)
+- [ ] T34 `app.py`:
+  - `aio.forever("servers", lambda: servers.run_server_checks(deps))`;
+  - retention calls `servers.service.apply_retention`.
+- [ ] T34 router: `server_status` → `answer_server_status(...)` as a guarded background job (a fresh check can take up to 150 s).
+- [ ] T34 router: a server investigation (the text names a configured host) → `investigate_server(...)`.
+- [ ] T34 intents:
+  - "X serverini kuzat" → `add_server_host`;
+  - "X'ni kuzatma" → `remove_server_host`;
+  - both raise `ServerJumpOnly` / `ServerNotWatched` / `SettingInvalid`.
+- [ ] T30: consume `servers.service.latest_statuses` / `domain.status_line`, and refresh the digest after a check pass.
+- [ ] Follow-up: add `systemctl --failed --no-legend` to `gate.readonly_remote_commands` (gate block of `defaults.py`) and to SPEC §5.7. Update the servers tests that expect `units: refused` (3 tests). Until then, failed units are not detected.
+- [ ] SPEC §4.3: `servers.log_paths`, `servers.disk_warn_pct`, `servers.memory_warn_pct`, `timeouts.server_command_s`, `timeouts.server_check_s`.
+- [ ] T22 SSH codes → `S.SERVERS_REASONS` entries once they exist.
+- [ ] X06: the owner's host list, then a live SSH test.
+
+## From T32b (offline ≠ dead)
+- [ ] T34 poller hook: `health.record_poll(deps, hs, at=tick.at, updates=tick.updates, error=tick.error)`. `error` is now required.
+- [ ] SPEC §2.8: the heartbeat fields `last_poll_attempt_at`, `last_poll_error_kind`, `consecutive_poll_failures`, and the offline rule. SPEC §4.2: the `network_gap` event kind.

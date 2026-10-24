@@ -342,3 +342,11 @@ question. Correct any line and it changes.
 - [2026-10-24] A question whose turn ended → cancelled on the next read; a parked question stays open → no stale answers.
 - [2026-10-24] Speed-up (owner asked for more parallel agents) → P2/P3 features are built in parallel with the P1 finish (up to ~8 agents); their tables go into `0001` while it is not frozen (nothing deployed until T43); P2/P3 wiring (T58, T77) stays sequential after T34 → the owner's wall-clock priority; expand-only migrations from T43 on.
 - [2026-10-24] P2/P3 dependencies added once by the merge train: mcp 2.3.0, yt-dlp[default] 2026.10.21 + yt-dlp-ejs 0.8.0, playwright 1.64.1, edge-tts 7.3.1 (STACK pins; C5 confinement already exists) → feature agents never edit pyproject/uv.lock in parallel.
+
+## Servers (T31) and offline handling (T32b), merged 2026-10-24
+- [2026-10-24] Server probes → every command is judged by `gate.shim_verdict` with the READ_ONLY policy and the gate's own list, so there is no second list; the jump-only host `server` is never a target; stderr is never read (Bonvi VM banner) → a single source of truth; BONVI_SERVER.md rules.
+- [2026-10-24] Server alerts → only when an issue first appears, no recovery messages; an issue that clears and returns within 24 h is not re-alerted; unreachable only after 2 failed checks in a row → no alert spam.
+- [2026-10-24] Server output → clipped to 64 KB before parsing and scrubbed before the clip; stored excerpts ≤ 400 chars; 5 newest error lines per log → no huge rows, no secrets.
+- [2026-10-24] Offline vs dead (T32b) → network errors (timeouts, DNS, connect, 5xx) mean offline: no kickstart, no alert, restarts during offline aren't counted as a crash loop; non-network failures (401, 409, …) keep the 120 s restart rule; a stuck loop (no attempt for 120 s) restarts; old-format heartbeats use the old rule → a Wi-Fi drop no longer causes restart loops.
+- [2026-10-24] Network-gap notice → after ≥ 5 min offline the bot posts "Internet uzilgan edi HH:MM–HH:MM" once it's back (the wake-gap pattern).
+- [2026-10-24] Factories name clash → the servers ORM `ServerCheck` is imported as `ServerCheckRow` in `tests/factories.py` (digest has a domain `ServerCheck`).

@@ -6,7 +6,7 @@ Source: `docs/SPEC.md` (approved 2026-10-23). `plan-manager` · 2026-10-23. Path
 scratch repo). (2) Orchestrator: start spikes T03–T06 now (no deps), and T07 once T01 lands. Tell the T01 agent that its
 done criterion includes the pre-carved shared-file blocks and every §4.3 P1 default (rule R2).
 
-**Status:** done 32 (T01–T30, T32 + T17b, T18b, ffmpeg pin) · in progress 8 (T31, T32b, T33 + security fixes, T34; early P2/P3: T50, T52+T53, T71, T74) · blocked on owner 1 (T38) · todo: T34–T47.
+**Status:** done 34 (T01–T32 + T17b, T18b, T32b, ffmpeg pin) · in progress: T33 (security fixes, merging), T34; early P2/P3: T50, T52+T53, T71, T74 · blocked on owner 1 (T38) · todo: T35–T47.
 
 **Critical path (P1):** T01 → T02 → T08 → T17 → T20 → T24 → {T29 T30 T31 T32} → T34 → T36 → T42 → T43 → T44 → T47.
 Joins it: T03 → T10 → T24 (spikes gate the executor) and T07 → T18 → T24 (gate). Day-one owner items on it:
@@ -174,7 +174,7 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 |---|---|---|---|---|---|---|---|---|---|
 | T29 | U8b `dev/questions` | build-backend | T11, T24 | yes | `dev/questions/*` (`questions`) | STR ERR FAC MIG | UC-12 (≤ 5 s, project first, numbered, "2"/text/voice answer) | `answer()` False → message path | **DONE** 2026-10-24 (MT) |
 | T30 | U8c `dev/digest` + report answers + handoff note | build-backend | T12, T17, T24 | yes | `dev/digest/*` (`digests`), `prompts/dev/report_system.md` | STR ERR DEF FAC MIG | UC-15 (≤ 4 s incl. "running X, N min", freshness line, refresh ≤ 5 min) | report path never waits on a turn | **DONE** 2026-10-24 (MT) |
-| T31 | U8d `dev/servers` (30-min checks, investigation) | build-backend | T22, T24 | yes | `dev/servers/*` (`server_checks`), `prompts/dev/investigate_system.md` | STR ERR DEF FAC MIG | UC-15 (≤ 30 min cache, "Tekshiryapman" ≤ 2 s, ≤ 3 min, write denied) | FakeRemoteShell suite | in progress (2026-10-24) |
+| T31 | U8d `dev/servers` (30-min checks, investigation) | build-backend | T22, T24 | yes | `dev/servers/*` (`server_checks`), `prompts/dev/investigate_system.md` | STR ERR DEF FAC MIG | UC-15 (≤ 30 min cache, "Tekshiryapman" ≤ 2 s, ≤ 3 min, write denied) | FakeRemoteShell suite | **DONE** 2026-10-24 (MT 7cdf048) |
 | T32 | U9a `shared/health` (`holat?`, heartbeat file + pin, wake gap, self-checks, CLI smoke, disk guard, media purge) | build-backend | T10, T15, T22, T24 | yes | `shared/health/*` (`health_events`, `kv_state`) | STR ERR DEF FAC MIG | UC-06, NFR-REL-04, NFR-REL-08, NFR-CAP-05, §2.8 | `holat?` ≤ 3 s on fakes | **DONE** 2026-10-24 (MT feeba4c; follow-up T32b network-outage watchdog) |
 | T33 | settings (≥ 1 per P1 group) + injection eval | test-backend | T21, T24 | yes | `tests/eval/{settings,injection}/` | — | UC-09 fixture (weakening → 1 question, injection → 0 changes), NFR-SEC-09 | meets thresholds | in progress (2026-10-24; executor-output part waits for T24) |
 
