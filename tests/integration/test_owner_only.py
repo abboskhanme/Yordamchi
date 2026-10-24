@@ -28,6 +28,7 @@ from tests.factories import (
     PERSONAL_GROUP_ID,
     STRANGER_ID,
     TelegramJson,
+    send_outbox,
     tg_callback,
     tg_inline_query,
     tg_member_change,
@@ -274,6 +275,7 @@ async def test_the_owner_in_the_dev_group_reaches_the_inbox_and_is_acknowledged(
         "text",
         "received",
     )
+    await send_outbox(dev.deps)  # acks are durable outbox rows since T15; one sender pass delivers them
     assert sorted(dev.methods()) == ["sendChatAction", "setMessageReaction"]
     dev.session.assert_no_reply_markup()
 

@@ -19,6 +19,7 @@ from tests.factories import (
     make_update,
     make_window_settings,
     origin_of,
+    send_outbox,
 )
 from tests.fakes.clock import FakeClock
 from yordamchi.core.paths import BotName, Paths
@@ -141,6 +142,7 @@ async def test_lone_photo_proceeds_after_window(dev_deps: DevDeps, fakes: Fakes)
 
     [item] = (await _wait(dev_deps, fakes, 0.1)).closed
     assert (_ids(item), item.close_reason, item.is_media_only) == ([1], CloseReason.QUIET, True)
+    await send_outbox(dev_deps)  # acks are durable outbox rows since T15; one sender pass delivers them
     assert fakes.messenger.sent("send_text") == []  # it proceeds; nothing asks the owner anything
     assert {request.method for request in fakes.messenger.requests} == {"react", "chat_action"}
 
