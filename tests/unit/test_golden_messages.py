@@ -553,7 +553,7 @@ def test_the_wake_and_network_gaps(pytestconfig: pytest.Config) -> None:
 
 # --- a later phase's request (SPEC §7) ------------------------------------------------------------------------------
 def test_not_yet(pytestconfig: pytest.Config) -> None:
-    phrases = ("xarajat?", "integratsiyalar", "yangi loyiha: kutubxona uchun bot", f"{PROJECT} yangi sessiya")
+    phrases = ("integratsiyalar", "yangi loyiha: kutubxona uchun bot", "o'zingga yangi buyruq qo'sh")
     cases: list[Case] = []
     for phrase in phrases:
         command = intents.command_of(phrase)
