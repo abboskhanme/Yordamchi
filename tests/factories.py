@@ -45,7 +45,7 @@ from yordamchi.dev.questions import store as questions_store
 from yordamchi.dev.questions.domain import QuestionStatus
 from yordamchi.dev.routing.domain import Activity, ActivityKind, Intent
 from yordamchi.dev.servers import domain as servers_domain
-from yordamchi.dev.servers.models import ServerCheck
+from yordamchi.dev.servers.models import ServerCheck as ServerCheckRow
 from yordamchi.dev.turns import store as turns_store
 from yordamchi.dev.turns.domain import DeliveryMode, DeliverySource, TurnKind, TurnRequest, TurnStatus, TurnSummary
 from yordamchi.dev.turns.models import Turn
@@ -1211,11 +1211,11 @@ def df_with_root_at(pct: int) -> str:
     return SAMPLE_DF.replace(" 85% /\n", f" {pct}% /\n", 1)
 
 
-async def list_server_checks(db: Database, host: str | None = None) -> list[ServerCheck]:
+async def list_server_checks(db: Database, host: str | None = None) -> list[ServerCheckRow]:
     """Every `server_checks` row (of one host), oldest first."""
-    query = select(ServerCheck).order_by(ServerCheck.id)
+    query = select(ServerCheckRow).order_by(ServerCheckRow.id)
     if host is not None:
-        query = query.where(ServerCheck.host == host)
+        query = query.where(ServerCheckRow.host == host)
     async with db.read() as s:
         return list((await s.scalars(query)).all())
 
