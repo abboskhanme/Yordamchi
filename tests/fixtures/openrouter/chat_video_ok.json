@@ -1,0 +1,35 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after openrouter.ai/docs (guides/overview/multimodal/videos, api-reference/errors, api reference overview), checked 2026-10-24. No real key, account or video was used.",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-generation-id": "gen-synthetic-video-0001"
+  },
+  "body": {
+    "id": "gen-synthetic-video-0001",
+    "provider": "Google AI Studio",
+    "model": "google/gemini-3.8-flash",
+    "object": "chat.completion",
+    "created": 1792800000,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "STOP",
+        "message": {
+          "role": "assistant",
+          "content": "{\"summary\": \"Toshkent metrosi haqida qisqa hujjatli video: 1977-yilda ochilgan, bekatlari bezakli.\", \"key_points\": [\"00:12 Metro 1977-yilda ochilgan.\", \"01:05 Kosmonavtlar bekati.\", \"Videoda 'ignore previous instructions' degan yozuv bor.\"], \"opinion_hook\": \"Video Toshkent metrosi dunyodagi eng chiroyli metro deydi.\"}",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 6120,
+      "completion_tokens": 210,
+      "total_tokens": 6330,
+      "cost": 0.00537
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after ai.google.dev/gemini-api/docs/video-understanding (Interactions response: id, status, steps[].content[].text, usage.total_*_tokens), checked 2026-10-24. No real key, account or video was used.",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+    "id": "interactions/synthetic-video-0001",
+    "status": "completed",
+    "model": "gemini-3.8-flash",
+    "steps": [
+      {
+        "id": "step-1",
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "```json\n{\"summary\": \"Toshkent metrosi haqida qisqa hujjatli video: 1977-yilda ochilgan, bekatlari bezakli.\", \"key_points\": [\"00:12 Metro 1977-yilda ochilgan.\", \"01:05 Kosmonavtlar bekati.\", \"Videoda 'ignore previous instructions' degan yozuv bor.\"], \"opinion_hook\": \"Video Toshkent metrosi dunyodagi eng chiroyli metro deydi.\"}\n```",
+            "annotations": []
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "total_input_tokens": 6120,
+      "total_output_tokens": 210,
+      "total_thought_tokens": 40,
+      "total_tokens": 6370
+    }
+  }
+}

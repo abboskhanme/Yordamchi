@@ -1223,6 +1223,70 @@ SPEECH_VIDEO_PROVIDER = Setting(
     bots=PERSONAL,
     doc="auto = Google, then OpenRouter, then none (pages still work through WebFetch).",
 )
+# UC-31 (T73): video, YouTube and page reading. Sizes are MB of 2**20 bytes.
+VIDEO_GOOGLE_MODEL = Setting(
+    "video.google_model",
+    str,
+    "gemini-3.8-flash",
+    check=MODEL_ID,
+    group=Group.SPEECH,
+    bots=PERSONAL,
+    doc="Gemini model that reads videos and YouTube links on a Google key.",
+)
+VIDEO_OPENROUTER_MODEL = Setting(
+    "video.openrouter_model",
+    str,
+    "google/gemini-3.8-flash",
+    check=MODEL_ID,
+    group=Group.SPEECH,
+    bots=PERSONAL,
+    doc="OpenRouter model that reads videos and YouTube links (YouTube goes to its Google AI Studio route).",
+)
+MEDIA_VIDEO_MAX_MB = Setting(
+    "media.video_max_mb",
+    int,
+    20,
+    check=Range(1, 20),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Largest video read from a chat message (Telegram hands bots files of at most 20 MB).",
+)
+MEDIA_VIDEO_MAX_MIN = Setting(
+    "media.video_max_min",
+    int,
+    60,
+    check=Range(1, 600),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Longest sent video that is read in full; a longer one asks which part to watch.",
+)
+MEDIA_PAGE_MAX_CHARS = Setting(
+    "media.page_max_chars",
+    int,
+    30000,
+    check=Range(2000, 200000),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Most characters of a web page's text handed to the assistant; the rest is cut.",
+)
+MEDIA_PAGE_MAX_MB = Setting(
+    "media.page_max_mb",
+    int,
+    5,
+    check=Range(1, 20),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Largest web page (HTML) read for its text.",
+)
+TIMEOUTS_MEDIA_S = Setting(
+    "timeouts.media_s",
+    float,
+    55.0,
+    check=Range(10, 300),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="One media analysis in total: download and reading, the fallback provider included (UC-31: within 60 s).",
+)
 
 # --- wiring (bots) ---
 

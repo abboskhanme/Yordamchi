@@ -1,0 +1,16 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after openrouter.ai/docs/api-reference/errors for a video URL the upstream cannot fetch, checked 2026-10-24. No real key, account or video was used.",
+  "status": 400,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "code": 400,
+      "message": "Provider returned error: Cannot fetch content from the provided YouTube URL",
+      "metadata": {
+        "provider_name": "Google AI Studio"
+      }
+    }
+  }
+}

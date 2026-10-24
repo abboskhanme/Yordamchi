@@ -1,0 +1,14 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after the google.rpc error model as the Gemini API returns it for a YouTube link it cannot fetch (400 INVALID_ARGUMENT), checked 2026-10-24. No real key, account or video was used.",
+  "status": 400,
+  "headers": {
+    "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+    "error": {
+      "code": 400,
+      "message": "Cannot fetch content from the provided URL. The video may be private or unavailable.",
+      "status": "INVALID_ARGUMENT"
+    }
+  }
+}

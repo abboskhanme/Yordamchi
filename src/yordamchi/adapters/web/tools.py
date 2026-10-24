@@ -1,5 +1,5 @@
 """`LocalWebTools`: the `WebTools` port on this Mac — Playwright Chromium, stdlib HTTP, yt-dlp and static ffmpeg
-(SPEC §3.2.14; `adapters/web/{browser,download,ytdl,encode}.py`).
+(SPEC §3.2.14; `adapters/web/{browser,download,ytdl,encode,page}.py`).
 
 Wiring (`bots/personal/app.py`): `LocalWebTools.from_paths(paths, child_path=…)`. Every value it takes is bootstrap
 (binaries, folders); sizes, bitrates and timeouts arrive per call from the settings snapshot.
@@ -18,11 +18,12 @@ from urllib.parse import urlsplit
 from yordamchi.adapters.web.browser import PlaywrightBrowser
 from yordamchi.adapters.web.download import HttpDownloader, PageLink
 from yordamchi.adapters.web.encode import FfmpegEncoder
+from yordamchi.adapters.web.page import PageReader
 from yordamchi.adapters.web.ytdl import YtDlpDownloader
 from yordamchi.core.errors import CallTimedOut, WebNoMedia, YordamchiError
 from yordamchi.core.log import get_log
 from yordamchi.core.paths import Paths
-from yordamchi.ports.web import Clip, DownloadedVideo, FetchedFile, Screenshot, WebTools
+from yordamchi.ports.web import Clip, DownloadedVideo, FetchedFile, PageText, Screenshot, WebTools
 
 log = get_log(__name__)
 
@@ -81,11 +82,13 @@ class LocalWebTools:
         http: HttpDownloader,
         videos: YtDlpDownloader,
         encoder: FfmpegEncoder,
+        pages: PageReader | None = None,
     ) -> None:
         self._browser = browser
         self._http = http
         self._videos = videos
         self._encoder = encoder
+        self._pages = pages if pages is not None else PageReader()
 
     @classmethod
     def from_paths(cls, paths: Paths, *, child_path: str) -> "LocalWebTools":
@@ -194,6 +197,14 @@ class LocalWebTools:
             return await _logged("video_encode", call, lambda video: video.size_bytes)
         except TimeoutError:
             raise CallTimedOut(operation="video_encode") from None
+
+    async def read_page(self, url: str, *, max_chars: int, max_bytes: int, timeout: float) -> PageText:
+        async def call() -> PageText:
+            return await self._pages.read(
+                url, site=site_of(url), max_chars=max_chars, max_bytes=max_bytes, timeout=timeout
+            )
+
+        return await _logged("read_page", call, lambda page: page.size_bytes)
 
 
 def _conforms(tools: LocalWebTools) -> WebTools:  # mypy checks LocalWebTools against the port

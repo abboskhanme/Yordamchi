@@ -1,24 +1,47 @@
-"""`FakeMediaAnalyzer`: scripted analyses and provider errors."""
+"""`FakeMediaAnalyzer`: scripted analyses and provider errors. Each call is recorded with its instruction, prompt,
+model and timeout, so tests can check what reached the reader."""
 
 from collections import deque
+from dataclasses import dataclass
 
 from yordamchi.ports.media import MediaAnalysis, MediaAnalyzer, VideoSource
+
+DEFAULT_ANSWER = '{"summary": "A short video.", "key_points": ["One point."], "opinion_hook": ""}'
+
+
+@dataclass(frozen=True)
+class VideoCall:
+    source: VideoSource
+    instruction: str
+    prompt: str
+    model: str
+    timeout: float
 
 
 class FakeMediaAnalyzer:
     def __init__(self, *, provider: str = "google") -> None:
         self.provider = provider
         self.steps: deque[MediaAnalysis | Exception] = deque()
-        self.calls: list[tuple[VideoSource, str, str]] = []
+        self.calls: list[VideoCall] = []
 
-    def script(self, result: MediaAnalysis | Exception) -> None:
-        self.steps.append(result)
+    def script(self, *results: MediaAnalysis | Exception) -> None:
+        self.steps.extend(results)
 
-    async def analyze_video(self, source: VideoSource, *, prompt: str, model: str, timeout: float) -> MediaAnalysis:
-        self.calls.append((source, prompt, model))
-        step = self.steps.popleft() if self.steps else MediaAnalysis(text="video", provider=self.provider, model=model)
+    def answer(self, text: str, *, cost_usd_micros: int = 0) -> MediaAnalysis:
+        """A scripted answer from this provider (not queued; pass it to `script`)."""
+        return MediaAnalysis(
+            text=text, provider=self.provider, model="fake-video", cost_usd_micros=cost_usd_micros, latency_ms=900
+        )
+
+    async def analyze_video(
+        self, source: VideoSource, *, instruction: str, prompt: str, model: str, timeout: float
+    ) -> MediaAnalysis:
+        self.calls.append(VideoCall(source, instruction, prompt, model, timeout))
+        step = self.steps.popleft() if self.steps else None
         if isinstance(step, Exception):
             raise step
+        if step is None:
+            return MediaAnalysis(text=DEFAULT_ANSWER, provider=self.provider, model=model)
         return step
 
 

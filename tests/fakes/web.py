@@ -6,7 +6,7 @@ a 300 MB video costs nothing), the successive sizes re-encodes produce, and a fa
 
 from pathlib import Path
 
-from yordamchi.ports.web import Clip, DownloadedVideo, FetchedFile, Screenshot, WebTools
+from yordamchi.ports.web import Clip, DownloadedVideo, FetchedFile, PageText, Screenshot, WebTools
 
 
 def _write(path: Path, data: bytes = b"", *, size: int | None = None) -> Path:
@@ -32,6 +32,8 @@ class FakeWebTools:
         self.video_mime = "video/mp4"
         self.video_webpage_url: str | None = None
         self.encode_sizes: list[int] = []  # one per re-encode; empty → half the source
+        self.page_title = "Fake page"
+        self.page_text = "A fake page about one thing. " * 10
 
     def _call(self, method: str, url: str, **kwargs: object) -> None:
         self.calls.append((method, url))
@@ -102,6 +104,17 @@ class FakeWebTools:
             duration_s=self.video_duration_s,
             title="Fake video",
             height=max_height,
+        )
+
+    async def read_page(self, url: str, *, max_chars: int, max_bytes: int, timeout: float) -> PageText:
+        self._call("read_page", url, max_chars=max_chars, max_bytes=max_bytes, timeout=timeout)
+        text = self.page_text[:max_chars]
+        return PageText(
+            url=url,
+            title=self.page_title,
+            text=text,
+            truncated=len(self.page_text) > max_chars,
+            size_bytes=len(self.page_text.encode("utf-8")),
         )
 
 

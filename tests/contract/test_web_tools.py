@@ -28,6 +28,7 @@ def _private(path: Path) -> bool:
 class WebToolsContract:
     file_url = "https://example.com/a.pdf"
     video_url = TEST_VIDEO_URL
+    page_url = "https://en.wikipedia.org/wiki/Tashkent"
 
     @pytest.fixture
     def web(self) -> WebTools:
@@ -78,6 +79,13 @@ class WebToolsContract:
         assert out.path != source.path
         assert out.mime == "video/mp4"
         assert out.size_bytes > 0
+
+    async def test_read_page_returns_text_within_the_cap(self, web: WebTools) -> None:
+        page = await web.read_page(self.page_url, max_chars=2000, max_bytes=2 * MIB, timeout=30.0)
+        assert page.text
+        assert len(page.text) <= 2000
+        assert page.url.startswith("https://")
+        assert 0 < page.size_bytes <= 2 * MIB
 
 
 class TestFakeWebTools(WebToolsContract):

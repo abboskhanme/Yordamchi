@@ -81,6 +81,14 @@ class ErrorCode(StrEnum):
     WEB_URL_INVALID = "web_url_invalid"
     VIDEO_CLIP_INVALID = "video_clip_invalid"
     VIDEO_TOO_LARGE = "video_too_large"
+    # --- media ---
+    MEDIA_TOO_LARGE = "media_too_large"
+    MEDIA_TOO_LONG = "media_too_long"
+    MEDIA_VIDEO_OFF = "media_video_off"
+    MEDIA_NO_VIDEO_KEY = "media_no_video_key"
+    MEDIA_NO_ANSWER = "media_no_answer"
+    MEDIA_PAGE_NO_TEXT = "media_page_no_text"
+    MEDIA_PAGE_NOT_READABLE = "media_page_not_readable"
 
     # --- integrations ---
     OAUTH_REQUIRED = "oauth_required"
@@ -570,3 +578,55 @@ class SelfUpdateNotOnMain(DomainError):
 
     def __init__(self, *, project: str, branch: str) -> None:
         super().__init__(ErrorCode.SELFUPDATE_NOT_ON_MAIN, project=project, branch=branch)
+
+
+# --- media ---
+# UC-31 (T73). The DomainErrors are `personal/media` outcomes; the two `Page*` ExternalErrors come from adapters/web
+# `read_page`. `site` is the link's host name only.
+class MediaTooLarge(DomainError):
+    """An inbound video over Telegram's 20 MB bot download cap (or the `media.video_max_mb` setting below it)."""
+
+    def __init__(self, *, limit_mb: int) -> None:
+        super().__init__(ErrorCode.MEDIA_TOO_LARGE, limit_mb=limit_mb)
+
+
+class MediaTooLong(DomainError):
+    """A video longer than `media.video_max_min`: reading it would take longer than UC-31's minute and cost more."""
+
+    def __init__(self, *, max_minutes: int) -> None:
+        super().__init__(ErrorCode.MEDIA_TOO_LONG, max_minutes=max_minutes)
+
+
+class MediaVideoOff(DomainError):
+    """`speech.video_provider = off`: the owner turned video reading off."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.MEDIA_VIDEO_OFF)
+
+
+class MediaNoVideoKey(DomainError):
+    """No Google or OpenRouter key in the vault (or no adapter for it): nothing can read a video."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.MEDIA_NO_VIDEO_KEY)
+
+
+class MediaNoAnswer(DomainError):
+    """The video reader answered with nothing usable."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.MEDIA_NO_ANSWER)
+
+
+class PageNoText(ExternalError):
+    """The page loaded but holds no readable text (a JavaScript app, an empty shell, an image-only page)."""
+
+    def __init__(self, *, site: str) -> None:
+        super().__init__(ErrorCode.MEDIA_PAGE_NO_TEXT, retryable=False, site=site)
+
+
+class PageNotReadable(ExternalError):
+    """The link answers with a file (PDF, image, video, archive), not a page of text."""
+
+    def __init__(self, *, site: str) -> None:
+        super().__init__(ErrorCode.MEDIA_PAGE_NOT_READABLE, retryable=False, site=site)

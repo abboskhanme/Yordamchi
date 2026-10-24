@@ -954,6 +954,38 @@ ERR_SELFUPDATE_NOT_ON_MAIN = Msg(
 )
 
 
+# --- media ---
+# UC-31: the immediate ack for a video, a YouTube link or a page (≤ 2 s; the analysis follows within 60 s).
+LOOKING = Msg("Ko'ryapman…")
+# SPEC §3.2.14: an inbound file over Telegram's 20 MB bot download cap (UC-31 F).
+FILE_TOO_LARGE_IN = Msg(
+    "Fayl {limit_mb} MB dan katta — Telegram botlarga undan kattasini bermaydi. Havolasini yoki qisqaroq qismini "
+    "yuboring."
+)
+ERR_MEDIA_TOO_LARGE = FILE_TOO_LARGE_IN
+ERR_MEDIA_TOO_LONG = Msg(
+    "Video {max_minutes} daqiqadan uzun. Qaysi qismini ko'ray — vaqtini ayting yoki kesib yuboring."
+)
+ERR_MEDIA_VIDEO_OFF = Msg("Video tahlili o'chirilgan. Yoqish uchun: «video tahlilini yoq».")
+ERR_MEDIA_NO_VIDEO_KEY = Msg(
+    "Videoni ko'rish uchun kalit yo'q. Google (AIza…) yoki OpenRouter (sk-or-v1-…) kalitini chatga yuboring — o'zim "
+    "sozlayman."
+)
+ERR_MEDIA_NO_ANSWER = Msg(
+    "Videoni ko'rdim, lekin tushunarli xulosa chiqmadi. Qayta urinib ko'ring yoki savolni aniqroq bering."
+)
+ERR_MEDIA_PAGE_NO_TEXT = Msg(
+    "{site}: sahifada o'qiladigan matn topmadim — u JavaScript yoki login bilan ochiladigan bo'lishi mumkin. "
+    "Skrinshotini olib beraymi?"
+)
+ERR_MEDIA_PAGE_NOT_READABLE = Msg(
+    "{site}: bu havola sahifa emas, fayl ekan (masalan PDF yoki rasm). Faylning o'zini yuborishim mumkin."
+)
+# The video reader failed with every provider tried; {reason} joins STT_REASON_PROVIDER parts ("Google Gemini —
+# kvota yoki balans tugagan").
+MEDIA_VIDEO_FAILED = Msg("Videoni ko'ra olmadim: {reason}.")
+MEDIA_DOWNLOAD_FAILED = Msg("Faylni Telegram'dan yuklab bo'lmadi. Qayta yuboring.")
+
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(
     {code: entry for code in ErrorCode if isinstance(entry := globals().get(f"ERR_{code.name}"), Msg)}

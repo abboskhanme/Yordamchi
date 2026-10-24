@@ -106,6 +106,19 @@ SPEC_KEYS.extend(
         "timeouts.video_encode_s",
     ]
 )
+# SPEC §3.2.14 gives the media limits inline (video ≤ 20 MB, result ≤ 60 s) and §3.2.11 the video provider; T73 names
+# the reader models and the page limits.
+SPEC_KEYS.extend(
+    [
+        "video.google_model",
+        "video.openrouter_model",
+        "media.video_max_mb",
+        "media.video_max_min",
+        "media.page_max_chars",
+        "media.page_max_mb",
+        "timeouts.media_s",
+    ]
+)
 
 # T71 (voice_tts): the S8 sentence-segment fallback and the voices that follow `voice.gender` (SPEC §3.2.13, §11 S8).
 SPEC_KEYS.extend(["tts.segment_words", "tts.female_voice", "tts.male_voice", "tts.edge_male_voice"])

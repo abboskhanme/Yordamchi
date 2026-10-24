@@ -60,9 +60,11 @@ from yordamchi.persistence.uow import Database, Session
 from yordamchi.personal.artefacts import domain as artefacts_domain
 from yordamchi.personal.artefacts.domain import VideoLimits
 from yordamchi.personal.deps import PersonalDeps
+from yordamchi.personal.media.domain import MediaKind, MediaRequest
 from yordamchi.ports.agent import ToolCall
 from yordamchi.ports.git import Commit, GitStatus
 from yordamchi.ports.mcp import McpTool
+from yordamchi.ports.media import MediaAnalysis
 from yordamchi.ports.remote_shell import RemoteResult
 from yordamchi.ports.speech import SpeechAudio, Transcript
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
@@ -177,7 +179,7 @@ def make_personal_deps(*, db: Database, paths: Paths, fakes: Fakes, peer_db: Dat
         synthesizers={fakes.synthesizer.provider: fakes.synthesizer},
         mac_host=fakes.mac_host,
         mcp=fakes.mcp,
-        media=fakes.media,
+        media_analyzers={fakes.media.provider: fakes.media},
         web=fakes.web,
     )
 
@@ -1477,3 +1479,63 @@ def write_update_status(paths: Paths, update_id: str, status: str, **fields: Jso
     body: dict[str, JsonValue] = {"id": update_id, "status": status, "final": False, **fields}
     path.write_text(json.dumps(body), encoding="utf-8")
     return path
+
+
+# --- media ---
+VIDEO_MIB: Final = 1024 * 1024
+
+
+def make_video_attachment(
+    update_id: int = 1, *, size_bytes: int | None = 5 * VIDEO_MIB, duration_s: int | None = 30, mime: str = "video/mp4"
+) -> Attachment:
+    """A video the owner sent in the personal chat, as the inbox stores it."""
+    return Attachment(file_id=f"video-{update_id}", mime=mime, size_bytes=size_bytes, duration_s=duration_s)
+
+
+def make_media_request(
+    kind: MediaKind = MediaKind.VIDEO,
+    *,
+    url: str | None = None,
+    attachment: Attachment | None = None,
+    question: str = "",
+    ref: str = "1",
+    announce: bool = True,
+) -> MediaRequest:
+    """One media request in the personal chat; a `VIDEO` request carries a 5 MB, 30 s video by default."""
+    if kind is MediaKind.VIDEO and attachment is None:
+        attachment = make_video_attachment()
+    return MediaRequest(
+        kind=kind,
+        chat_id=OWNER_ID,
+        ref=ref,
+        url=url,
+        attachment=attachment,
+        reply_to=7001,
+        question=question,
+        announce=announce,
+    )
+
+
+def make_media_analysis(
+    text: str = '{"summary": "Qisqa video.", "key_points": ["Bir fikr."], "opinion_hook": ""}',
+    *,
+    provider: str = "google",
+    model: str = "gemini-3.8-flash",
+    cost_usd_micros: int = 0,
+) -> MediaAnalysis:
+    """A video reader's answer (JSON, as the prompt asks for)."""
+    return MediaAnalysis(
+        text=text,
+        provider=provider,
+        model=model,
+        cost_usd_micros=cost_usd_micros,
+        latency_ms=4_200,
+        units={"input_tokens": 3_100, "output_tokens": 120},
+    )
+
+
+async def store_video_key(deps: PersonalDeps, provider: str = "google") -> SecretRef:
+    """A speech key of `provider` in the personal vault: what makes that video reader usable."""
+    kind = {"google": "google_api_key", "openrouter": "openrouter_api_key"}[provider]
+    assert isinstance(deps.keystore, InMemoryKeystore), "test deps hold the in-memory keystore"
+    return await store_secret(deps.db, deps.keystore, kind, FAKE_KEYS[kind], bot=BotName.PERSONAL)
