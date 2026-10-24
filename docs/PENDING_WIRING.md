@@ -274,3 +274,20 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Outbox FKs to `turns.id` (`ON DELETE SET NULL`) are now possible.
 - [ ] SPEC §4.2/§4.3: the new `turns` columns (`start_dirty`, `start_files_json`, `waiting_since`, `handoff_json`, `revert_status`), the queue reasons `disk`/`busy`, and `guard.max_pressure_level` Range(1, 3).
 - [ ] Open gap (T20/T27): an edit to a message already in a running turn is not treated as a continuation.
+
+## From T32 (health)
+- [ ] T34 startup:
+  - `hs = health.new_state(deps, version=<release>, sdk_version=…, degraded=<missing ffmpeg/gh/node>)`.
+  - Order: `turns.recover_turns` → `health.report_start(deps, hs, interrupted=…)` (this runs before the first heartbeat write) → start the loops.
+- [ ] T34 loops:
+  - the poller hook calls `health.record_poll(deps, hs, at=tick.at, updates=tick.updates)`;
+  - `aio.forever` runs `health.run_heartbeat(deps, hs)`, `health.run_online(deps)` (dev only) and `health.run_checks(deps, hs, smoke=partial(turns.service.run_smoke_turn, deps, turns_state))`.
+- [ ] T34 daily: `health.apply_retention` and `health.purge_media`.
+- [ ] T34 intent: `show_health` ("holat?", `/holat`) → `health.show_health(deps, hs, work=partial(turns.service.work_status, deps))`.
+- [ ] T34 SIGTERM: after the outbox flush, `health.mark_clean_exit(deps, hs)`.
+- [ ] T34 errors: call `health.note_error(deps, hs, code)` wherever error codes surface.
+- [ ] P2: `health.set_mode(deps, hs, Mode.PAUSED | Mode.PROBATION)`.
+- [ ] T35: goldens for `domain.holat_text`.
+- [ ] Gate probe (SPEC §5.6, `ssh yordamchi-nohost true` must be denied) is not run yet. It needs a dry-run gate check API.
+- [ ] **T32b (orchestrator decision, before T43): a network outage must not look like a dead bot.** The heartbeat gains `last_poll_attempt_at` and `last_poll_error_kind` (network or other). The watchdog restarts only when no poll *attempt* happened for 120 s (stuck loop). Polls that fail with network errors mean "offline", not "dead": the watchdog logs it and sends no alert, so a long Wi-Fi drop doesn't cause restart loops or crash-loop alerts. This needs a supervisor change plus a health change, with tests for both.
+- [ ] `pressure` health events are not recorded yet.
