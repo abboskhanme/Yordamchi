@@ -59,6 +59,7 @@ EXECUTORS: Final = ("claude", "codex")
 # --- folders -------------------------------------------------------------------------------------------------------
 class SkipReason(StrEnum):
     HIDDEN = "hidden"
+    EXCLUDED = "excluded"  # the owner's `projects.excluded`: never registered, listed, routed or opened
     NOT_A_FOLDER = "not_a_folder"  # BONVI_SERVER.md, WunderkindLC.zip
     SYMLINK = "symlink"  # a project must really live under the root: the gate reasons about its path
     NAME_TOO_LONG = "name_too_long"
@@ -88,10 +89,20 @@ def project_id(folder_name: str) -> str:
     return unicodedata.normalize("NFC", folder_name)
 
 
-def skip_reason(name: str, *, is_dir: bool, is_symlink: bool) -> SkipReason | None:
+def is_excluded(name: str, excluded: Collection[str]) -> bool:
+    """`projects.excluded` names this folder (case-insensitive, as `resolve_project` matches a name)."""
+    key = project_id(name).casefold()
+    return any(project_id(entry).casefold() == key for entry in excluded)
+
+
+def skip_reason(
+    name: str, *, is_dir: bool, is_symlink: bool, excluded: Collection[str] = ()
+) -> SkipReason | None:
     """Why a top-level entry is not a project, or None when it is one."""
     if name.startswith("."):
         return SkipReason.HIDDEN
+    if is_excluded(name, excluded):
+        return SkipReason.EXCLUDED
     if is_symlink:
         return SkipReason.SYMLINK
     if not is_dir:

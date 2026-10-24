@@ -163,6 +163,31 @@ async def test_an_unreadable_root_changes_nothing(dev_deps: DevDeps, root: Path)
     assert not (await service.get_project(dev_deps, "BonviHR")).missing  # a detached disk marks nothing missing
 
 
+async def test_an_excluded_folder_is_never_registered_listed_or_found(dev_deps: DevDeps, root: Path) -> None:
+    """Owner, 2026-10-24: OvozYoz is a code sample only. `projects.excluded` keeps it (by default) out of the registry,
+    the listing, routing and every lookup, so no turn can open a session in it."""
+    assert defaults.PROJECTS_EXCLUDED.default == ["OvozYoz"]
+    make_project_folder(root, "BonviHR")
+    make_project_folder(root, "OvozYoz", readme="# OvozYoz\n\nO'zbekcha ovozni matnga aylantiruvchi ilova.\n")
+    report = await service.sync_projects(dev_deps)
+    assert (report.added, report.skipped) == (("BonviHR",), 1)
+    assert [project.id for project in await service.list_projects(dev_deps)] == ["BonviHR"]
+    assert "OvozYoz" not in await service.show_projects(dev_deps)
+    for lookup in (service.get_project(dev_deps, "OvozYoz"), service.find_project(dev_deps, "ovozyoz")):
+        with pytest.raises(ProjectNotFound):
+            await lookup
+
+    await settings.record_version(dev_deps, ORIGIN, defaults.PROJECTS_EXCLUDED, [], reason="change")
+    assert (await service.sync_projects(dev_deps)).added == ("OvozYoz",)
+    assert (await service.find_project(dev_deps, "OvozYoz")).routable
+
+    # excluded again after it was registered: hidden at once, before any scan
+    await settings.record_version(dev_deps, ORIGIN, defaults.PROJECTS_EXCLUDED, ["ovozyoz"], reason="change")
+    assert [project.id for project in await service.list_projects(dev_deps)] == ["BonviHR"]
+    with pytest.raises(ProjectNotFound):
+        await service.get_project(dev_deps, "OvozYoz")
+
+
 async def test_the_root_comes_from_settings(dev_deps: DevDeps, tmp_path: Path) -> None:
     other = tmp_path / "work"
     make_project_folder(other, "Elsewhere")

@@ -130,6 +130,8 @@ SPEC_KEYS.append("timeouts.github_s")
 SPEC_KEYS.append("ui.hold_reaction")
 # T34b (owner, 2026-10-24): "typing…" for quick answers only; long work has its reaction and progress line instead.
 SPEC_KEYS.append("ack.typing_for_work")
+# Owner, 2026-10-24: OvozYoz is a code sample only; the dev bot must never register or open it.
+SPEC_KEYS.append("projects.excluded")
 
 # T70: the bridge read bound (UC-36 "≤ 4 s"). T72: the personal assistant's bounds (SPEC §3.2.13: whole answer,
 # stream silence, the fallback model, one draft) and the WebSearch cap and rotation point SPEC §3.2.13 step 10 and

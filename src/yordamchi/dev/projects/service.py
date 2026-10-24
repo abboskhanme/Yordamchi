@@ -17,7 +17,7 @@ The `projects` table is kept forever (SPEC §4.2), so there is no retention func
 import asyncio
 import stat
 import time
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
@@ -143,8 +143,8 @@ class _RootScan:
     skipped: int
 
 
-def _scan_root(root: Path) -> _RootScan | None:
-    """Every project folder directly under `root`; None when `root` cannot be listed."""
+def _scan_root(root: Path, excluded: Collection[str]) -> _RootScan | None:
+    """Every project folder directly under `root` but the excluded ones; None when `root` cannot be listed."""
     try:
         entries = sorted(root.iterdir(), key=lambda entry: entry.name)
     except OSError:
@@ -152,7 +152,9 @@ def _scan_root(root: Path) -> _RootScan | None:
     folders: list[FolderFacts] = []
     skipped = 0
     for entry in entries:
-        reason = domain.skip_reason(entry.name, is_dir=entry.is_dir(), is_symlink=entry.is_symlink())
+        reason = domain.skip_reason(
+            entry.name, is_dir=entry.is_dir(), is_symlink=entry.is_symlink(), excluded=excluded
+        )
         if reason is None:
             folders.append(_folder_facts(entry))
         else:
@@ -319,7 +321,7 @@ async def sync_projects(deps: DevDeps) -> SyncReport:
     started = time.monotonic()
     snap = await settings.snapshot(deps)
     root = _root(deps, snap)
-    scan = await asyncio.to_thread(_scan_root, Path(root))
+    scan = await asyncio.to_thread(_scan_root, Path(root), snap[defaults.PROJECTS_EXCLUDED])
     if scan is None:
         log.warning("projects_root_unreadable")
         return SyncReport(total=0, root_readable=False)
@@ -378,8 +380,12 @@ async def sync_projects(deps: DevDeps) -> SyncReport:
 async def _views(deps: DevDeps, snap: Snapshot) -> tuple[Project, ...]:
     async with deps.db.read() as s:
         rows = await store.list_projects(s)
-    prefs = _prefs(snap)
-    return tuple(domain.project_view(_record(row), prefs) for row in rows if not domain.is_hidden(row.id))
+    prefs, excluded = _prefs(snap), snap[defaults.PROJECTS_EXCLUDED]
+    return tuple(
+        domain.project_view(_record(row), prefs)
+        for row in rows
+        if not domain.is_hidden(row.id) and not domain.is_excluded(row.id, excluded)
+    )
 
 
 async def list_projects(deps: DevDeps) -> tuple[Project, ...]:
@@ -402,11 +408,12 @@ async def ensure_smoke_project(deps: DevDeps) -> Project:
 
 
 async def get_project(deps: DevDeps, project_id: str) -> Project:
-    """The project with this exact id (the hidden smoke project too); `ProjectNotFound` otherwise."""
+    """The project with this exact id (the hidden smoke project too); `ProjectNotFound` otherwise, also for a project
+    the owner excluded after it was registered."""
     snap = await settings.snapshot(deps)
     async with deps.db.read() as s:
         row = await store.get_project(s, project_id)
-    if row is None:
+    if row is None or domain.is_excluded(row.id, snap[defaults.PROJECTS_EXCLUDED]):
         raise ProjectNotFound(name=project_id)
     return domain.project_view(_record(row), _prefs(snap))
 

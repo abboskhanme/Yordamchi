@@ -94,6 +94,13 @@ def test_only_visible_real_folders_are_projects(
     assert domain.skip_reason(name, is_dir=is_dir, is_symlink=is_symlink) is reason
 
 
+def test_an_excluded_folder_is_skipped_whatever_its_case() -> None:
+    for name in ("OvozYoz", "ovozyoz"):
+        assert domain.skip_reason(name, is_dir=True, is_symlink=False, excluded=["OvozYoz"]) is SkipReason.EXCLUDED
+    assert domain.skip_reason("OvozYozWeb", is_dir=True, is_symlink=False, excluded=["OvozYoz"]) is None
+    assert domain.skip_reason("OvozYoz", is_dir=True, is_symlink=False) is None  # only the setting excludes
+
+
 def test_archive_like_names_are_flagged() -> None:
     for name in (
         "BonviCall Clone Archive",

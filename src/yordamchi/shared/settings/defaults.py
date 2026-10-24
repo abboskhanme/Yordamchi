@@ -372,6 +372,16 @@ PROJECTS_ARCHIVED = Setting(
     bots=DEV,
     doc="Projects excluded from routing unless named exactly.",
 )
+PROJECTS_EXCLUDED = Setting(
+    "projects.excluded",
+    list[str],
+    ["OvozYoz"],  # the owner, 2026-10-24: a code sample only, never to be touched (docs/ASSUMPTIONS.md)
+    check=MaxLen(1000),
+    group=Group.ROUTING,
+    bots=DEV,
+    weakens=removes_items,  # letting the bot into a folder the owner closed asks once
+    doc="Folders the dev bot never registers, lists, routes to or opens a session in.",
+)
 PROJECTS_UNARCHIVED = Setting(
     "projects.unarchived",
     list[str],
