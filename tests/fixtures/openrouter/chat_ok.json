@@ -1,0 +1,35 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after openrouter.ai/docs (api-reference/errors, api-reference/limits, guides/overview/multimodal/stt, api reference overview), checked 2026-10-24. No real key or account was used.",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-generation-id": "gen-synthetic-0001"
+  },
+  "body": {
+    "id": "gen-synthetic-0001",
+    "provider": "Google AI Studio",
+    "model": "google/gemini-3.8-flash",
+    "object": "chat.completion",
+    "created": 1792800000,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "STOP",
+        "message": {
+          "role": "assistant",
+          "content": "Bugun BonviHR'da deploy qilamiz, потом проверим логи, keyin HRMentor'ga oʻtamiz.",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1210,
+      "completion_tokens": 31,
+      "total_tokens": 1241,
+      "cost": 0.00041
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after openrouter.ai/docs (api-reference/errors, api-reference/limits, guides/overview/multimodal/stt, api reference overview), checked 2026-10-24. No real key or account was used.",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "id": "gen-synthetic-0002",
+    "model": "google/gemini-3.8-flash",
+    "object": "chat.completion",
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "error",
+        "native_finish_reason": "error",
+        "message": {
+          "role": "assistant",
+          "content": ""
+        },
+        "error": {
+          "code": 503,
+          "message": "Provider overloaded"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after openrouter.ai/docs (api-reference/errors, api-reference/limits, guides/overview/multimodal/stt, api reference overview), checked 2026-10-24. No real key or account was used.",
+  "status": 400,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "code": 400,
+      "message": "Reasoning is not supported for this model with effort 'minimal'.",
+      "metadata": {
+        "provider_name": "Google AI Studio"
+      }
+    }
+  }
+}

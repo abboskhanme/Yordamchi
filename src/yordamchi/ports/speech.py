@@ -5,6 +5,7 @@ Every behaviour value (languages, vocabulary, model, voice, style) comes from th
 
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Protocol
 
 
@@ -25,6 +26,27 @@ class SpeechAudio:
     provider: str
     model: str
     duration_ms: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechKeyCheck:
+    """What validating a speech key found (SPEC §3.2.11 step 2). A bad key raises `AuthFailed` instead.
+
+    Money is `Decimal` USD as the provider reports it; `None` means the provider does not say (Google) or the key
+    has no limit (OpenRouter `limit: null`).
+    """
+
+    provider: str  # "google" | "openrouter"
+    available_models: tuple[str, ...]
+    missing_models: tuple[str, ...]
+    is_free_tier: bool | None = None
+    limit_usd: Decimal | None = None
+    usage_usd: Decimal | None = None
+    limit_remaining_usd: Decimal | None = None
+
+    @property
+    def ok(self) -> bool:
+        return not self.missing_models
 
 
 class Transcriber(Protocol):

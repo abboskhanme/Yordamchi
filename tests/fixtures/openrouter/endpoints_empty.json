@@ -1,0 +1,22 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after openrouter.ai/docs (api-reference/errors, api-reference/limits, guides/overview/multimodal/stt, api reference overview), checked 2026-10-24. No real key or account was used.",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "data": {
+      "id": "google/gemini-3.8-flash-tts",
+      "name": "Google: Gemini 3.8 Flash TTS",
+      "architecture": {
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "audio"
+        ]
+      },
+      "endpoints": []
+    }
+  }
+}

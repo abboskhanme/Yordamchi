@@ -1,0 +1,18 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after openrouter.ai/docs (api-reference/errors, api-reference/limits, guides/overview/multimodal/stt, api reference overview), checked 2026-10-24. No real key or account was used.",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-generation-id": "gen-synthetic-stt-0001"
+  },
+  "body": {
+    "text": "Bugun BonviHR'da deploy qilamiz, потом проверим логи, keyin HRMentor'ga oʻtamiz.",
+    "usage": {
+      "seconds": 2,
+      "total_tokens": 96,
+      "input_tokens": 64,
+      "output_tokens": 32,
+      "cost": 4e-05
+    }
+  }
+}

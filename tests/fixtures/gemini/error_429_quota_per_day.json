@@ -1,0 +1,34 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after ai.google.dev/gemini-api/docs/transcribe (Interactions response: id, status, steps[].content[].text) and the google.rpc error model (error.code/message/status/details), checked 2026-10-24. No real key, account or voice note was used.",
+  "status": 429,
+  "headers": {
+    "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+    "error": {
+      "code": 429,
+      "message": "You exceeded your current quota, please check your plan and billing details.",
+      "status": "RESOURCE_EXHAUSTED",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+          "violations": [
+            {
+              "quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+              "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+              "quotaDimensions": {
+                "location": "global",
+                "model": "gemini-3.5-transcribe"
+              },
+              "quotaValue": "50"
+            }
+          ]
+        },
+        {
+          "@type": "type.googleapis.com/google.rpc.RetryInfo",
+          "retryDelay": "43s"
+        }
+      ]
+    }
+  }
+}

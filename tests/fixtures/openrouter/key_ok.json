@@ -1,0 +1,27 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after openrouter.ai/docs (api-reference/errors, api-reference/limits, guides/overview/multimodal/stt, api reference overview), checked 2026-10-24. No real key or account was used.",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "data": {
+      "label": "sk-or-v1-abc...xyz",
+      "limit": 40,
+      "limit_reset": "monthly",
+      "limit_remaining": 37.5,
+      "include_byok_in_limit": false,
+      "usage": 2.5,
+      "usage_daily": 0.25,
+      "usage_weekly": 1.0,
+      "usage_monthly": 2.5,
+      "byok_usage": 0,
+      "is_free_tier": false,
+      "free_model_daily_requests": {
+        "used": 0,
+        "limit": 1000,
+        "remaining": 1000
+      }
+    }
+  }
+}

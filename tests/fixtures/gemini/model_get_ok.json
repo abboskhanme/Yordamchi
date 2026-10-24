@@ -1,0 +1,18 @@
+{
+  "_synthetic": "Synthetic, not recorded: shaped after ai.google.dev/gemini-api/docs/transcribe (Interactions response: id, status, steps[].content[].text) and the google.rpc error model (error.code/message/status/details), checked 2026-10-24. No real key, account or voice note was used.",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+    "name": "models/gemini-3.5-transcribe",
+    "version": "001",
+    "displayName": "Gemini 3.5 Transcribe",
+    "description": "Speech-to-text model.",
+    "inputTokenLimit": 1048576,
+    "outputTokenLimit": 65536,
+    "supportedGenerationMethods": [
+      "generateContent"
+    ]
+  }
+}
