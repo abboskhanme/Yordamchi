@@ -17,7 +17,7 @@ import re
 import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
 
 from yordamchi.core import strings as S
@@ -36,6 +36,7 @@ SUBJECT_MAX: Final = 80
 NOTE_MAX: Final = 1200  # the handoff note given to the model
 STATUS_WORDS_MAX: Final = 8  # a longer message is a real question for the assistant
 SERVER_SUMMARY_MAX: Final = 160
+DESCRIPTION_MAX: Final = 100  # one project's line in the overview
 
 # The words of a plain status question besides the project name (folded: lower case, one apostrophe). The dev
 # report's list (dev/digest), minus what only makes sense there (servers, "bugun qaysi loyihalarda").
@@ -343,6 +344,56 @@ def status_json(status: ProjectStatus, *, now: datetime) -> JsonObject:
         "queued": status.queued,
         "parked": status.parked,
         "handoff_note": note,
+    }
+
+
+# "Active" in the overview: some work in the last 30 days (owner, 2026-10-24: the personal bot could not tell which of
+# his 37 projects are active).
+ACTIVE_WITHIN: Final = timedelta(days=30)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectFact:
+    """A `projects` row as the overview tool shows it."""
+
+    project_id: str
+    description: str = field(default="", repr=False)
+    archive_name: bool = False  # "… Archive", "backup", "… old": kept, not worked on
+    worktree: bool = False  # a linked working copy of another project, not a project of its own
+    missing: bool = False  # the folder is gone
+    last_activity_at: datetime | None = None
+
+
+def overview_json(facts: Iterable[ProjectFact], *, now: datetime) -> JsonObject:
+    """Every project with the counts the owner asks about ("nechta loyiham bor?", "qaysilari faol?")."""
+    found = [fact for fact in facts if not fact.project_id.startswith(".")]
+    real = [fact for fact in found if not fact.worktree and not fact.missing]
+    active = [
+        fact
+        for fact in real
+        if not fact.archive_name and fact.last_activity_at is not None and now - fact.last_activity_at <= ACTIVE_WITHIN
+    ]
+    items: list[JsonValue] = [
+        {
+            "project": fact.project_id,
+            "description": _shorten(fact.description, DESCRIPTION_MAX),
+            "days_since_activity": None
+            if fact.last_activity_at is None
+            else max(0, (now - fact.last_activity_at).days),
+            "archive": fact.archive_name,
+            "worktree_copy": fact.worktree,
+            "missing": fact.missing,
+        }
+        for fact in found
+    ]
+    return {
+        "folders": len(found),
+        "projects": len(real),
+        "active_in_last_30_days": len(active),
+        "archive_named": [fact.project_id for fact in real if fact.archive_name],
+        "worktree_copies": [fact.project_id for fact in found if fact.worktree],
+        "missing": [fact.project_id for fact in found if fact.missing],
+        "list": items,
     }
 
 

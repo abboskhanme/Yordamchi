@@ -42,6 +42,8 @@ log = get_log(__name__)
 SERVER: Final = "yordamchi_bridge"
 PROJECT_TOOL: Final = "project_status"
 SERVER_TOOL: Final = "server_status"
+OVERVIEW_TOOL: Final = "projects_overview"
+OVERVIEW_TOOL_PROMPT: Final = "personal/bridge_projects_overview"
 PROJECT_TOOL_PROMPT: Final = "personal/bridge_project_status"
 SERVER_TOOL_PROMPT: Final = "personal/bridge_server_status"
 SERVER_LOOKBACK: Final = timedelta(hours=24)  # older checks are not "the latest" any more
@@ -52,6 +54,7 @@ PROJECT_SCHEMA: Final[JsonObject] = {
     "additionalProperties": False,
 }
 SERVER_SCHEMA: Final[JsonObject] = {"type": "object", "properties": {}, "additionalProperties": False}
+OVERVIEW_SCHEMA: Final[JsonObject] = {"type": "object", "properties": {}, "additionalProperties": False}
 
 
 @dataclass
@@ -105,6 +108,27 @@ async def list_projects(deps: SharedDeps, *, timeout: float) -> tuple[ProjectRef
     return tuple(
         ProjectRef(project_id=project_id, description=description, missing=missing)
         for project_id, description, _archive_name, missing in rows
+    )
+
+
+async def project_facts(deps: SharedDeps, *, timeout: float) -> tuple[domain.ProjectFact, ...]:
+    """Every project with the flags and last activity the overview tool shows."""
+    db = _handle(deps)
+    try:
+        async with asyncio.timeout(timeout), db.read() as s:
+            rows = await store.list_project_facts(s)
+    except TimeoutError:
+        raise BridgeUnavailable() from None
+    return tuple(
+        domain.ProjectFact(
+            project_id=project_id,
+            description=description,
+            archive_name=archive_name,
+            worktree=worktree,
+            missing=missing,
+            last_activity_at=last_activity_at,
+        )
+        for project_id, description, archive_name, worktree, missing, last_activity_at in rows
     )
 
 
@@ -229,6 +253,14 @@ def toolset(deps: SharedDeps, *, timeout_s: float, tool_log: ToolLog) -> Assista
         tool_log.read.append((project.project_id, status.checked_at))
         return _output(domain.status_json(status, now=deps.clock.now()))
 
+    async def overview_tool(arguments: Mapping[str, JsonValue]) -> ToolOutput:
+        del arguments
+        try:
+            facts = await project_facts(deps, timeout=timeout_s)
+        except (BridgeUnavailable, BridgeNotReadOnly) as error:
+            return ToolOutput(text=error.code.value, is_error=True)
+        return _output(domain.overview_json(facts, now=deps.clock.now()))
+
     async def server_tool(arguments: Mapping[str, JsonValue]) -> ToolOutput:
         del arguments
         try:
@@ -253,6 +285,13 @@ def toolset(deps: SharedDeps, *, timeout_s: float, tool_log: ToolLog) -> Assista
                 input_schema=SERVER_SCHEMA,
                 timeout_s=timeout_s,
                 handler=server_tool,
+            ),
+            AssistantTool(
+                name=OVERVIEW_TOOL,
+                description=prompts.render(OVERVIEW_TOOL_PROMPT),
+                input_schema=OVERVIEW_SCHEMA,
+                timeout_s=timeout_s,
+                handler=overview_tool,
             ),
         ),
     )

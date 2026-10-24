@@ -265,6 +265,7 @@ ALLOWLIST = sorted(
         "WebSearch",
         "mcp__yordamchi_bridge__project_status",
         "mcp__yordamchi_bridge__server_status",
+        "mcp__yordamchi_bridge__projects_overview",
         "mcp__yordamchi_media__analyze_video",
         "mcp__yordamchi_media__screenshot",
         "mcp__yordamchi_media__fetch_file",

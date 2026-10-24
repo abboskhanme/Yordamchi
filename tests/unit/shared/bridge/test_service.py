@@ -11,9 +11,10 @@ from datetime import timedelta
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from tests.factories import Fakes, add_digest_row, add_server_check_row
+from tests.factories import Fakes, add_digest_row, add_server_check_row, make_project_record
 from yordamchi.core import strings as S
 from yordamchi.core.errors import BridgeNotReadOnly, BridgeUnavailable
+from yordamchi.dev.projects import store as projects_store
 from yordamchi.persistence.uow import Database, ReadOnlyDatabase
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.shared.bridge import service
@@ -87,7 +88,11 @@ async def test_the_project_tool_returns_data_and_logs_its_freshness(
     log = service.ToolLog()
     toolset = service.toolset(personal_deps, timeout_s=TIMEOUT, tool_log=log)
     assert toolset.server == "yordamchi_bridge"
-    assert toolset.tool_names == ("mcp__yordamchi_bridge__project_status", "mcp__yordamchi_bridge__server_status")
+    assert toolset.tool_names == (
+        "mcp__yordamchi_bridge__project_status",
+        "mcp__yordamchi_bridge__server_status",
+        "mcp__yordamchi_bridge__projects_overview",
+    )
     project_tool = toolset.tools[0]
     assert all(tool.read_only for tool in toolset.tools)
 
@@ -130,3 +135,23 @@ async def test_a_missing_bridge_is_an_error_result_not_a_raise(personal_deps: Pe
 async def test_a_project_without_a_digest_reads_as_empty(personal_deps: PersonalDeps) -> None:
     status = await service.project_status(personal_deps, ProjectRef("BonviHR"), timeout=TIMEOUT)
     assert status.has_digest is False
+
+
+async def test_the_overview_tool_counts_projects_archives_and_worktree_copies(
+    personal_deps: PersonalDeps, dev_db: Database, fakes: Fakes
+) -> None:
+    """Owner, 2026-10-24: "Loyihalarim soni aniq nechta?" got "qaysilari faol ekanini bilmayman"."""
+    now = fakes.clock.now()
+    async with dev_db.uow() as s:
+        await projects_store.set_project(s, make_project_record("BonviHR", at=now, description="Kadrlar tizimi"))
+        await projects_store.set_project(
+            s, make_project_record("BonviCall Clone Archive", at=now, is_archive_name=True)
+        )
+        await projects_store.set_project(s, make_project_record("HRMentor-wt-agent-api", at=now, is_worktree=True))
+    toolset = service.toolset(personal_deps, timeout_s=TIMEOUT, tool_log=service.ToolLog())
+    [overview] = [tool for tool in toolset.tools if tool.name == service.OVERVIEW_TOOL]
+    data = json.loads((await overview.handler({})).text)
+    assert (data["folders"], data["projects"]) == (3, 2)
+    assert data["archive_named"] == ["BonviCall Clone Archive"]
+    assert data["worktree_copies"] == ["HRMentor-wt-agent-api"]
+    assert [item["project"] for item in data["list"]] == ["BonviCall Clone Archive", "BonviHR", "HRMentor-wt-agent-api"]

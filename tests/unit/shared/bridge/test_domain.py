@@ -164,3 +164,26 @@ def test_the_bridge_reads_only_the_spec_tables() -> None:
         "usage_records",
     }
     assert spec_2_3 == domain.BRIDGE_TABLES
+
+
+def test_the_overview_counts_active_projects_and_sets_copies_apart() -> None:
+    now = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
+    facts = [
+        domain.ProjectFact("BonviHR", last_activity_at=now - timedelta(days=2)),
+        domain.ProjectFact("OldCRM", last_activity_at=now - timedelta(days=90)),
+        domain.ProjectFact("BonviCall Clone Archive", archive_name=True, last_activity_at=now),
+        domain.ProjectFact("HRMentor-wt-agent-api", worktree=True, last_activity_at=now),
+        domain.ProjectFact("Gone", missing=True),
+        domain.ProjectFact(".smoke"),
+    ]
+    data = domain.overview_json(facts, now=now)
+    assert (data["folders"], data["projects"], data["active_in_last_30_days"]) == (5, 3, 1)
+    assert (data["archive_named"], data["worktree_copies"], data["missing"]) == (
+        ["BonviCall Clone Archive"],
+        ["HRMentor-wt-agent-api"],
+        ["Gone"],
+    )
+    listed = data["list"]
+    assert isinstance(listed, list)
+    by_name = {str(item["project"]): item for item in listed if isinstance(item, dict)}
+    assert (by_name["BonviHR"]["days_since_activity"], by_name["Gone"]["days_since_activity"]) == (2, None)

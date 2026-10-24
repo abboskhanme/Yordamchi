@@ -24,7 +24,9 @@ PROJECTS: Final = Table(
     Column("id", String(64), primary_key=True),
     Column("description", Text),
     Column("is_archive_name", Boolean),
+    Column("is_worktree", Boolean),
     Column("missing_since", UTCDateTime()),
+    Column("last_activity_at", UTCDateTime()),
 )
 DIGESTS: Final = Table(
     "digests",
@@ -67,6 +69,20 @@ async def list_projects(s: AsyncSession) -> list[tuple[str, str, bool, bool]]:
     ).order_by(PROJECTS.c.id)
     rows = (await s.execute(statement)).all()
     return [(str(row[0]), str(row[1] or ""), bool(row[2]), row[3] is not None) for row in rows]
+
+
+async def list_project_facts(s: AsyncSession) -> list[tuple[str, str, bool, bool, bool, datetime | None]]:
+    """`(id, description, is_archive_name, is_worktree, missing, last_activity_at)` of every project, by id."""
+    columns = (
+        PROJECTS.c.id,
+        PROJECTS.c.description,
+        PROJECTS.c.is_archive_name,
+        PROJECTS.c.is_worktree,
+        PROJECTS.c.missing_since,
+        PROJECTS.c.last_activity_at,
+    )
+    rows = (await s.execute(select(*columns).order_by(PROJECTS.c.id))).all()
+    return [(str(row[0]), str(row[1] or ""), bool(row[2]), bool(row[3]), row[4] is not None, row[5]) for row in rows]
 
 
 async def get_digest(s: AsyncSession, project_id: str) -> dict[str, object] | None:
