@@ -1,0 +1,129 @@
+[
+  {
+    "update_id": 880001,
+    "message": {
+      "message_id": 501,
+      "from": {
+        "id": 100000001,
+        "is_bot": false,
+        "first_name": "Owner",
+        "language_code": "uz"
+      },
+      "chat": {
+        "id": -1001234567890,
+        "title": "Yordamchi Dev",
+        "type": "supergroup"
+      },
+      "date": 1761292800,
+      "media_group_id": "13912345678901234",
+      "photo": [
+        {
+          "file_id": "AgACAgIAAxkBAAIBA0AAHs-s",
+          "file_unique_id": "AQADA0s",
+          "file_size": 1544,
+          "width": 90,
+          "height": 60
+        },
+        {
+          "file_id": "AgACAgIAAxkBAAIBA0AAHs-m",
+          "file_unique_id": "AQADA0m",
+          "file_size": 21789,
+          "width": 320,
+          "height": 213
+        },
+        {
+          "file_id": "AgACAgIAAxkBAAIBA0AAHs-x",
+          "file_unique_id": "AQADA0x",
+          "file_size": 184522,
+          "width": 1280,
+          "height": 853
+        }
+      ],
+      "caption": "shu xatolarni ko'r"
+    }
+  },
+  {
+    "update_id": 880002,
+    "message": {
+      "message_id": 502,
+      "from": {
+        "id": 100000001,
+        "is_bot": false,
+        "first_name": "Owner",
+        "language_code": "uz"
+      },
+      "chat": {
+        "id": -1001234567890,
+        "title": "Yordamchi Dev",
+        "type": "supergroup"
+      },
+      "date": 1761292800,
+      "media_group_id": "13912345678901234",
+      "photo": [
+        {
+          "file_id": "AgACAgIAAxkBAAIBA1AAHs-s",
+          "file_unique_id": "AQADA1s",
+          "file_size": 1544,
+          "width": 90,
+          "height": 60
+        },
+        {
+          "file_id": "AgACAgIAAxkBAAIBA1AAHs-m",
+          "file_unique_id": "AQADA1m",
+          "file_size": 21789,
+          "width": 320,
+          "height": 213
+        },
+        {
+          "file_id": "AgACAgIAAxkBAAIBA1AAHs-x",
+          "file_unique_id": "AQADA1x",
+          "file_size": 184522,
+          "width": 1280,
+          "height": 853
+        }
+      ]
+    }
+  },
+  {
+    "update_id": 880003,
+    "message": {
+      "message_id": 503,
+      "from": {
+        "id": 100000001,
+        "is_bot": false,
+        "first_name": "Owner",
+        "language_code": "uz"
+      },
+      "chat": {
+        "id": -1001234567890,
+        "title": "Yordamchi Dev",
+        "type": "supergroup"
+      },
+      "date": 1761292800,
+      "media_group_id": "13912345678901234",
+      "photo": [
+        {
+          "file_id": "AgACAgIAAxkBAAIBA2AAHs-s",
+          "file_unique_id": "AQADA2s",
+          "file_size": 1544,
+          "width": 90,
+          "height": 60
+        },
+        {
+          "file_id": "AgACAgIAAxkBAAIBA2AAHs-m",
+          "file_unique_id": "AQADA2m",
+          "file_size": 21789,
+          "width": 320,
+          "height": 213
+        },
+        {
+          "file_id": "AgACAgIAAxkBAAIBA2AAHs-x",
+          "file_unique_id": "AQADA2x",
+          "file_size": 184522,
+          "width": 1280,
+          "height": 853
+        }
+      ]
+    }
+  }
+]

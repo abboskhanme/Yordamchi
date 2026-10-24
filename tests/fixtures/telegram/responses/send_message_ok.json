@@ -1,0 +1,22 @@
+{
+  "status": 200,
+  "body": {
+    "ok": true,
+    "result": {
+      "message_id": 601,
+      "from": {
+        "id": 7000000001,
+        "is_bot": true,
+        "first_name": "Yordamchi Dev",
+        "username": "yordamchi_dev_bot"
+      },
+      "chat": {
+        "id": -1001234567890,
+        "title": "Yordamchi Dev",
+        "type": "supergroup"
+      },
+      "date": 1761292800,
+      "text": "Onlayn: 09:00"
+    }
+  }
+}

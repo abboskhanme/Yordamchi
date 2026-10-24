@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "body": {
+    "ok": true,
+    "result": {
+      "file_id": "AwACAgIAAxkBAAIB_voice_0001",
+      "file_unique_id": "AgADvoice1",
+      "file_size": 48213,
+      "file_path": "voice/file_42.oga"
+    }
+  }
+}

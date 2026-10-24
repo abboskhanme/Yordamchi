@@ -1,0 +1,25 @@
+{
+  "update_id": 880012,
+  "message": {
+    "message_id": 512,
+    "from": {
+      "id": 100000001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "language_code": "uz"
+    },
+    "chat": {
+      "id": -1001234567890,
+      "title": "Yordamchi Dev",
+      "type": "supergroup"
+    },
+    "date": 1761292800,
+    "document": {
+      "file_name": "report.pdf",
+      "mime_type": "application/pdf",
+      "file_id": "BQACAgIAAxkBAAIB_doc_0001",
+      "file_unique_id": "AgADdoc01",
+      "file_size": 1258291
+    }
+  }
+}

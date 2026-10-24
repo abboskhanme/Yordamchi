@@ -1,0 +1,42 @@
+{
+  "update_id": 880011,
+  "message": {
+    "message_id": 511,
+    "from": {
+      "id": 100000001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "language_code": "uz"
+    },
+    "chat": {
+      "id": -1001234567890,
+      "title": "Yordamchi Dev",
+      "type": "supergroup"
+    },
+    "date": 1761292800,
+    "photo": [
+      {
+        "file_id": "AgACAgIAAxkBAAIBP0AAHs-s",
+        "file_unique_id": "AQADP0s",
+        "file_size": 1544,
+        "width": 90,
+        "height": 60
+      },
+      {
+        "file_id": "AgACAgIAAxkBAAIBP0AAHs-m",
+        "file_unique_id": "AQADP0m",
+        "file_size": 21789,
+        "width": 320,
+        "height": 213
+      },
+      {
+        "file_id": "AgACAgIAAxkBAAIBP0AAHs-x",
+        "file_unique_id": "AQADP0x",
+        "file_size": 145310,
+        "width": 1280,
+        "height": 720
+      }
+    ],
+    "caption": "BonviHR: login sahifasi"
+  }
+}

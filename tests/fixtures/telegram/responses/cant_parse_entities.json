@@ -1,0 +1,8 @@
+{
+  "status": 400,
+  "body": {
+    "ok": false,
+    "error_code": 400,
+    "description": "Bad Request: can't parse entities: Unsupported start tag \"b1\" at byte offset 0"
+  }
+}

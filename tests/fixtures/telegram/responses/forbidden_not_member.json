@@ -1,0 +1,8 @@
+{
+  "status": 403,
+  "body": {
+    "ok": false,
+    "error_code": 403,
+    "description": "Forbidden: bot is not a member of the supergroup chat"
+  }
+}

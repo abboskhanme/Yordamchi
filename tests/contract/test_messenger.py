@@ -1,13 +1,29 @@
+"""The `Messenger` contract, run against `FakeMessenger` and `TelegramMessenger` (CONVENTIONS §4, §11).
+
+The real adapter runs twice: offline on the recording aiogram session (always), and against the real Bot API
+(`-m live`, opt-in). The live run needs a test bot and a chat it may write to, pin in and delete from:
+
+    YORDAMCHI_LIVE_TELEGRAM_TOKEN=<test bot token> YORDAMCHI_LIVE_TELEGRAM_CHAT_ID=<chat id> uv run pytest -m live
+
+Without both variables the live class is skipped.
+"""
+
 import inspect
+import os
+from collections.abc import AsyncIterator
 
 import pytest
 
 from tests.fakes.messenger import FakeMessenger
+from tests.fakes.telegram_session import RecordingSession
+from yordamchi.adapters.telegram.messenger import TelegramMessenger
 from yordamchi.core import strings as S
 from yordamchi.ports.messenger import ChatAction, Messenger
 
 CHAT = -1001234567890
 TIMEOUT = 5.0
+LIVE_TOKEN_VAR = "YORDAMCHI_LIVE_TELEGRAM_TOKEN"
+LIVE_CHAT_VAR = "YORDAMCHI_LIVE_TELEGRAM_CHAT_ID"
 
 
 class MessengerContract:
@@ -15,31 +31,41 @@ class MessengerContract:
     def messenger(self) -> Messenger:
         raise NotImplementedError
 
+    @pytest.fixture
+    def chat(self) -> int:
+        return CHAT
+
     def test_no_method_accepts_reply_markup(self, messenger: Messenger) -> None:
         """D8 / UC-12: buttons cannot even be expressed."""
         for name, method in inspect.getmembers(messenger, inspect.ismethod):
             if not name.startswith("_"):
                 assert "reply_markup" not in inspect.signature(method).parameters, name
 
-    async def test_send_returns_increasing_message_ids_per_chat(self, messenger: Messenger) -> None:
-        first = await messenger.send_text(CHAT, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
+    async def test_send_returns_increasing_message_ids_per_chat(self, messenger: Messenger, chat: int) -> None:
+        first = await messenger.send_text(chat, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
         second = await messenger.send_text(
-            CHAT, S.HEALTH_ONLINE(time="09:05"), reply_to=first.message_id, timeout=TIMEOUT
+            chat, S.HEALTH_ONLINE(time="09:05"), reply_to=first.message_id, timeout=TIMEOUT
         )
-        assert first.chat_id == CHAT
+        assert first.chat_id == chat
         assert first.message_id > 0
         assert second.message_id > first.message_id
 
-    async def test_edit_react_action_pin_accept_a_sent_message(self, messenger: Messenger) -> None:
-        sent = await messenger.send_text(CHAT, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
-        await messenger.edit_text(CHAT, sent.message_id, S.HEALTH_ONLINE(time="09:05"), timeout=TIMEOUT)
-        await messenger.react(CHAT, sent.message_id, "\U0001f440", timeout=TIMEOUT)
-        await messenger.chat_action(CHAT, ChatAction.TYPING, timeout=TIMEOUT)
-        await messenger.pin(CHAT, sent.message_id, timeout=TIMEOUT)
+    async def test_edit_react_action_pin_accept_a_sent_message(self, messenger: Messenger, chat: int) -> None:
+        sent = await messenger.send_text(chat, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
+        await messenger.edit_text(chat, sent.message_id, S.HEALTH_ONLINE(time="09:05"), timeout=TIMEOUT)
+        await messenger.react(chat, sent.message_id, "\U0001f440", timeout=TIMEOUT)
+        await messenger.chat_action(chat, ChatAction.TYPING, timeout=TIMEOUT)
+        await messenger.pin(chat, sent.message_id, timeout=TIMEOUT)
 
-    async def test_delete_reports_whether_it_worked(self, messenger: Messenger) -> None:
-        sent = await messenger.send_text(CHAT, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
-        assert isinstance(await messenger.delete(CHAT, sent.message_id, timeout=TIMEOUT), bool)
+    async def test_delete_reports_whether_it_worked(self, messenger: Messenger, chat: int) -> None:
+        sent = await messenger.send_text(chat, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
+        assert isinstance(await messenger.delete(chat, sent.message_id, timeout=TIMEOUT), bool)
+
+    async def test_an_unchanged_edit_is_not_an_error(self, messenger: Messenger, chat: int) -> None:
+        """Outbox redelivery may repeat an edit; the second one must not fail."""
+        sent = await messenger.send_text(chat, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
+        await messenger.edit_text(chat, sent.message_id, S.HEALTH_ONLINE(time="09:05"), timeout=TIMEOUT)
+        await messenger.edit_text(chat, sent.message_id, S.HEALTH_ONLINE(time="09:05"), timeout=TIMEOUT)
 
 
 class TestFakeMessenger(MessengerContract):
@@ -61,3 +87,47 @@ class TestFakeMessenger(MessengerContract):
         sent = await messenger.send_text(CHAT, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
         messenger.undeletable.add((CHAT, sent.message_id))
         assert await messenger.delete(CHAT, sent.message_id, timeout=TIMEOUT) is False
+
+
+class TestTelegramMessengerRecorded(MessengerContract):
+    """The real adapter, offline: every request goes through the recording session, which fails on reply_markup."""
+
+    @pytest.fixture
+    def session(self) -> RecordingSession:
+        return RecordingSession()
+
+    @pytest.fixture
+    def messenger(self, session: RecordingSession) -> Messenger:
+        return TelegramMessenger("123456:TEST-token-not-a-real-one-000000000", session=session)
+
+    async def test_the_contract_sent_no_reply_markup(self, messenger: Messenger, session: RecordingSession) -> None:
+        await messenger.send_text(CHAT, S.HEALTH_ONLINE(time="09:00"), timeout=TIMEOUT)
+        assert session.requests
+        session.assert_no_reply_markup()
+
+
+def _live_value(name: str) -> str:
+    # Opt-in test configuration, not a bootstrap value: core.config does not own it.
+    return os.environ.get(name, "")  # noqa: TID251
+
+
+@pytest.mark.live
+class TestTelegramMessengerLive(MessengerContract):
+    """The real adapter against the real Bot API. Needs a test bot; never the owner's production bots."""
+
+    @pytest.fixture
+    def chat(self) -> int:
+        value = _live_value(LIVE_CHAT_VAR)
+        if not value:
+            pytest.skip(f"{LIVE_CHAT_VAR} is not set")
+        return int(value)
+
+    @pytest.fixture
+    async def messenger(self, chat: int) -> AsyncIterator[Messenger]:
+        del chat  # resolved first, so a missing chat skips before a session is opened
+        token = _live_value(LIVE_TOKEN_VAR)
+        if not token:
+            pytest.skip(f"{LIVE_TOKEN_VAR} is not set")
+        adapter = TelegramMessenger(token)
+        yield adapter
+        await adapter.close()

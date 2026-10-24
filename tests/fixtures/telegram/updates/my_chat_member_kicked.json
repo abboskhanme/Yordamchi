@@ -1,0 +1,36 @@
+{
+  "update_id": 880022,
+  "my_chat_member": {
+    "chat": {
+      "id": -1009876543210,
+      "title": "Random group",
+      "type": "supergroup"
+    },
+    "from": {
+      "id": 200000002,
+      "is_bot": false,
+      "first_name": "Stranger",
+      "username": "someone_else"
+    },
+    "date": 1761292800,
+    "old_chat_member": {
+      "user": {
+        "id": 7000000001,
+        "is_bot": true,
+        "first_name": "Yordamchi Dev",
+        "username": "yordamchi_dev_bot"
+      },
+      "status": "member"
+    },
+    "new_chat_member": {
+      "user": {
+        "id": 7000000001,
+        "is_bot": true,
+        "first_name": "Yordamchi Dev",
+        "username": "yordamchi_dev_bot"
+      },
+      "status": "kicked",
+      "until_date": 0
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "update_id": 880010,
+  "message": {
+    "message_id": 510,
+    "from": {
+      "id": 100000001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "language_code": "uz"
+    },
+    "chat": {
+      "id": -1001234567890,
+      "title": "Yordamchi Dev",
+      "type": "supergroup"
+    },
+    "date": 1761292800,
+    "voice": {
+      "file_id": "AwACAgIAAxkBAAIB_voice_0001",
+      "file_unique_id": "AgADvoice1",
+      "duration": 14,
+      "mime_type": "audio/ogg",
+      "file_size": 48213
+    }
+  }
+}

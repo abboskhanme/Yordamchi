@@ -1,0 +1,25 @@
+{
+  "update_id": 880013,
+  "message": {
+    "message_id": 513,
+    "from": {
+      "id": 100000001,
+      "is_bot": false,
+      "first_name": "Owner",
+      "language_code": "uz"
+    },
+    "chat": {
+      "id": -1001234567890,
+      "title": "Yordamchi Dev",
+      "type": "supergroup"
+    },
+    "date": 1761292800,
+    "document": {
+      "file_name": "dump.sql.gz",
+      "mime_type": "application/gzip",
+      "file_id": "BQACAgIAAxkBAAIB_doc_big1",
+      "file_unique_id": "AgADdocbig",
+      "file_size": 26214400
+    }
+  }
+}
