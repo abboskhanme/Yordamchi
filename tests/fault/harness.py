@@ -23,6 +23,7 @@ loop (aiosqlite threads included) is given a few milliseconds to catch up.
 """
 
 import asyncio
+import html
 import inspect
 import json
 import random
@@ -321,7 +322,10 @@ class FakeTelegram:
         return [post.text for post in self.posts]
 
     def posted(self, needle: str) -> list[Post]:
-        return [post for post in self.posts if needle in post.text]
+        """The posts that hold `needle` as the owner reads them: an HTML post without its tags, a catalog line
+        without its markers (the outbox renders markup since the formatting pass)."""
+        wanted = outbox_domain.plain_text(needle)
+        return [post for post in self.posts if wanted in _visible(post.text)]
 
     # --- the bot's side ---
     def fault_for(self, method: TelegramMethod[Any]) -> Fault | None:
@@ -735,6 +739,14 @@ class OutboxLedger:
         return len(self.duplicates) / max(1, self.posted)
 
 
+_TAG: Final = re.compile(r"<[^>]*>")
+
+
+def _visible(text: str) -> str:
+    """What Telegram shows for a post: HTML tags dropped and entities read (plain text is unchanged by both)."""
+    return html.unescape(_TAG.sub("", text))
+
+
 def _as_sent(op: Op, payload_json: JsonValue) -> str:
     payload = outbox_domain.payload_from_json(op, payload_json)
     if op is Op.SEND_TEXT:
@@ -900,7 +912,7 @@ def offered_in(text: str) -> list[str]:
 
 def offered_projects(here: World) -> set[str]:
     """Every project a restart notice the owner received asked "davom ettiraymi?" about."""
-    return {name for post in here.telegram.posted(OFFER_END) for name in offered_in(post.text)}
+    return {name for post in here.telegram.posted(OFFER_END) for name in offered_in(_visible(post.text))}
 
 
 async def cut_off_turns(here: World) -> list[Turn]:
