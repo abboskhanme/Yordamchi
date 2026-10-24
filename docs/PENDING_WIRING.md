@@ -195,9 +195,9 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Later: P3 TTS key validation; T51 caps (ask before OpenRouter becomes a paid provider); P2 integration names in the vocabulary; P3 cross-bot speech keys; splitting long notes at silences.
 
 ## From T28 (installer, plists, check)
-- [ ] **Blocks T43:** pin the ffmpeg + ffprobe 9.0.2 arm64 download URLs and SHA-256 in STACK §5 and `FFMPEG_PINS` in `scripts/install.py`. Until then use `--skip-ffmpeg`.
-- [ ] `python -m yordamchi.check`: add the shim `src/yordamchi/check.py` (`from yordamchi.bots.cli.check import main; raise SystemExit(main())`) or a console script.
-- [ ] `pyproject.toml`: the per-file ignore `"scripts/**" = ["TID251", "S603", "E402"]`, and add `scripts` to the mypy files list.
+- [x] **Blocks T43:** pin the ffmpeg + ffprobe 9.0.2 arm64 download URLs and SHA-256 in STACK §5 and `FFMPEG_PINS` in `scripts/install.py`. Done 2026-10-24: build `1789931890_9.0.2`, checked against the publisher's `.sha256` files; `test_install.py` keeps STACK and `FFMPEG_PINS` equal. `--skip-ffmpeg` is no longer needed.
+- [x] `python -m yordamchi.check`: add the shim `src/yordamchi/check.py` (`from yordamchi.bots.cli.check import main; raise SystemExit(main())`) or a console script. Done 2026-10-24 with the shim; the installer's final check now runs it. Left: DEPLOY.md §1 step 4 still shows the long form with "once its entry point is wired" (both forms work); drop that note in the next DEPLOY edit.
+- [x] `pyproject.toml`: the per-file ignore `"scripts/**" = ["TID251", "S603", "E402"]`, and add `scripts` to the mypy files list. Done 2026-10-24; mypy found nothing new.
 - [ ] T57: reuse the release naming and these `uv sync` flags: `--frozen --no-dev --no-editable --compile-bytecode --link-mode clone --python 3.12.15`.
 - [ ] Before T43: T32 and T34 merged (otherwise the dev plist crash-loops), and both tokens rotated (`--env-only --rotate-tokens`, DEPLOY.md §6).
 - [ ] The SPEC §9.3 "ClaudeManager is running" check needs its process name.

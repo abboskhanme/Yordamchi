@@ -9,6 +9,7 @@ import base64
 import hashlib
 import io
 import plistlib
+import re
 import sqlite3
 import stat
 import tarfile
@@ -32,6 +33,7 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 VERSION = "2026.10.24-0123456"
 NEW_DEV_TOKEN = "111222333:AAnewDevTokenAfterRotation_01234567"
 FFMPEG_NAMES = ("ffmpeg", "ffprobe")
+STACK_PIN_ROW = re.compile(r"^\s*\| (ffmpeg|ffprobe) \| `(https://[^`]+)` \| `([0-9a-f]{64})` \|$", re.MULTILINE)
 
 
 # --- fakes -----------------------------------------------------------------------------------------------------------
@@ -65,6 +67,10 @@ def ffmpeg_zip(name: str) -> bytes:
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr(name, f"#!/bin/sh\necho {name}\n")
     return buffer.getvalue()
+
+
+def unpinned() -> dict[str, Pin | None]:
+    return dict.fromkeys(FFMPEG_NAMES)
 
 
 def good_pins() -> dict[str, Pin | None]:
@@ -383,20 +389,26 @@ def test_the_cli_refuses_home_without_dry_run(tmp_path: Path) -> None:
 
 # --- ffmpeg pins -----------------------------------------------------------------------------------------------------
 def test_unpinned_ffmpeg_stops_a_real_install_before_anything_changes(rig: Rig) -> None:
-    installer = rig.installer(pins=dict(install.FFMPEG_PINS))
+    installer = rig.installer(pins=unpinned())
     assert installer.install() == 1
     assert "not pinned in docs/STACK.md §5" in rig.out.getvalue()
     assert not rig.paths.data.exists()
     assert not rig.paths.master_key.exists()
 
 
-def test_the_shipped_pins_are_empty_until_stack_records_them() -> None:
-    # STACK §5 has no SHA-256 for the 9.0.2 zips; the installer must not carry a guessed one.
-    assert all(pin is None for pin in install.FFMPEG_PINS.values())
+def test_the_shipped_pins_are_the_ones_stack_records() -> None:
+    # STACK §5 item 4 holds the publisher's SHA-256 per zip; FFMPEG_PINS is a copy, never a guess.
+    rows = STACK_PIN_ROW.findall((ROOT / "docs" / "STACK.md").read_text(encoding="utf-8"))
+    recorded = {name: Pin(url, sha256) for name, url, sha256 in rows}
+    assert set(recorded) == set(FFMPEG_NAMES)
+    assert dict(install.FFMPEG_PINS) == recorded
+    for name, pin in recorded.items():
+        assert pin.url.startswith("https://ffmpeg.martin-riedl.de/download/macos/arm64/")
+        assert pin.url.endswith(f"_{install.FFMPEG_VERSION}/{name}.zip")
 
 
 def test_a_dry_run_names_the_missing_pins_and_shows_the_rest(rig: Rig) -> None:
-    installer = rig.installer(dry_run=True, pins=dict(install.FFMPEG_PINS))
+    installer = rig.installer(dry_run=True, pins=unpinned())
     assert installer.install() == 1
     steps = rig.steps(installer)
     assert steps["preflight: ffmpeg pins"] is Status.FAILED
@@ -406,7 +418,7 @@ def test_a_dry_run_names_the_missing_pins_and_shows_the_rest(rig: Rig) -> None:
 
 def test_skip_ffmpeg_installs_without_it(rig: Rig) -> None:
     rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
-    installer = rig.installer(pins=dict(install.FFMPEG_PINS), skip_ffmpeg=True)
+    installer = rig.installer(pins=unpinned(), skip_ffmpeg=True)
     assert installer.install() == 0, rig.out.getvalue()
     assert rig.steps(installer)["ffmpeg"] is Status.WARN
 

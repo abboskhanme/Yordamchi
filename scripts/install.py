@@ -25,7 +25,7 @@ Steps, in order. Each one is idempotent, so a failed run is fixed and simply run
 10. `releases/current` and `supervisor/current` are switched atomically (the previous target is printed: rollback).
 11. the plists are rendered from `ops/launchd/*.plist.tmpl` of the release into `DATA/launchd/`; dev and supervisor
     are copied to `~/Library/LaunchAgents` (personal only with `--enable-personal`, P3).
-12. `launchctl bootstrap` / `kickstart -k`, then `python -m yordamchi.bots.cli.check` from the new release.
+12. `launchctl bootstrap` / `kickstart -k`, then `python -m yordamchi.check` from the new release.
 
 `--dry-run` builds everything under a temporary HOME (the release, its venv with `uv sync --offline`, the DBs, the
 plists) and skips whatever would change this Mac outside it: `uv self update`, `uv python install`, the ffmpeg
@@ -48,7 +48,7 @@ import plistlib
 import re
 import shutil
 import sqlite3
-import subprocess  # noqa: TID251  # an installer, run before any venv exists: core.proc is async-only
+import subprocess  # an installer, run before any venv exists: core.proc is async-only
 import sys
 import tarfile
 import tempfile
@@ -66,11 +66,11 @@ REPO: Final = Path(__file__).resolve().parents[1]
 if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
 
-from yordamchi.bots.cli import check as yd_check  # noqa: E402  # needs the sys.path entry above
-from yordamchi.core import proc as yd_proc  # noqa: E402
-from yordamchi.core import redact  # noqa: E402
-from yordamchi.core.errors import ConfigInvalid  # noqa: E402
-from yordamchi.core.paths import BotName, Paths, ProcessName  # noqa: E402
+from yordamchi.bots.cli import check as yd_check  # needs the sys.path entry above
+from yordamchi.core import proc as yd_proc
+from yordamchi.core import redact
+from yordamchi.core.errors import ConfigInvalid
+from yordamchi.core.paths import BotName, Paths, ProcessName
 
 UV_VERSION: Final = "0.13.5"
 PYTHON_VERSION: Final = "3.12.15"
@@ -107,9 +107,14 @@ class Pin:
 
 
 # ffmpeg + ffprobe 9.0.2 static arm64 (martin-riedl.de, signed zips, opus enabled; STACK §2, §5 item 4).
-# docs/STACK.md §5 does not pin the URLs or the SHA-256 yet, so these stay None and the installer refuses to guess.
-# Copy both pins from STACK §5 once they are recorded there (docs/PENDING_WIRING.md, T28).
-FFMPEG_PINS: Final[Mapping[str, Pin | None]] = {"ffmpeg": None, "ffprobe": None}
+# Copied from docs/STACK.md §5, which names the publisher's `<zip>.sha256` files they were checked against; keep the
+# two in step (tests/unit/ops/test_install.py compares them). A version bump records new pins there first; a pin set
+# to None makes the preflight refuse instead of guessing.
+FFMPEG_RELEASE: Final = f"https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_{FFMPEG_VERSION}"
+FFMPEG_PINS: Final[Mapping[str, Pin | None]] = {
+    "ffmpeg": Pin(f"{FFMPEG_RELEASE}/ffmpeg.zip", "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924"),
+    "ffprobe": Pin(f"{FFMPEG_RELEASE}/ffprobe.zip", "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6"),
+}
 FFMPEG_NOT_PINNED: Final = (
     f"ffmpeg {FFMPEG_VERSION}: the download URL and SHA-256 of ffmpeg.zip / ffprobe.zip are not pinned in "
     "docs/STACK.md §5, and the installer does not guess them. Record both pins there, copy them into FFMPEG_PINS in "
@@ -179,7 +184,7 @@ def child_env(environ: Mapping[str, str], tools_home: Path) -> dict[str, str]:
 def subprocess_runner(env: Mapping[str, str]) -> Runner:
     def run(argv: Sequence[str], *, cwd: Path | None = None, timeout: float) -> Completed:
         try:
-            done = subprocess.run(  # noqa: S603  # argv lists of absolute tool paths, never a shell
+            done = subprocess.run(  # argv lists of absolute tool paths, never a shell
                 list(argv), cwd=cwd, env=dict(env), capture_output=True, timeout=timeout, check=False
             )
         except subprocess.TimeoutExpired:
@@ -973,7 +978,7 @@ class Installer:
 
     def final_check(self) -> None:
         python = self.paths.current_release / ".venv" / "bin" / "python"
-        argv = [python, "-I", "-m", "yordamchi.bots.cli.check", "--no-colour"]
+        argv = [python, "-I", "-m", "yordamchi.check", "--no-colour"]
         if self.dry:
             self.would("check", argv)
             return
@@ -1027,7 +1032,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    environ = dict(os.environ)  # noqa: TID251  # judged by the refuse-list and cleaned for children, never logged
+    environ = dict(os.environ)  # judged by the refuse-list and cleaned for children, never logged
     real_home = Path.home()
     if args.dry_run:
         home = (args.home or Path(tempfile.mkdtemp(prefix="yordamchi-dry-run-"))).resolve()

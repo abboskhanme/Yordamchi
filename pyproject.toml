@@ -116,6 +116,9 @@ ban-relative-imports = "all"
 "src/yordamchi/adapters/**" = ["ANN401"]              # vendor SDK objects may be Any inside their adapter
 "src/yordamchi/persistence/types.py" = ["A005"]       # the module name is fixed by CONVENTIONS §1 and SPEC §4.1
 "migrations/**" = ["N999", "INP001", "TID251"]        # revision files start with digits; textual SQL lives here
+# The installer runs before any venv exists: stdlib subprocess (argv lists only) and os.environ, and it imports
+# `yordamchi` after inserting its sys.path entry.
+"scripts/**" = ["TID251", "S603", "E402"]
 "tests/**" = [
     "S101",    # assert is how pytest asserts
     "S105",    # fake tokens are the point of the secret tests
@@ -147,7 +150,7 @@ fixture-parentheses = false
 python_version = "3.12"
 strict = true
 mypy_path = ["src", "supervisor/src"]
-files = ["src", "tests", "lint", "migrations/env.py", "supervisor/src", "supervisor/tests"]
+files = ["src", "tests", "lint", "scripts", "migrations/env.py", "supervisor/src", "supervisor/tests"]
 explicit_package_bases = true
 warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool", "possibly-undefined"]

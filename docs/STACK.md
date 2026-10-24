@@ -179,7 +179,19 @@ So Yordamchi stays owner-only, uses the unmodified binary and never handles cred
 2. In the repo: `uv sync --frozen`. The lockfile carries the §2 pins.
 3. `uv run playwright install chromium` (installs to `~/Library/Caches/ms-playwright`).
 4. ffmpeg + ffprobe 9.0.2 macOS arm64 release zips from ffmpeg.martin-riedl.de:
-   - verify each against its published SHA-256;
+   - verify each against its published SHA-256. The pins (copied into `FFMPEG_PINS` in `scripts/install.py`):
+
+     | Binary | URL | SHA-256 |
+     |---|---|---|
+     | ffmpeg | `https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip` | `c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924` |
+     | ffprobe | `https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip` | `fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6` |
+
+     Source: the publisher's `ffmpeg.zip.sha256` and `ffprobe.zip.sha256` next to each zip, linked from the
+     release list on https://ffmpeg.martin-riedl.de/. Checked 2026-10-24: one download of each zip hashed to exactly
+     these values. Each zip holds one file, a Mach-O arm64 binary signed "Developer ID Application: Martin Riedl
+     (KU3N25YGLU)". The publisher's `codecs.txt` and `versions.txt` for this build list the `libopus` encoder
+     (opus 1.6.1).
+     A new version means new pins here first, then in `FFMPEG_PINS`.
    - unpack into Yordamchi's own `bin/` outside the repo;
    - check that `ffmpeg -hide_banner -encoders` lists `libopus`.
 5. `mkdir -m 700 ~/.config/yordamchi` (the key file is created at first run with mode 0600), then
