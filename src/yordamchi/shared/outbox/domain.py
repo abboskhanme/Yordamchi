@@ -84,15 +84,19 @@ ORDERED_OPS: Final = frozenset({*MESSAGE_OPS, Op.DELETE})
 # What Telegram's flood limits count (SPEC §3.2.1 step 9: "edits counted").
 COUNTED_OPS: Final = frozenset({*MESSAGE_OPS, Op.EDIT_TEXT})
 
-# Priority 0 = acks, deletes, reactions, questions and decisions (SPEC §3.2.1–3.2.3); shutdown flushes 0–1 (§2.6).
+# Priority 0 = acks, deletes, reactions, questions and decisions (SPEC §3.2.1–3.2.3), and the answers to what the owner
+# asked ("X qanday?", "holat?", "xarajat?", settings): he is waiting for those (D10, NFR-SPD-01), while results and
+# echoes of work take the slots left (T37 load test: at priority 1 a report waited up to 33 s behind them for the
+# group's 20/min; with echoes at 0 too, every instruction's echo spent the slots kept for answers). A sender that must
+# keep an answer behind an echo passes the echo's priority. Shutdown flushes 0–1 (§2.6).
 HIGHEST_PRIORITY: Final = 0
 LOWEST_PRIORITY: Final = 3
 DEFAULT_PRIORITY: Final[Mapping[Kind, int]] = {
     Kind.ACK: 0,
     Kind.QUESTION: 0,
     Kind.DECISION: 0,
+    Kind.REPORT: 0,
     Kind.ECHO: 1,
-    Kind.REPORT: 1,
     Kind.RESULT: 1,
     Kind.SYSTEM: 1,
     Kind.NOTICE: 2,
@@ -870,14 +874,33 @@ def free_at(sent: Iterable[datetime], window: Window, now: datetime) -> datetime
     return max(now, recent[-window.count] + window.period)
 
 
+# A group's 20 calls a minute are not all for background traffic. The last ones stay free for what the owner is
+# waiting for (priority 0: an answer, a question, a decision), then for results and echoes of other work (1); progress,
+# notices, files and the heartbeat (2–3) stop short of them. Without this, fifteen turns' progress edits spent the whole
+# minute and a "X qanday?" answer waited up to 30 s for a slot (T37 load test; D10, NFR-SPD-01).
+GROUP_RESERVED: Final[Mapping[int, int]] = {0: 0, 1: 2}  # priority → slots of PER_GROUP it leaves free
+BACKGROUND_RESERVED: Final = 5  # every lower priority
+
+
+def group_window(priority: int) -> Window:
+    """The share of `PER_GROUP` a call of `priority` may use."""
+    return Window(PER_GROUP.count - GROUP_RESERVED.get(priority, BACKGROUND_RESERVED), PER_GROUP.period)
+
+
 def next_send_at(
-    *, now: datetime, chat_id: int, chat_sent: Iterable[datetime], all_sent: Iterable[datetime]
+    *,
+    now: datetime,
+    chat_id: int,
+    chat_sent: Iterable[datetime],
+    all_sent: Iterable[datetime],
+    priority: int = HIGHEST_PRIORITY,
 ) -> datetime:
-    """The earliest moment a counted call to `chat_id` stays within every Telegram limit."""
+    """The earliest moment a counted call of `priority` to `chat_id` stays within every Telegram limit (and, in a
+    group, outside the slots kept for higher priorities)."""
     chat_times = list(chat_sent)
     at = free_at(chat_times, PER_CHAT, now)
     if is_group(chat_id):
-        at = max(at, free_at(chat_times, PER_GROUP, now))
+        at = max(at, free_at(chat_times, group_window(priority), now))
     return max(at, free_at(all_sent, OVERALL, now))
 
 

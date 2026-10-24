@@ -49,6 +49,7 @@ from yordamchi.shared.outbox.domain import (
     DEFAULT_CONFIG,
     DEFAULT_PRIORITY,
     FILE_OPS,
+    HIGHEST_PRIORITY,
     LOWEST_PRIORITY,
     MESSAGE_OPS,
     ORDERED_OPS,
@@ -473,17 +474,37 @@ class SenderState:
     chat_sent: dict[int, list[datetime]] = field(default_factory=dict)
     all_sent: list[datetime] = field(default_factory=list)
 
-    def may_call(self, chat_id: int, now: datetime) -> bool:
+    def may_call(self, chat_id: int, now: datetime, *, priority: int = HIGHEST_PRIORITY) -> bool:
         chat_sent = self.chat_sent.get(chat_id, [])
-        return domain.next_send_at(now=now, chat_id=chat_id, chat_sent=chat_sent, all_sent=self.all_sent) <= now
+        at = domain.next_send_at(
+            now=now, chat_id=chat_id, chat_sent=chat_sent, all_sent=self.all_sent, priority=priority
+        )
+        return at <= now
 
     def record_call(self, chat_id: int, at: datetime) -> None:
         self.chat_sent[chat_id] = [*domain.keep_recent(self.chat_sent.get(chat_id, []), at), at]
         self.all_sent = [*domain.keep_recent(self.all_sent, at), at]
 
+    def settle_call(self, chat_id: int, started: datetime, ended: datetime) -> None:
+        """The call recorded at `started` ended at `ended`: count it from then. The adapter retries a 5xx inside one
+        call, so the request Telegram counted may have gone out at any moment up to `ended` (T36 fault suite: the
+        next message followed the retried one by less than a second)."""
+        if ended <= started:
+            return
+        self.chat_sent[chat_id] = _moved(self.chat_sent.get(chat_id, []), started, ended)
+        self.all_sent = _moved(self.all_sent, started, ended)
+
     def is_parked(self, chat_id: int, now: datetime) -> bool:
         until = self.parked.get(chat_id)
         return until is not None and until > now
+
+
+def _moved(times: list[datetime], started: datetime, ended: datetime) -> list[datetime]:
+    """`times` (oldest first) with one call at `started` counted at `ended` instead."""
+    rest = list(times)
+    if started in rest:
+        rest.remove(started)
+    return sorted([*rest, ended])
 
 
 @dataclass(frozen=True, slots=True)
@@ -595,7 +616,7 @@ async def _send_chat(deps: SharedDeps, state: SenderState, rows: list[Queued]) -
         now = deps.clock.now()
         if state.is_parked(row.chat_id, now):
             break
-        if row.op in COUNTED_OPS and not state.may_call(row.chat_id, now):
+        if row.op in COUNTED_OPS and not state.may_call(row.chat_id, now, priority=row.priority):
             held = held or ordered
             continue
         attempt = await _attempt(deps, state, row)
@@ -648,7 +669,8 @@ async def _call_and_record(
     file: OutboundFile | None,
 ) -> _Attempt:
     started = deps.clock.now()
-    if row.op in COUNTED_OPS:
+    counted = row.op in COUNTED_OPS
+    if counted:
         state.record_call(row.chat_id, started)
     timeout = domain.call_timeout(row.op, row.kind, state.config)
     clock_started = time.monotonic()
@@ -656,10 +678,14 @@ async def _call_and_record(
         async with asyncio.timeout(timeout + state.config.hard_grace_s):
             outcome = await _call(deps, row, claimed, payload, ready, file, timeout=timeout)
     except ExternalError as error:
+        if counted:
+            state.settle_call(row.chat_id, started, deps.clock.now())
         retry_after = error.retry_after if isinstance(error, RateLimited) else None
         failure = domain.failure_of(row.op, error)
         return await _failed(deps, state, row, failure, error_code=error.code.value, retry_after=retry_after)
     except TimeoutError:  # the adapter overran its own timeout
+        if counted:
+            state.settle_call(row.chat_id, started, deps.clock.now())
         failure = domain.timeout_failure(row.op)
         return await _failed(deps, state, row, failure, error_code=ErrorCode.CALL_TIMED_OUT.value, retry_after=None)
     except Exception:
@@ -668,6 +694,8 @@ async def _call_and_record(
         # here: the row stays `sending` and the restart resends it.
         await _finish(deps, row, Status.FAILED, Code.INTERNAL)
         raise
+    if counted:
+        state.settle_call(row.chat_id, started, deps.clock.now())
     duration_ms = round((time.monotonic() - clock_started) * 1000)
     return await _succeeded(deps, row, claimed, payload, outcome, duration_ms=duration_ms)
 

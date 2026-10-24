@@ -255,7 +255,7 @@ async def test_a_free_form_report_answers_within_4_s_while_the_turn_runs_and_nev
     assert json.loads(request.prompt)["projects"][0]["now_running"][0]["state"] == "running"
     reports = [row for row in await outbox_rows(dev_deps) if row.kind == "report"]
     assert [text_of(row) for row in reports] == [answer.text]
-    assert reports[0].priority == 1
+    assert reports[0].priority == 0  # an answer the owner waits for goes ahead of other work's messages (T37)
 
 
 async def test_a_plain_status_question_gets_the_template_at_once_while_the_turn_runs(

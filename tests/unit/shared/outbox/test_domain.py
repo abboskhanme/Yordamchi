@@ -476,6 +476,20 @@ def test_twenty_messages_per_minute_per_group() -> None:
     assert domain.next_send_at(now=now, chat_id=PRIVATE, chat_sent=sent, all_sent=sent) == now  # not a group
 
 
+def test_background_traffic_leaves_the_last_slots_of_a_group_minute_to_answers_and_results() -> None:
+    sent = [_at(index * 2) for index in range(15)]  # fifteen progress edits in the last 30 s
+    now = _at(30)
+    assert domain.next_send_at(now=now, chat_id=GROUP, chat_sent=sent, all_sent=sent, priority=2) == _at(60)
+    assert domain.next_send_at(now=now, chat_id=GROUP, chat_sent=sent, all_sent=sent, priority=1) == now
+    assert domain.next_send_at(now=now, chat_id=GROUP, chat_sent=sent, all_sent=sent, priority=0) == now
+    eighteen = [_at(index * 1.5) for index in range(18)]
+    later = _at(27)
+    assert domain.next_send_at(now=later, chat_id=GROUP, chat_sent=eighteen, all_sent=eighteen, priority=1) > later
+    assert domain.next_send_at(now=later, chat_id=GROUP, chat_sent=eighteen, all_sent=eighteen, priority=0) == later
+    # A private chat has no group budget to share.
+    assert domain.next_send_at(now=now, chat_id=PRIVATE, chat_sent=sent, all_sent=sent, priority=3) == now
+
+
 def test_thirty_calls_per_second_overall() -> None:
     everywhere = [_at(0.01 * index) for index in range(30)]
     assert domain.next_send_at(now=_at(0.5), chat_id=PRIVATE, chat_sent=[], all_sent=everywhere) == _at(1)

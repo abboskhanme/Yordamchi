@@ -114,6 +114,8 @@ class DevApp:
         recovered = await turns.recover_turns(self.deps)
         await questions.recover_questions(self.deps, self.turns)
         await health.report_start(self.deps, self.health, interrupted=recovered.interrupted)
+        # Only now: a start that dies before its notice is queued leaves them for the next start to list (NFR-REL-07).
+        await turns.mark_restart_told(self.deps, recovered.interrupted_turns)
         self.pipeline.restarted = recovered.interrupted
         return recovered
 

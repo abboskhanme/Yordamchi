@@ -76,7 +76,7 @@ from yordamchi.shared.health.domain import (
 from yordamchi.shared.health.models import KvState
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.outbox import service as outbox
-from yordamchi.shared.outbox.domain import Kind
+from yordamchi.shared.outbox.domain import HIGHEST_PRIORITY, Kind
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import Snapshot
@@ -354,6 +354,9 @@ async def report_start(deps: SharedDeps, state: HealthState, *, interrupted: Seq
                 ref=domain.restart_ref(state.started_at),
                 at=now,
                 max_parts=snap[defaults.OUTBOX_MAX_PARTS],
+                # Ahead of any backlog the dead process left: UC-06 wants it within 60 s, and it asks a question
+                # ("davom ettiraymi?"), like the other priority-0 rows (T36 fault suite).
+                priority=HIGHEST_PRIORITY,
             )
     log.info("health_started", bot=deps.bot.value, version=state.version, clean=clean, interrupted=len(interrupted))
     return Started(clean=clean, notice=notice)

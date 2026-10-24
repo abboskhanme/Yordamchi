@@ -1219,6 +1219,26 @@ async def test_recovery_gives_each_row_state_exactly_one_outcome(
     assert await service.retry_delivery(dev_deps, state, PROJECT) == S.DELIVERY_NOTHING_TO_RETRY(project=PROJECT)
 
 
+async def test_a_turn_cut_off_by_a_start_that_died_before_telling_is_listed_by_the_next_start(
+    dev_deps: DevDeps, folders: dict[str, Path]
+) -> None:
+    async with dev_deps.db.uow() as s:
+        cut = await make_turn(s, PROJECT, status=TurnStatus.RUNNING, delivery_status="delivered", text="A")
+
+    first = await service.recover_turns(dev_deps)  # … and the process died before its restart notice
+    assert (first.interrupted, first.interrupted_turns) == ((PROJECT,), (cut.id,))
+    assert (await turn(dev_deps, cut.id)).error_code == domain.RESTART_UNTOLD
+
+    second = await service.recover_turns(dev_deps)
+    assert (second.interrupted, second.interrupted_turns) == ((PROJECT,), (cut.id,))  # listed again
+    assert await service.mark_restart_told(dev_deps, second.interrupted_turns) == 1
+
+    third = await service.recover_turns(dev_deps)
+    assert (third.interrupted, third.interrupted_turns) == ((), ())  # told once: never again
+    told = await turn(dev_deps, cut.id)
+    assert (told.status, told.error_code) == (TurnStatus.INTERRUPTED.value, domain.RESTART_TOLD)
+
+
 async def test_shutdown_interrupts_working_turns_and_asks_to_continue(
     dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path]
 ) -> None:

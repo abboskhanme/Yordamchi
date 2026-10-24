@@ -360,6 +360,18 @@ async def test_retry_after_parks_the_chat_durably_while_other_chats_go_on(dev_de
     assert in_group == ["birinchi", "ikkinchi", "park paytida"]
 
 
+def test_a_call_counts_from_when_it_ended_so_the_next_one_keeps_its_second(fakes: Fakes) -> None:
+    """The adapter retries a 5xx inside one call: the request Telegram counted went out up to the call's end (T36)."""
+    state = SenderState()
+    started = fakes.clock.now()
+    state.record_call(GROUP, started)
+    state.settle_call(GROUP, started, started + timedelta(seconds=0.6))
+    assert not state.may_call(GROUP, started + timedelta(seconds=1))
+    assert state.may_call(GROUP, started + timedelta(seconds=1.6))
+    assert state.chat_sent[GROUP] == [started + timedelta(seconds=0.6)]  # one call, not two
+    assert state.all_sent == [started + timedelta(seconds=0.6)]
+
+
 async def test_one_counted_call_per_second_per_chat(dev_deps: DevDeps, fakes: Fakes) -> None:
     for index in range(3):
         await _enqueue(dev_deps, f"xabar {index}", ref=f"turn-{index}")

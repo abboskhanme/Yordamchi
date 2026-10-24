@@ -283,6 +283,7 @@ class Recovered:
     interrupted: tuple[str, ...] = ()
     uncertain: tuple[str, ...] = ()
     requeued: int = 0
+    interrupted_turns: tuple[int, ...] = ()  # for `mark_restart_told` once the notice listing them is queued
 
 
 @dataclass(frozen=True, slots=True)
@@ -607,7 +608,8 @@ async def route_turn(
                     project_id=to_project,
                     turn_id=None,
                     kind=Kind.REPORT,
-                    priority=None if reply is not None else outbox_domain.HIGHEST_PRIORITY,
+                    # After an echo, at the echo's priority, so the echo goes first (an answer is priority 0 alone).
+                    priority=outbox_domain.DEFAULT_PRIORITY[Kind.ECHO] if reply is not None else None,
                 )
             merge = decision.outcome is Outcome.MERGE
             request = domain.request_from_input(
@@ -1635,7 +1637,7 @@ async def _after_grace(deps: DevDeps, state: TurnsState, live: _Live, turn_id: i
         return
     result = live.pending_result
     live.pending_result = None
-    await _finish_turn(deps, state, live, turn_id, result)
+    await _finish_turn(deps, state, live, turn_id, result, seen=seen)
 
 
 async def _work_facts(deps: DevDeps, root: Path, row: Turn) -> WorkFacts:
@@ -1662,7 +1664,20 @@ async def _work_facts(deps: DevDeps, root: Path, row: Turn) -> WorkFacts:
     )
 
 
-async def _finish_turn(deps: DevDeps, state: TurnsState, live: _Live, turn_id: int, result: TurnResult) -> None:
+async def _input_arrived(s: Session, live: _Live, turn_id: int, seen: int) -> bool:
+    """In the turn's final unit of work: an input waits for it (so a follow-up `submit` lands either before the move
+    and is seen, or after it and finds no working turn), or the executor went on after the result `seen` counted."""
+    if live.turn_id != turn_id or live.seen != seen or live.busy or live.gone:
+        return True
+    return bool(await store.list_deliveries(s, turn_id, statuses=[DeliveryStatus.PENDING.value]))
+
+
+async def _finish_turn(
+    deps: DevDeps, state: TurnsState, live: _Live, turn_id: int, result: TurnResult, *, seen: int
+) -> None:
+    """End the turn on `result`, unless something arrived while its end was being read (git, the gate): then it
+    goes on, and its next result ends it (SPEC §5.1; the T36 fault suite found a follow-up merged in that window
+    left waiting forever on a finished turn, or delivered with its result never reported)."""
     async with deps.db.read() as s:
         row = await store.get_turn(s, turn_id)
         nudges = await store.count_deliveries(s, turn_id, mode=DeliveryMode.NUDGE.value)
@@ -1720,7 +1735,8 @@ async def _finish_turn(deps: DevDeps, state: TurnsState, live: _Live, turn_id: i
         row.project_id, parsed, facts, seconds=seconds, push_missed=nudges > 0, scrub=redact.scrubbed
     )
     async with deps.db.uow() as s:
-        moved = await store.move_turn(
+        deferred = await _input_arrived(s, live, turn_id, seen)
+        moved = not deferred and await store.move_turn(
             s,
             turn_id,
             from_statuses=[TurnStatus.RUNNING.value],
@@ -1752,8 +1768,11 @@ async def _finish_turn(deps: DevDeps, state: TurnsState, live: _Live, turn_id: i
             )
             await _show(s, deps, snap, turn_id=turn_id, project_id=row.project_id, text=final)
             await outbox.stop_typing(s, bot=deps.bot, chat_id=_chat(snap))
-    _detach(live, now)
     state.poke()
+    if deferred:  # the input that came in goes on as the next CLI turn; its result ends this turn
+        log.info("turn_end_deferred", project=row.project_id, turn_id=turn_id)
+        return
+    _detach(live, now)
     if moved:
         state.ended(deps, row.project_id, turn_id)
     log.info(
@@ -2362,14 +2381,22 @@ async def recover_turns(deps: DevDeps) -> Recovered:
     - `deliveries.sending`: it may or may not have arrived → `failed` and `S.DELIVERY_UNCERTAIN`; never resent;
     - `turns.starting` with nothing delivered yet: it never reached the executor → `queued` (the normal path);
     - other working turns (`starting`, `running`, `stopping`) → `interrupted`, listed for "Qayta ishga tushdim…";
-      never re-run (NFR-REL-07). Their undelivered inputs move to a new queued turn of the project;
+      never re-run (NFR-REL-07). Their undelivered inputs move to a new queued turn of the project. They stay
+      `RESTART_UNTOLD` until `mark_restart_told`, so turns an earlier start cut off but died before telling are
+      listed again here;
     - `deliveries.pending`, queued and waiting turns: kept; `live` sessions → `idle` (resumed by id)."""
     snap = await settings.snapshot(deps)
     now = deps.clock.now()
     interrupted: list[str] = []
+    cut_off: list[int] = []
     uncertain: list[str] = []
     requeued = 0
     async with deps.db.uow() as s:
+        # A start that died after its own recovery pass but before its restart notice left these untold.
+        for row in await store.list_turns_with_status(s, [TurnStatus.INTERRUPTED.value]):
+            if row.error_code == domain.RESTART_UNTOLD and not is_hidden(row.project_id):
+                interrupted.append(row.project_id)
+                cut_off.append(row.id)
         for delivery in await store.list_deliveries_with_status(s, DeliveryStatus.SENDING.value):
             await store.move_delivery(
                 s, delivery.id, from_status=DeliveryStatus.SENDING.value, to_status=DeliveryStatus.FAILED.value
@@ -2401,10 +2428,11 @@ async def recover_turns(deps: DevDeps) -> Recovered:
                 from_statuses=[row.status],
                 to_status=TurnStatus.INTERRUPTED.value,
                 ended_at=now,
-                error_code="restart",
+                error_code=domain.RESTART_UNTOLD,
             )
             if not is_hidden(row.project_id):  # the restart notice lists the owner's projects only
                 interrupted.append(row.project_id)
+                cut_off.append(row.id)
             waiting = [item.id for item in deliveries if item.status == DeliveryStatus.PENDING.value]
             if waiting:
                 fresh = await store.add_turn(
@@ -2421,8 +2449,30 @@ async def recover_turns(deps: DevDeps) -> Recovered:
         await store.set_sessions_status(s, from_status=SessionStatus.LIVE.value, to_status=SessionStatus.IDLE.value)
     log.info("turns_recovered", interrupted=len(interrupted), uncertain=len(uncertain), requeued=requeued)
     return Recovered(
-        interrupted=tuple(dict.fromkeys(interrupted)), uncertain=tuple(dict.fromkeys(uncertain)), requeued=requeued
+        interrupted=tuple(dict.fromkeys(interrupted)),
+        uncertain=tuple(dict.fromkeys(uncertain)),
+        requeued=requeued,
+        interrupted_turns=tuple(cut_off),
     )
+
+
+async def mark_restart_told(deps: DevDeps, turn_ids: Collection[int]) -> int:
+    """The restart notice listing these cut-off turns is queued (`health.report_start`): the next start does not list
+    them again. Until then a crash leaves them for the next start's notice (at least once, NFR-REL-07)."""
+    if not turn_ids:
+        return 0
+    async with deps.db.uow() as s:
+        told = [
+            await store.move_turn(
+                s,
+                turn_id,
+                from_statuses=[TurnStatus.INTERRUPTED.value],
+                to_status=TurnStatus.INTERRUPTED.value,
+                error_code=domain.RESTART_TOLD,
+            )
+            for turn_id in turn_ids
+        ]
+    return sum(told)
 
 
 async def shutdown_turns(deps: DevDeps, state: TurnsState) -> int:

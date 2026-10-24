@@ -52,6 +52,11 @@ SMOKE_POLL_S: Final = 5.0  # how often the smoke runner looks at its turn
 SMOKE_BRANCH: Final = "main"  # of the scratch repo `DATA/sessions/smoke`, created on first use
 SMOKE_FILE_MAX: Final = 64  # bytes of the smoke file read back
 SCHEDULER_TICK_S: Final = 15.0  # the scheduler also wakes this often for wall clocks, limit retries and idle closes
+# §2.7: `turns.error_code` of a turn a restart cut off. The recovery pass writes UNTOLD; once the restart notice that
+# lists it is queued, it becomes TOLD (the value earlier releases wrote, so their rows count as told). A start that
+# dies between the two leaves UNTOLD rows, and the next start lists them again (NFR-REL-07).
+RESTART_UNTOLD: Final = "restart_untold"
+RESTART_TOLD: Final = "restart"
 PROGRESS_LINES: Final = 3  # §6.2: the progress line plus at most three latest steps
 PROGRESS_KEPT: Final = 50  # §4.2 `turn_progress`: last 50 per turn
 HANDOFF_BLOCK_MAX: Final = 1500  # §5.5: the executor's `<handoff>` block
