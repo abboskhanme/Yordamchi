@@ -3,10 +3,11 @@ NFR-CAP-05).
 
 This module decides, from values only:
 - what `run/<bot>.heartbeat.json` holds (`heartbeat_json`), in the shape the supervisor's watchdog reads, and when
-  the 30 s timer may refresh it (`timer_writes`): while polling is paused on purpose, never once polling runs, so a
-  poller that died silently leaves a stale file for the watchdog's 120 s limit (NFR-REL-01);
+  the 30 s timer may refresh it (`timer_writes`): while polling is paused on purpose, and while polls fail on the
+  network, but never for a poll loop that stopped trying, so a poller that died silently leaves stale attempts for
+  the watchdog's 120 s limit (NFR-REL-01, T32b);
 - whether the Mac slept (`gap_since`: ≥ 5 min of wall clock between two ticks) and what the owner reads after the
-  first `getUpdates` batch that follows (NFR-REL-04);
+  first `getUpdates` batch that follows (NFR-REL-04); likewise a network outage of ≥ 5 min (`network_gap`);
 - the restart notice after an unclean exit (SPEC §2.5 step 8);
 - the pinned "Onlayn: HH:MM" message (`plan_online`): send and pin it once, edit it in place, and send and pin a new
   one when Telegram refused an edit because the message is gone (SPEC §2.8);
@@ -42,7 +43,14 @@ HEARTBEAT_EVERY_S: Final = 30.0  # §2.8: the file is rewritten at least this of
 # long; after that only a successful poll refreshes the file (idle polls return every 25 s), so a dead poller goes
 # stale after exactly the watchdog's 120 s.
 FIRST_POLL_GRACE: Final = timedelta(seconds=60)
+# A live poll loop attempts `getUpdates` at least this often: a long poll takes ≤ 35 s, and after a failure it waits
+# ≤ 30 s, then probes for ≤ 10 s (`bots.common.PollConfig`). While polls fail on the network the timer keeps the file
+# fresh only this long after the last attempt, so a loop that died offline still leaves a stale mtime for a reader
+# that judges by it alone (a supervisor from before T32b).
+LIVE_ATTEMPT_WINDOW: Final = timedelta(seconds=60)
 WAKE_GAP_MIN: Final = timedelta(minutes=5)  # §2.8, NFR-REL-04: a gap this long between ticks means the Mac slept
+# T32b: an outage this long is told once polling is back; a shorter one only delayed messages by a few minutes.
+NETWORK_GAP_MIN: Final = timedelta(minutes=5)
 CHECK_EVERY_S: Final = 600.0  # §5.6 `claude --version` (at start, then every 10 min); §9.2 disk guard (10 min)
 DISK_WARN_EVERY: Final = timedelta(hours=6)  # §9.2: `S.DISK_LOW` at most this often
 EVENT_KEEP: Final = timedelta(days=90)  # §4.2 `health_events`: 90 d
@@ -76,6 +84,20 @@ class Mode(StrEnum):
     PROBATION = "probation"
 
 
+class PollErrorKind(StrEnum):
+    """`last_poll_error_kind` in the heartbeat file: how the latest `getUpdates` attempt went (T32b).
+
+    `network`: only the connection failed (DNS, connect, a timeout, or a 5xx or garbage from Telegram or a proxy).
+    The bot is offline, not dead, and the watchdog waits for the network instead of restarting it. `other`: any other
+    failure (a revoked token, a 409 conflict, a 429), judged as before T32b. The polling runner classifies them
+    (`bots.common.poll_error_kind`).
+    """
+
+    NONE = "none"
+    NETWORK = "network"
+    OTHER = "other"
+
+
 class EventKind(StrEnum):
     """`health_events.kind` (SPEC §4.2)."""
 
@@ -83,6 +105,7 @@ class EventKind(StrEnum):
     CLEAN_EXIT = "clean_exit"
     UNCLEAN_RESTART = "unclean_restart"
     WAKE_GAP = "wake_gap"
+    NETWORK_GAP = "network_gap"
     SMOKE_OK = "smoke_ok"
     SMOKE_FAILED = "smoke_failed"
     CLI_VERSION = "cli_version"
@@ -93,8 +116,10 @@ class EventKind(StrEnum):
 # --- the heartbeat file (SPEC §2.8) --------------------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class Heartbeat:
-    """One `run/<bot>.heartbeat.json`. The watchdog reads `pid` and `started_at` (a new value is a new start) and
-    judges freshness by the file's mtime; probation reads `version`, `mode` and `last_poll_ok_at`."""
+    """One `run/<bot>.heartbeat.json`. The watchdog reads `pid` and `started_at` (a new value is a new start). In
+    normal mode it judges a polling bot by `last_poll_attempt_at` and `last_poll_error_kind` (T32b): fresh attempts
+    that fail on the network are offline, not dead. Otherwise, as before, by the file's mtime. Probation reads
+    `version`, `mode` and `last_poll_ok_at`. The attempt fields are empty before the first `getUpdates` attempt."""
 
     pid: int
     version: str
@@ -102,11 +127,14 @@ class Heartbeat:
     last_poll_ok_at: datetime | None
     mode: Mode
     loop_lag_ms: int
+    last_poll_attempt_at: datetime | None = None
+    last_poll_error_kind: PollErrorKind = PollErrorKind.NONE
+    consecutive_poll_failures: int = 0
 
 
 def heartbeat_json(beat: Heartbeat) -> JsonObject:
     """The file's content: instants as ISO 8601 with their UTC offset; `last_poll_ok_at` is null before the first
-    successful `getUpdates`."""
+    successful `getUpdates`, `last_poll_attempt_at` before the first attempt."""
     return {
         "pid": beat.pid,
         "version": beat.version,
@@ -114,6 +142,9 @@ def heartbeat_json(beat: Heartbeat) -> JsonObject:
         LAST_ALIVE_KEY: _iso(beat.last_poll_ok_at),
         "mode": beat.mode.value,
         "loop_lag_ms": max(0, beat.loop_lag_ms),
+        "last_poll_attempt_at": _iso(beat.last_poll_attempt_at),
+        "last_poll_error_kind": beat.last_poll_error_kind.value,
+        "consecutive_poll_failures": max(0, beat.consecutive_poll_failures),
     }
 
 
@@ -133,12 +164,26 @@ def last_alive(raw: JsonValue) -> datetime | None:
     return moment if moment.tzinfo is not None else None
 
 
-def timer_writes(mode: Mode, *, last_poll_ok_at: datetime | None, started_at: datetime, now: datetime) -> bool:
+def timer_writes(
+    mode: Mode,
+    *,
+    last_poll_ok_at: datetime | None,
+    started_at: datetime,
+    now: datetime,
+    last_poll_attempt_at: datetime | None = None,
+    last_poll_error_kind: PollErrorKind = PollErrorKind.NONE,
+) -> bool:
     """Whether the 30 s timer rewrites the file now. Paused or in probation: always (SPEC §2.8: polling is stopped on
-    purpose). Normal: only in the first minute before the first successful poll; from then on only `getUpdates`
-    refreshes it (SPEC §2.8: "after every successful getUpdates"), so the watchdog restarts a bot whose polling
-    died."""
+    purpose). Normal: in the first minute before the first successful poll, and while polls fail on the network
+    within `LIVE_ATTEMPT_WINDOW` of the last attempt (T32b: at least every 30 s while offline). Otherwise only a
+    `getUpdates` attempt refreshes it, so the watchdog restarts a bot whose polling died."""
     if mode is not Mode.NORMAL:
+        return True
+    if (
+        last_poll_error_kind is PollErrorKind.NETWORK
+        and last_poll_attempt_at is not None
+        and now - last_poll_attempt_at <= LIVE_ATTEMPT_WINDOW
+    ):
         return True
     return last_poll_ok_at is None and now - started_at <= FIRST_POLL_GRACE
 
@@ -146,7 +191,8 @@ def timer_writes(mode: Mode, *, last_poll_ok_at: datetime | None, started_at: da
 # --- sleep and wake (SPEC §2.8, NFR-REL-04) ------------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class Gap:
-    """The Mac slept from `from_` (the last tick before) to `to` (the first tick after)."""
+    """The Mac slept from `from_` (the last tick before) to `to` (the first tick after); for an outage, from the
+    first failed poll to the first successful one."""
 
     from_: datetime
     to: datetime
@@ -174,6 +220,22 @@ def wake_text(gap: Gap, *, updates: int, timezone: str) -> BotText:
 
 def wake_ref(gap: Gap) -> str:
     return f"wake-{int(gap.to.timestamp())}"
+
+
+def network_gap(offline_since: datetime | None, back_at: datetime) -> Gap | None:
+    """The outage to tell after the first successful poll at `back_at` (T32b): from the first network failure of
+    the streak, when it lasted ≥ 5 min; else None. A sleep inside it is told separately (`S.WAKE_GAP`)."""
+    if offline_since is None or back_at - offline_since < NETWORK_GAP_MIN:
+        return None
+    return Gap(from_=offline_since, to=back_at)
+
+
+def network_gap_text(gap: Gap, *, timezone: str) -> BotText:
+    return S.NETWORK_GAP(from_=timefmt.hhmm(gap.from_, timezone), to=timefmt.hhmm(gap.to, timezone))
+
+
+def network_gap_ref(gap: Gap) -> str:
+    return f"network-{int(gap.to.timestamp())}"
 
 
 # --- restart (SPEC §2.5 step 8) ------------------------------------------------------------------------------------

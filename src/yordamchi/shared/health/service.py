@@ -1,13 +1,16 @@
 """Health (SPEC §2.5 steps 7–8, §2.6, §2.8, §5.6, §6.2, §9.2; UC-06; NFR-REL-01/02/04/08, NFR-CAP-05).
 
-- **Heartbeat file.** `record_poll` is the polling runner's `heartbeat` hook: after every successful `getUpdates` it
-  rewrites `run/<bot>.heartbeat.json` atomically (temp file, fsync, rename); an idle long poll returns every 25 s.
-  `run_heartbeat` is the 30 s timer for the time polling is paused on purpose (`set_mode`) and for the start before
-  the first poll; once polling runs only a poll refreshes the file, so the supervisor's watchdog still restarts a
-  bot whose polling died (stale > 120 s, NFR-REL-01).
-- **Sleep and wake.** Both write paths are heartbeat ticks. A wall-clock gap of ≥ 5 min between two ticks means the
-  Mac slept; after the first successful `getUpdates` batch that follows, `S.WAKE_GAP` names the gap and the batch
-  size (NFR-REL-04).
+- **Heartbeat file.** `record_poll` is the polling runner's `heartbeat` hook: after every `getUpdates` attempt,
+  success or failure, it rewrites `run/<bot>.heartbeat.json` atomically (temp file, fsync, rename) with
+  `last_poll_attempt_at`, `last_poll_error_kind` and `consecutive_poll_failures`; an idle long poll returns every
+  25 s. `run_heartbeat` is the 30 s timer for the time polling is paused on purpose (`set_mode`), for the start
+  before the first poll, and while polls fail on the network (T32b). Otherwise only a poll refreshes the file, so
+  the supervisor's watchdog still restarts a bot whose polling died (no attempt for > 120 s, NFR-REL-01), and
+  leaves alone one that is only offline.
+- **Sleep and wake, network outages.** Both write paths are heartbeat ticks. A wall-clock gap of ≥ 5 min between two
+  ticks means the Mac slept; after the first successful `getUpdates` batch that follows, `S.WAKE_GAP` names the gap
+  and the batch size (NFR-REL-04). Polls that failed on the network for ≥ 5 min are told the same way, once, with
+  `S.NETWORK_GAP` (T32b).
 - **Restarts.** `report_start` reads and removes `run/<bot>.clean`: without it the previous run ended uncleanly,
   and `S.HEALTH_RESTARTED` lists the turns it cut off (from `turns.recover_turns`) within seconds of the start.
   `mark_clean_exit` writes the marker as the last step of a SIGTERM shutdown (SPEC §2.6).
@@ -65,6 +68,7 @@ from yordamchi.shared.health.domain import (
     Mode,
     OnlineMessage,
     OnlineStep,
+    PollErrorKind,
     SmokeOutcome,
     Unread,
     WorkStatus,
@@ -98,8 +102,13 @@ class HealthState:
     degraded: tuple[str, ...] = ()  # SPEC §2.5 step 4: ffmpeg, gh, node not found
     mode: Mode = Mode.NORMAL
     last_poll_ok_at: datetime | None = None
+    last_poll_attempt_at: datetime | None = None
+    last_poll_error_kind: PollErrorKind = PollErrorKind.NONE
+    consecutive_poll_failures: int = 0
+    offline_since: datetime | None = None  # the first network failure since the last successful poll
     last_tick_at: datetime | None = None
     pending_gap: Gap | None = None  # the Mac slept; told after the next successful poll
+    pending_network_gap: Gap | None = None  # the network was down ≥ 5 min; told right after `pending_gap`
     loop_lag_ms: int = 0
     claude: ClaudeCheck | None = None
     errors: deque[ErrorNote] = field(default_factory=lambda: deque(maxlen=domain.ERRORS_KEPT))
@@ -171,6 +180,9 @@ async def write_heartbeat(deps: SharedDeps, state: HealthState) -> None:
         last_poll_ok_at=state.last_poll_ok_at,
         mode=state.mode,
         loop_lag_ms=state.loop_lag_ms,
+        last_poll_attempt_at=state.last_poll_attempt_at,
+        last_poll_error_kind=state.last_poll_error_kind,
+        consecutive_poll_failures=state.consecutive_poll_failures,
     )
     data = json_value.dumps(domain.heartbeat_json(beat)).encode()
     await asyncio.to_thread(_write_private_file, deps.paths.heartbeat(deps.bot), data)
@@ -181,23 +193,53 @@ def _tick(state: HealthState, now: datetime) -> None:
     state.last_tick_at = now
 
 
-async def record_poll(deps: SharedDeps, state: HealthState, *, at: datetime, updates: int) -> None:
-    """The polling runner's `heartbeat` hook (`PollTick(at, updates)`): after every successful `getUpdates`, before
-    its batch is fed. The file comes first; then, after a sleep, `S.WAKE_GAP` with this batch's size. A failure here
-    ends the runner, so `forever` restarts it and the watchdog sees the file go stale."""
+async def record_poll(
+    deps: SharedDeps, state: HealthState, *, at: datetime, updates: int, error: PollErrorKind
+) -> None:
+    """The polling runner's `heartbeat` hook (`PollTick(at, updates, error)`), after every `getUpdates` attempt: a
+    success (`error` NONE) before its batch is fed, a failure before the backoff wait. `error` has no default, so a
+    caller cannot record a failed attempt as a successful one by leaving it out.
+
+    The file comes first. After a success, `S.WAKE_GAP` with this batch's size if the Mac slept, then `S.NETWORK_GAP`
+    if polls had failed on the network for ≥ 5 min. A failure here ends the runner, so `forever` restarts it and the
+    watchdog sees the attempts go stale."""
     _tick(state, at)
+    state.last_poll_attempt_at = at
+    state.last_poll_error_kind = error
+    if error is not PollErrorKind.NONE:
+        state.consecutive_poll_failures += 1
+        if error is PollErrorKind.NETWORK and state.offline_since is None:
+            state.offline_since = at
+        await write_heartbeat(deps, state)
+        return
     state.last_poll_ok_at = at
+    state.consecutive_poll_failures = 0
+    state.pending_network_gap = domain.merge_gaps(
+        state.pending_network_gap, domain.network_gap(state.offline_since, at)
+    )
+    state.offline_since = None
     await write_heartbeat(deps, state)
     if state.pending_gap is not None:
         await _post_wake_gap(deps, state.pending_gap, updates=updates)
         state.pending_gap = None
+    if state.pending_network_gap is not None:
+        await _post_network_gap(deps, state.pending_network_gap)
+        state.pending_network_gap = None
 
 
 async def heartbeat_tick(deps: SharedDeps, state: HealthState) -> bool:
     """One tick of the 30 s timer. Returns whether it rewrote the file (`domain.timer_writes`)."""
     now = deps.clock.now()
     _tick(state, now)
-    if not domain.timer_writes(state.mode, last_poll_ok_at=state.last_poll_ok_at, started_at=state.started_at, now=now):
+    writes = domain.timer_writes(
+        state.mode,
+        last_poll_ok_at=state.last_poll_ok_at,
+        started_at=state.started_at,
+        now=now,
+        last_poll_attempt_at=state.last_poll_attempt_at,
+        last_poll_error_kind=state.last_poll_error_kind,
+    )
+    if not writes:
         return False
     await write_heartbeat(deps, state)
     return True
@@ -240,6 +282,28 @@ async def _post_wake_gap(deps: SharedDeps, gap: Gap, *, updates: int) -> None:
             max_parts=snap[defaults.OUTBOX_MAX_PARTS],
         )
     log.info("wake_gap_told", bot=deps.bot.value, slept_s=slept_s, updates=updates)
+
+
+async def _post_network_gap(deps: SharedDeps, gap: Gap) -> None:
+    snap = await settings.snapshot(deps)
+    chat = await access.resolve_home_chat(deps)
+    now = deps.clock.now()
+    offline_s = round((gap.to - gap.from_).total_seconds())
+    async with deps.db.uow() as s:
+        await store.add_health_event(
+            s, bot=deps.bot.value, at=now, kind=EventKind.NETWORK_GAP.value, data={"offline_s": offline_s}
+        )
+        await outbox.enqueue_text(
+            s,
+            bot=deps.bot,
+            chat_id=chat,
+            text=domain.network_gap_text(gap, timezone=snap[defaults.UI_TIMEZONE]),
+            kind=Kind.SYSTEM,
+            ref=domain.network_gap_ref(gap),
+            at=now,
+            max_parts=snap[defaults.OUTBOX_MAX_PARTS],
+        )
+    log.info("network_gap_told", bot=deps.bot.value, offline_s=offline_s)
 
 
 # --- start and clean exit (SPEC §2.5 step 8, §2.6) ------------------------------------------------------------------

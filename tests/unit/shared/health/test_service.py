@@ -45,6 +45,7 @@ from yordamchi.shared.health.domain import (
     Mode,
     OnlineMessage,
     OnlineStep,
+    PollErrorKind,
     QueuedWork,
     SmokeOutcome,
     WorkStatus,
@@ -55,6 +56,8 @@ from yordamchi.shared.outbox.models import OutboxMessage
 
 V309 = RuntimeStatus(installed=True, version="2.1.309", logged_in=True, auth_method="claude.ai")
 V310 = replace(V309, version="2.1.310")
+# How a `getUpdates` attempt went, as the polling runner's `PollTick.error` says it.
+OK, NETWORK, OTHER = PollErrorKind.NONE, PollErrorKind.NETWORK, PollErrorKind.OTHER
 
 
 @pytest.fixture
@@ -107,17 +110,30 @@ async def loops() -> AsyncIterator[list[asyncio.Task[None]]]:
 async def test_a_successful_poll_writes_the_heartbeat_file_atomically_and_privately(
     dev_deps: DevDeps, fakes: Fakes, paths: Paths, state: HealthState
 ) -> None:
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=2)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=2, error=OK)
 
     path = paths.heartbeat(dev_deps.bot)
     body = heartbeat_file(paths, dev_deps)
-    assert set(body) == {"pid", "version", "started_at", "last_poll_ok_at", "mode", "loop_lag_ms"}
+    assert set(body) == {
+        "pid",
+        "version",
+        "started_at",
+        "last_poll_ok_at",
+        "mode",
+        "loop_lag_ms",
+        "last_poll_attempt_at",
+        "last_poll_error_kind",
+        "consecutive_poll_failures",
+    }
     assert body["pid"] == HEALTH_PID
     assert body["version"] == HEALTH_VERSION
     assert body["started_at"] == state.started_at.isoformat()
     assert body["last_poll_ok_at"] == fakes.clock.now().isoformat()
     assert body["mode"] == "normal"
     assert isinstance(body["loop_lag_ms"], int)
+    assert body["last_poll_attempt_at"] == fakes.clock.now().isoformat()
+    assert body["last_poll_error_kind"] == "none"
+    assert body["consecutive_poll_failures"] == 0
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert sorted(item.name for item in paths.run.iterdir()) == ["dev.heartbeat.json"]  # no temp file left behind
 
@@ -125,17 +141,76 @@ async def test_a_successful_poll_writes_the_heartbeat_file_atomically_and_privat
 async def test_every_poll_rewrites_the_file_with_its_time(
     dev_deps: DevDeps, fakes: Fakes, paths: Paths, state: HealthState
 ) -> None:
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
     await fakes.clock.advance(25)
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
     assert heartbeat_file(paths, dev_deps)["last_poll_ok_at"] == fakes.clock.now().isoformat()
+
+
+async def test_a_failed_poll_writes_its_attempt_and_kind_and_keeps_the_last_success(
+    dev_deps: DevDeps, fakes: Fakes, paths: Paths, state: HealthState
+) -> None:
+    last_ok = fakes.clock.now()
+    await service.record_poll(dev_deps, state, at=last_ok, updates=0, error=OK)
+    for _ in range(2):
+        await fakes.clock.advance(10)
+        await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=NETWORK)
+
+    body = heartbeat_file(paths, dev_deps)
+    assert body["last_poll_attempt_at"] == fakes.clock.now().isoformat()
+    assert body["last_poll_error_kind"] == "network"
+    assert body["consecutive_poll_failures"] == 2
+    assert body["last_poll_ok_at"] == last_ok.isoformat()  # a failure is never a sign of a working poll
+
+    await fakes.clock.advance(5)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OTHER)
+    assert heartbeat_file(paths, dev_deps)["last_poll_error_kind"] == "other"
+    assert heartbeat_file(paths, dev_deps)["consecutive_poll_failures"] == 3
+
+
+async def test_a_successful_poll_clears_the_failure_streak(
+    dev_deps: DevDeps, fakes: Fakes, paths: Paths, state: HealthState
+) -> None:
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=NETWORK)
+    await fakes.clock.advance(2)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=1, error=OK)
+
+    body = heartbeat_file(paths, dev_deps)
+    assert body["last_poll_error_kind"] == "none"
+    assert body["consecutive_poll_failures"] == 0
+    assert body["last_poll_ok_at"] == body["last_poll_attempt_at"] == fakes.clock.now().isoformat()
+
+
+async def test_while_polls_fail_on_the_network_the_timer_writes_every_30_s(
+    dev_deps: DevDeps, fakes: Fakes, paths: Paths, state: HealthState
+) -> None:
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
+    await fakes.clock.advance(5)
+    attempt = fakes.clock.now()
+    await service.record_poll(dev_deps, state, at=attempt, updates=0, error=NETWORK)
+    for _ in range(2):  # the loop waits ≤ 30 s and probes ≤ 10 s between attempts; the timer fills the gaps
+        await fakes.clock.advance(domain.HEARTBEAT_EVERY_S)
+        assert await service.heartbeat_tick(dev_deps, state)
+    assert heartbeat_file(paths, dev_deps)["last_poll_attempt_at"] == attempt.isoformat()  # never the timer's time
+
+    await fakes.clock.advance(domain.HEARTBEAT_EVERY_S)  # 90 s since the last attempt: the loop itself stopped
+    assert not await service.heartbeat_tick(dev_deps, state)
+
+
+async def test_the_timer_does_not_cover_polls_failing_for_another_reason(
+    dev_deps: DevDeps, fakes: Fakes, state: HealthState
+) -> None:
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OTHER)
+    await fakes.clock.advance(domain.HEARTBEAT_EVERY_S)
+    assert not await service.heartbeat_tick(dev_deps, state)
 
 
 async def test_once_polling_runs_the_timer_never_refreshes_a_normal_bot(
     dev_deps: DevDeps, fakes: Fakes, state: HealthState
 ) -> None:
     assert await service.heartbeat_tick(dev_deps, state)  # the start, before the first poll
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
     await fakes.clock.advance(30)
     assert not await service.heartbeat_tick(dev_deps, state)  # a dead poller goes stale for the watchdog's 120 s
 
@@ -143,7 +218,7 @@ async def test_once_polling_runs_the_timer_never_refreshes_a_normal_bot(
 async def test_a_paused_bot_keeps_its_heartbeat_fresh_with_the_timer(
     dev_deps: DevDeps, fakes: Fakes, paths: Paths, state: HealthState
 ) -> None:
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
     await service.set_mode(dev_deps, state, Mode.PAUSED)
     assert heartbeat_file(paths, dev_deps)["mode"] == "paused"
     await fakes.clock.advance(3600)
@@ -169,10 +244,10 @@ async def test_after_a_sleep_the_first_poll_batch_posts_the_wake_gap_with_its_si
     dev_deps: DevDeps, fakes: Fakes, state: HealthState
 ) -> None:
     before = fakes.clock.now()  # 14:00 in Tashkent
-    await service.record_poll(dev_deps, state, at=before, updates=0)
+    await service.record_poll(dev_deps, state, at=before, updates=0, error=OK)
     fakes.clock.set(before + timedelta(hours=2, minutes=5))  # the Mac slept; nothing ran
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=3)
-    await service.record_poll(dev_deps, state, at=fakes.clock.now() + timedelta(seconds=25), updates=0)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=3, error=OK)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now() + timedelta(seconds=25), updates=0, error=OK)
 
     assert await system_texts(dev_deps) == ["Mac uxlagan edi 14:00–16:05, 3 ta xabar qayta ishlanmoqda"]
     assert await kinds(dev_deps) == ["wake_gap"]
@@ -190,18 +265,65 @@ async def test_a_gap_the_timer_saw_first_is_told_after_the_next_successful_poll(
     await service.heartbeat_tick(dev_deps, state)  # woke: the timer ticks before getUpdates comes back
     assert await system_texts(dev_deps) == []
     await fakes.clock.advance(20)
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
     assert await system_texts(dev_deps) == ["Mac uxlagan edi 14:00–14:40, 0 ta xabar qayta ishlanmoqda"]
 
 
 async def test_a_network_drop_while_the_mac_is_awake_is_not_a_sleep(
     dev_deps: DevDeps, fakes: Fakes, state: HealthState
 ) -> None:
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
     for _ in range(20):  # 10 min of failing polls; the timer still ticks every 30 s
         await fakes.clock.advance(30)
         await service.heartbeat_tick(dev_deps, state)
-    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=4)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=4, error=OK)
+    assert await system_texts(dev_deps) == []
+
+
+# --- network outages (T32b) ----------------------------------------------------------------------------------------
+async def fail_on_the_network(deps: SharedDeps, fakes: Fakes, state: HealthState, *, minutes: int) -> None:
+    """Polls that fail on the network every 30 s for `minutes`, the timer ticking in between."""
+    for _ in range(minutes * 2):
+        await service.record_poll(deps, state, at=fakes.clock.now(), updates=0, error=NETWORK)
+        await fakes.clock.advance(15)
+        await service.heartbeat_tick(deps, state)
+        await fakes.clock.advance(15)
+
+
+async def test_an_outage_of_5_min_or_more_is_told_once_after_the_first_successful_poll(
+    dev_deps: DevDeps, fakes: Fakes, state: HealthState
+) -> None:
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)  # 14:00 in Tashkent
+    await fakes.clock.advance(60)
+    await fail_on_the_network(dev_deps, fakes, state, minutes=39)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=2, error=OK)
+    await fakes.clock.advance(25)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
+
+    assert await system_texts(dev_deps) == ["Internet uzilgan edi 14:01–14:40"]
+    [event] = await list_health_events(dev_deps.db)
+    assert event.kind == "network_gap"
+    assert event.data_json == {"offline_s": 39 * 60}
+    await send_outbox(dev_deps)
+    assert [request.chat_id for request in fakes.messenger.sent()] == [DEV_GROUP_ID]
+
+
+async def test_a_short_outage_is_not_told(dev_deps: DevDeps, fakes: Fakes, state: HealthState) -> None:
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
+    await fail_on_the_network(dev_deps, fakes, state, minutes=4)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
+    assert await system_texts(dev_deps) == []
+    assert await kinds(dev_deps) == []
+
+
+async def test_polls_failing_for_another_reason_are_not_an_outage(
+    dev_deps: DevDeps, fakes: Fakes, state: HealthState
+) -> None:
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
+    for _ in range(20):  # 10 min of 409s or 401s
+        await fakes.clock.advance(30)
+        await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OTHER)
+    await service.record_poll(dev_deps, state, at=fakes.clock.now(), updates=0, error=OK)
     assert await system_texts(dev_deps) == []
 
 

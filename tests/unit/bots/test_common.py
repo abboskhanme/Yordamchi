@@ -1,6 +1,6 @@
-"""bots/common: `guarded()` around every turn and job, the update translation `OwnerOnly` judges, and the polling
-backoff schedule (CONVENTIONS §6, §7; SPEC §2.8; NFR-REL-03). The feed_update and polling tests are integration
-tests (`tests/integration/test_owner_only.py`, `test_polling.py`)."""
+"""bots/common: `guarded()` around every turn and job, the update translation `OwnerOnly` judges, the polling
+backoff schedule and the kind of a failed poll (CONVENTIONS §6, §7; SPEC §2.8; NFR-REL-03; T32b). The feed_update and
+polling tests are integration tests (`tests/integration/test_owner_only.py`, `test_polling.py`)."""
 
 import asyncio
 import json
@@ -23,15 +23,23 @@ from tests.factories import (
     tg_message,
 )
 from yordamchi.bots import common
-from yordamchi.bots.common import DEFAULT_POLL, PollConfig, backoff_s, guarded
+from yordamchi.bots.common import DEFAULT_POLL, PollConfig, backoff_s, guarded, poll_error_kind
 from yordamchi.core import aio
 from yordamchi.core import strings as S
-from yordamchi.core.errors import CallTimedOut, RateLimited, SettingUnknown
+from yordamchi.core.errors import (
+    AuthFailed,
+    CallTimedOut,
+    ExternalError,
+    ProviderUnavailable,
+    RateLimited,
+    SettingUnknown,
+)
 from yordamchi.core.log import JsonFormatter
 from yordamchi.core.paths import BotName
 from yordamchi.dev.deps import DevDeps
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType
+from yordamchi.shared.health.domain import PollErrorKind
 
 GOOGLE = FAKE_KEYS["google_api_key"]
 INCIDENT = re.compile(r"#([0-9a-f]{8})\)")
@@ -201,6 +209,20 @@ def test_the_backoff_survives_an_outage_of_days() -> None:
 def test_jitter_only_shortens_a_wait() -> None:
     assert backoff_s(3, DEFAULT_POLL, spread=0.8) == pytest.approx(3.2)
     assert backoff_s(9, DEFAULT_POLL, spread=1.0) == 30
+
+
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [
+        (CallTimedOut(operation="getUpdates"), PollErrorKind.NETWORK),  # DNS, connect, a hung request
+        (ProviderUnavailable(provider="telegram"), PollErrorKind.NETWORK),  # a 5xx, a proxy's HTML
+        (ProviderUnavailable(provider="telegram", retryable=False), PollErrorKind.OTHER),  # a refusal, a 409
+        (AuthFailed(provider="telegram"), PollErrorKind.OTHER),  # a revoked token
+        (RateLimited(provider="telegram", retry_after=7), PollErrorKind.OTHER),
+    ],
+)
+def test_only_a_failed_connection_is_a_network_failure(error: ExternalError, kind: PollErrorKind) -> None:
+    assert poll_error_kind(error) is kind
 
 
 def test_the_defaults_resume_within_60_s_of_connectivity() -> None:

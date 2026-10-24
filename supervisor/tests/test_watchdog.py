@@ -1,4 +1,5 @@
-"""Watchdog (SPEC §2.8, NFR-REL-01): dead process, stale heartbeat, crash loop, update suppression, sleep and wake.
+"""Watchdog (SPEC §2.8, NFR-REL-01): dead process, stale heartbeat, crash loop, update suppression, sleep and wake,
+and offline versus dead (T32b): poll attempts, network outages, other poll failures, and files from before T32b.
 
 Time is virtual. `run_for` ticks every 15 s, like production, because a longer gap between ticks means the Mac slept.
 """
@@ -24,7 +25,7 @@ from yordamchi_supervisor.testing import (
     FakeOpener,
     TempData,
 )
-from yordamchi_supervisor.watchdog import Watchdog
+from yordamchi_supervisor.watchdog import Heartbeat, Watchdog, read_heartbeat
 
 DEV = "uz.yordamchi.dev"
 PERSONAL = "uz.yordamchi.personal"
@@ -88,6 +89,12 @@ class WatchdogCase(unittest.TestCase):
         path = self.data.paths.updates / update_id / "status.json"
         path.write_text(json.dumps({"status": status}), encoding="utf-8")
         self.touch(path)
+
+    def events(self, name: str) -> list[dict[str, object]]:
+        return [event for event in self.data.log_events() if event["event"] == name]
+
+    def loop_alerts(self) -> list[tuple[datetime, str]]:
+        return [(at, text) for at, text in self.timeline if "crash loop" in text]
 
 
 class InstalledLabels(WatchdogCase):
@@ -230,9 +237,6 @@ class CrashLoop(WatchdogCase):
         self.launchctl.crash(DEV, respawn=True)
         self.run_for(then_run, beat=f"start-{n}")
 
-    def loop_alerts(self) -> list[tuple[datetime, str]]:
-        return [(at, text) for at, text in self.timeline if "crash loop" in text]
-
     def test_three_starts_in_10_min_send_one_alert_with_the_last_error(self) -> None:
         self.heartbeat(started_at="start-0")
         self.tick()
@@ -346,6 +350,218 @@ class UpdateSuppression(WatchdogCase):
         self.tick()
         self.assertEqual(self.launchctl.kicks(), [KICK_DEV])
         self.assertIn("update_stale_ignored", self.data.log_text())
+
+
+# --- T32b: offline is not dead ---------------------------------------------------------------------------------------
+class PollCase(WatchdogCase):
+    """A bot from T32b on: after every `getUpdates` attempt it writes when it tried and how that went."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.launchctl.jobs[DEV] = FakeJob(pid=4242)
+        self.started = "s1"
+        self.kind = "none"
+        self.failures = 0
+        self.attempt_at: datetime | None = None
+        self.ok_at: datetime | None = None
+
+    def attempt(self, kind: str = "none") -> None:
+        """One attempt now, recorded the way the app's polling hook records it."""
+        now = self.clock.now()
+        self.kind, self.attempt_at = kind, now
+        if kind == "none":
+            self.ok_at, self.failures = now, 0
+        else:
+            self.failures += 1
+        self.rewrite()
+
+    def rewrite(self) -> None:
+        """The file is written again now with no new attempt in it (the app's 30 s timer)."""
+        self.data.write_poll_heartbeat(
+            "dev",
+            at=self.clock.now(),
+            pid=self.launchctl.jobs[DEV].pid or 0,
+            started_at=self.started,
+            attempt_at=self.attempt_at,
+            kind=self.kind,
+            failures=self.failures,
+            ok_at=self.ok_at,
+        )
+
+    def poll_for(self, seconds: int, kind: str, *, every: int = 30) -> None:
+        """Attempts of `kind` every `every` s (30 s is the longest backoff), and a watchdog tick every 15 s."""
+        for step in range(1, seconds // 15 + 1):
+            self.clock.advance(seconds=15)
+            if step * 15 % every == 0:
+                self.attempt(kind)
+            self.tick()
+
+    def respawned(self, n: int) -> None:
+        """launchd's KeepAlive started a new process; it shows itself before its first attempt."""
+        self.launchctl.crash(DEV, respawn=True)
+        self.started, self.kind, self.failures, self.attempt_at, self.ok_at = f"start-{n}", "none", 0, None, None
+        self.rewrite()
+
+
+class Offline(PollCase):
+    def test_a_30_minute_outage_with_fresh_attempts_restarts_nothing_and_tells_nobody(self) -> None:
+        self.attempt()
+        self.tick()
+        self.poll_for(1800, "network")
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.assertEqual(self.opener.sent, [])
+        [offline] = self.events("bot_offline")
+        self.assertEqual(offline["failures"], 1)
+
+        self.poll_for(30, "none")
+        [back] = self.events("bot_back_online")
+        self.assertEqual(back["offline_s"], 1800)
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.assertEqual(self.opener.sent, [])
+
+    def test_attempts_as_sparse_as_the_runner_makes_them_are_still_a_live_loop(self) -> None:
+        self.attempt()
+        self.tick()
+        self.poll_for(1800, "network", every=45)  # a 30 s backoff, then a probe that hangs for its 10 s budget
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.assertEqual(self.opener.sent, [])
+
+    def test_a_stuck_loop_is_kickstarted_even_while_its_file_stays_fresh(self) -> None:
+        self.attempt()
+        self.tick()
+        self.poll_for(60, "network")
+        for _ in range(8):  # no attempt any more, but the file is still written
+            self.clock.advance(seconds=15)
+            self.rewrite()
+            self.tick()
+        self.assertEqual(self.launchctl.kicks(), [])  # exactly 120 s after the last attempt
+        self.clock.advance(seconds=15)
+        self.rewrite()
+        self.tick()
+        self.assertEqual(self.launchctl.kicks(), [KICK_DEV])
+        self.assertIn(S.REASON_HEARTBEAT_STALE(seconds=135), self.opener.texts()[0])
+        self.assertEqual(self.events("bot_kickstarted")[0]["reason"], "poll_loop_stuck")
+        self.assertEqual(self.events("bot_offline_ended")[0]["cause"], "poll_loop_stuck")
+
+    def test_a_missing_process_is_kickstarted_at_once_while_offline(self) -> None:
+        self.attempt()
+        self.tick()
+        self.poll_for(300, "network")
+        self.launchctl.crash(DEV, respawn=False)
+        self.tick(seconds=15)
+        self.assertEqual(self.launchctl.kicks(), [KICK_DEV])
+        self.assertIn(S.REASON_PROCESS_MISSING(), self.opener.texts()[0])
+        self.assertEqual(self.events("bot_offline_ended")[0]["cause"], "process_missing")
+
+    def test_starts_while_offline_never_count_toward_a_crash_loop(self) -> None:
+        self.attempt()
+        self.tick()
+        self.poll_for(60, "network")
+        for n in range(1, 5):  # four restarts in 8 min, all during the outage
+            self.respawned(n)
+            self.tick(seconds=15)
+            self.poll_for(105, "network")
+        self.assertEqual(self.timeline, [])
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.assertEqual(len(self.events("bot_offline")), 1)  # a restarted process is still offline, not back
+
+        self.poll_for(30, "none")
+        for n in range(5, 7):  # back online: two more starts inside the same 10 min are not a loop ...
+            self.respawned(n)
+            self.poll_for(60, "none")
+        self.assertEqual(self.loop_alerts(), [])
+        self.respawned(7)  # ... and a third is: counting resumed
+        self.poll_for(60, "none")
+        self.assertEqual(len(self.loop_alerts()), 1)
+
+
+class OtherPollFailures(PollCase):
+    def check_restarted_120_s_after_the_failures_began(self, kind: str) -> None:
+        self.attempt()
+        self.tick()
+        self.poll_for(150, kind)  # the first failure was seen 30 s in
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.poll_for(15, kind)
+        self.assertEqual(self.launchctl.kicks(), [KICK_DEV])
+        self.assertIn(S.REASON_HEARTBEAT_STALE(seconds=135), self.opener.texts()[0])
+        self.assertEqual(self.events("bot_kickstarted")[0]["reason"], "polls_failing")
+        self.assertEqual(self.events("bot_offline"), [])
+
+    def test_a_revoked_token_or_a_conflict_is_restarted_as_before(self) -> None:
+        self.check_restarted_120_s_after_the_failures_began("other")
+
+    def test_a_kind_this_watchdog_does_not_know_is_judged_the_same_way(self) -> None:
+        self.check_restarted_120_s_after_the_failures_began("dns_v2")
+
+    def test_another_failure_right_after_an_outage_gets_its_own_120_s(self) -> None:
+        self.attempt()
+        self.tick()
+        self.poll_for(1800, "network")
+        self.poll_for(90, "other")  # a 409 while Telegram still holds the long poll from before the outage
+        self.poll_for(30, "none")
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.assertEqual(self.opener.sent, [])
+        self.assertEqual(self.events("bot_offline_ended")[0]["cause"], "other")
+
+
+class OlderFormats(PollCase):
+    def test_a_file_without_attempt_fields_is_judged_by_its_mtime_alone(self) -> None:
+        # A bot from before T32b: whatever its content says, a rewritten file is fresh and a silent one is stale.
+        self.heartbeat(started_at="s1")
+        self.tick()
+        for _ in range(8):
+            self.run_for(30)
+            self.heartbeat(started_at="s1")
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.run_for(135)
+        self.assertEqual(self.launchctl.kicks(), [KICK_DEV])
+        self.assertEqual(self.events("bot_kickstarted")[0]["reason"], "heartbeat_stale")
+        self.assertEqual(self.events("bot_offline"), [])
+
+    def test_a_paused_bot_is_judged_by_its_mtime_even_in_the_new_shape(self) -> None:
+        def paused() -> None:  # the last attempt failed on the network, then polling was paused on purpose
+            self.data.write_poll_heartbeat(
+                "dev", at=self.clock.now(), pid=4242, started_at="s1", attempt_at=START, kind="network", mode="paused"
+            )
+
+        paused()
+        self.tick()
+        for _ in range(20):  # 10 min paused: no attempt, the timer rewrites the file every 30 s
+            self.run_for(30)
+            paused()
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.assertEqual(self.events("bot_offline"), [])
+
+    def test_a_process_that_has_not_polled_yet_is_judged_by_its_mtime(self) -> None:
+        self.rewrite()  # the start's first write: no attempt yet
+        self.tick()
+        self.run_for(120)
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.run_for(15)
+        self.assertEqual(self.launchctl.kicks(), [KICK_DEV])
+        self.assertEqual(self.events("bot_kickstarted")[0]["reason"], "heartbeat_stale")
+
+    def test_damaged_poll_fields_fall_back_to_the_mtime_rule(self) -> None:
+        path = self.data.paths.heartbeat("dev")
+        body = {"pid": 4242, "mode": "normal", "last_poll_attempt_at": "soon", "last_poll_error_kind": "network"}
+        path.write_text(json.dumps(body), encoding="utf-8")
+        self.touch(path)
+        beat = read_heartbeat(path)
+        assert beat is not None
+        self.assertTrue(beat.not_polled_yet)
+        self.assertFalse(beat.offline(self.clock.now()))
+        self.assertEqual(beat.alive_at(), (START, "heartbeat_stale"))
+
+    def test_an_attempt_is_never_taken_as_later_than_the_file_write(self) -> None:
+        beat = Heartbeat(
+            written_at=START,
+            pid=4242,
+            started_at="s1",
+            mode="normal",
+            last_poll_attempt_at=START + timedelta(hours=1),
+            last_poll_error_kind="network",
+        )
+        self.assertEqual(beat.alive_at(), (START, "poll_loop_stuck"))
 
 
 if __name__ == "__main__":

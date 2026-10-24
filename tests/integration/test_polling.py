@@ -1,5 +1,6 @@
 """The polling runner on the recording aiogram session and virtual time (FakeClock): order, the persisted offset, the
-1 → 30 s backoff, probes after a failure, the heartbeat hook point, and NFR-REL-03 (SPEC §2.8, §3.2.1 step 1, §4.6).
+1 → 30 s backoff, probes after a failure, the heartbeat hook point and the failure kind it carries (T32b), and
+NFR-REL-03 (SPEC §2.8, §3.2.1 step 1, §4.6).
 
 Every wait goes through `deps.clock.sleep`, so a test advances virtual time instead of sleeping; only a getUpdates
 that hangs on purpose waits on the real loop (for a few milliseconds).
@@ -39,6 +40,7 @@ from yordamchi.core.redact import LOG_FIELDS_ATTR
 from yordamchi.dev.deps import DevDeps
 from yordamchi.shared.access.domain import OwnerOrigin
 from yordamchi.shared.deps import SharedDeps
+from yordamchi.shared.health.domain import PollErrorKind
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox import store as inbox_store
 from yordamchi.shared.inbox.domain import IncomingUpdate, UpdateKind
@@ -94,6 +96,10 @@ class Runner:
 
     async def heartbeat(self, tick: PollTick) -> None:
         self.ticks.append(tick)
+
+    @property
+    def ok_ticks(self) -> list[PollTick]:
+        return [tick for tick in self.ticks if tick.error is PollErrorKind.NONE]
 
     @asynccontextmanager
     async def running(self, config: PollConfig = STEADY) -> AsyncIterator[None]:
@@ -261,24 +267,55 @@ async def test_polling_resumes_within_60_s_of_connectivity_after_a_10_minute_out
     runner.session.offline_until = back_at
     runner.session.script("getUpdates", _batch(tg_message(30)))
     async with runner.running(config=PollConfig()):
-        while not runner.ticks:
-            await _until(lambda: runner.clock.pending_sleepers == 1 or bool(runner.ticks))
-            if not runner.ticks:
+        while not runner.ok_ticks:
+            await _until(lambda: runner.clock.pending_sleepers == 1 or bool(runner.ok_ticks))
+            if not runner.ok_ticks:
                 await runner.clock.advance(runner.clock.sleeps[-1])
         await _until(lambda: runner.fed == [30])
 
-    assert runner.ticks[0].at - back_at <= timedelta(seconds=60)
+    assert runner.ok_ticks[0].at - back_at <= timedelta(seconds=60)
     assert max(runner.clock.sleeps) <= 30
     assert len(runner.session.polled_at) > 15  # it kept trying through the outage
+    failed = runner.ticks[: runner.ticks.index(runner.ok_ticks[0])]
+    assert len(failed) == len(runner.session.polled_at) - 1  # every failed attempt reached the heartbeat
+    assert {tick.error for tick in failed} == {PollErrorKind.NETWORK}  # offline, not dead (T32b)
 
 
 # --- the heartbeat hook point and a broken update ------------------------------------------------------------------
-async def test_the_heartbeat_runs_after_each_successful_poll_and_never_on_a_failure(runner: Runner) -> None:
+async def test_the_heartbeat_runs_after_every_attempt_and_a_failure_carries_its_kind(runner: Runner) -> None:
+    failed_at = runner.clock.now()
     runner.session.script("getUpdates", _network_down, _batch(tg_message(40), tg_message(41)), _batch())
     async with runner.running():
         await runner.advance_through_waits(1)
-        await _until(lambda: len(runner.ticks) == 2)
-    assert runner.ticks == [PollTick(at=runner.clock.now(), updates=2), PollTick(at=runner.clock.now(), updates=0)]
+        await _until(lambda: len(runner.ticks) == 3)
+    assert runner.ticks == [
+        PollTick(at=failed_at, updates=0, error=PollErrorKind.NETWORK),  # before the backoff wait
+        PollTick(at=runner.clock.now(), updates=2),
+        PollTick(at=runner.clock.now(), updates=0),
+    ]
+
+
+async def test_a_failure_is_network_only_when_the_connection_failed(runner: Runner) -> None:
+    runner.session.script(
+        "getUpdates",
+        _network_down,
+        Answer.fixture("bad_gateway"),
+        Answer.fixture("proxy_html_502"),
+        Answer.fixture("unauthorized"),
+        Answer.fixture("conflict"),
+        Answer.fixture("too_many_requests"),
+    )
+    async with runner.running():
+        await runner.advance_through_waits(6)
+    network, other = PollErrorKind.NETWORK, PollErrorKind.OTHER
+    assert [tick.error for tick in runner.ticks] == [network, network, network, other, other, other]
+
+
+async def test_a_hung_get_updates_is_a_network_failure(runner: Runner) -> None:
+    fast = PollConfig(jitter=0.0, long_poll_s=0, request_grace_s=0.02, probe_budget_s=0.02)
+    async with runner.running(config=fast):
+        await runner.advance_through_waits(1)
+    assert runner.ticks[0].error is PollErrorKind.NETWORK
 
 
 async def test_a_broken_update_does_not_stall_the_ones_after_it(

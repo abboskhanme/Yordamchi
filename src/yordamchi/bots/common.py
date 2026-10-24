@@ -8,7 +8,8 @@
   allowed `except Exception` places, CONVENTIONS §7).
 - `log_update_error`: the `@dp.errors()` handler for whatever escapes; it logs and returns True.
 - `run_polling()`: long polling, each update fed in order to `dp.feed_update`, the offset advanced through the inbox
-  after each batch, and a backoff that resumes within 60 s of connectivity (NFR-REL-03).
+  after each batch, and a backoff that resumes within 60 s of connectivity (NFR-REL-03). Every attempt reaches the
+  heartbeat hook, a failure with its kind (`poll_error_kind`), so the watchdog can tell offline from dead (T32b).
 - `build_dispatcher()`: puts the three together; `bots/<bot>/app.py` passes its routers.
 """
 
@@ -34,7 +35,14 @@ from aiogram.types.update import UpdateTypeLookupError
 from yordamchi.adapters.telegram.translate import translate
 from yordamchi.core import strings as S
 from yordamchi.core.aio import raise_if_cancelling
-from yordamchi.core.errors import AuthFailed, CallTimedOut, ExternalError, RateLimited, YordamchiError
+from yordamchi.core.errors import (
+    AuthFailed,
+    CallTimedOut,
+    ExternalError,
+    ProviderUnavailable,
+    RateLimited,
+    YordamchiError,
+)
 from yordamchi.core.log import LogValue, get_log
 from yordamchi.core.paths import BotName
 from yordamchi.core.text import BotText
@@ -42,6 +50,7 @@ from yordamchi.shared.access import domain as access_domain
 from yordamchi.shared.access import service as access
 from yordamchi.shared.access.domain import Admit, Arrival, ChatKind, EventType
 from yordamchi.shared.deps import SharedDeps
+from yordamchi.shared.health.domain import PollErrorKind
 from yordamchi.shared.inbox import service as inbox
 
 log = get_log(__name__)
@@ -193,10 +202,12 @@ DEFAULT_POLL: Final = PollConfig()
 
 @dataclass(frozen=True, slots=True)
 class PollTick:
-    """One successful `getUpdates`: the heartbeat writer (T32) records `at` as `last_poll_ok_at`."""
+    """One `getUpdates` attempt, for the heartbeat writer (T32): `at` is its `last_poll_attempt_at`, and also its
+    `last_poll_ok_at` when `error` is NONE. A failed attempt has `updates=0` and its kind (T32b)."""
 
     at: datetime
     updates: int
+    error: PollErrorKind = PollErrorKind.NONE
 
 
 type Heartbeat = Callable[[PollTick], Awaitable[None]]
@@ -216,6 +227,16 @@ def _wait_after(failures: int, error: ExternalError, config: PollConfig) -> floa
     if isinstance(error, RateLimited) and error.retry_after is not None:
         wait = max(wait, error.retry_after)  # asking again sooner only earns another 429
     return wait
+
+
+def poll_error_kind(error: ExternalError) -> PollErrorKind:
+    """NETWORK when only the connection failed: DNS, connect or a timeout (`CallTimedOut`), or a 5xx or garbage from
+    Telegram or a proxy (the adapter's retryable `ProviderUnavailable`: `network_error`, `server_error`,
+    `malformed_response`). Waiting fixes those, so the watchdog must not restart the bot for them. OTHER for the
+    rest: a revoked token, a 409 conflict, a 429, a refused request."""
+    if isinstance(error, CallTimedOut) or (isinstance(error, ProviderUnavailable) and error.retryable):
+        return PollErrorKind.NETWORK
+    return PollErrorKind.OTHER
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,8 +290,9 @@ async def run_polling(
     Each batch is fed in `update_id` order, one update at a time (never as tasks), each under `guarded()`, so a broken
     update cannot stall the ones after it. Then `next_offset = max(update_id) + 1` is persisted (inbox): a crash
     mid-batch refetches the batch, and the inbox's idempotency key makes the replay harmless (NFR-REL-05). `heartbeat`
-    runs after every successful `getUpdates`, before the batch is fed (SPEC §2.8); a failing heartbeat ends the
-    runner, so `forever` restarts it and a stale heartbeat stays visible to the watchdog.
+    runs after every `getUpdates` attempt (SPEC §2.8, T32b): a success before its batch is fed, a failure with its
+    kind before the backoff wait. A failing heartbeat ends the runner, so `forever` restarts it and the stale attempts
+    stay visible to the watchdog.
     """
     offset = await inbox.get_poll_offset(deps)
     failures = 0
@@ -281,6 +303,8 @@ async def run_polling(
             failures += 1
             wait = _wait_after(failures, result.error, config)
             _log_failure(deps.bot, result, failures=failures, wait=wait)
+            if heartbeat is not None:
+                await heartbeat(PollTick(at=deps.clock.now(), updates=0, error=poll_error_kind(result.error)))
             await deps.clock.sleep(wait)
             continue
         if failures:

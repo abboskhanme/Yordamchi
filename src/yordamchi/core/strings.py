@@ -571,6 +571,8 @@ HEALTH_RESTARTED_IDLE = Msg("Qayta ishga tushdim ({reason}). Uzilib qolgan ish y
 HEALTH_REASON_UNCLEAN = Msg("oldingi ish kutilmaganda uzildi")
 HEALTH_REASON_UNCLEAN_SINCE = Msg("oldingi ish kutilmaganda uzildi, oxirgi marta {time} da ishlagan edim")
 WAKE_GAP = Msg("Mac uxlagan edi {from_}–{to}, {n} ta xabar qayta ishlanmoqda")
+# T32b: told once polling is back after ≥ 5 min of network failures; the watchdog stays quiet while offline.
+NETWORK_GAP = Msg("Internet uzilgan edi {from_}–{to}")
 # NFR-REL-08: told only when the smoke turn after a `claude` update fails; the bot keeps running. Keyed by the step.
 SMOKE_FAILED = Msg(
     "Claude CLI {version} ga yangilandi, lekin sinov ishi o'tmadi: {step}. Men ishlashda davom etyapman; loyihalardagi "

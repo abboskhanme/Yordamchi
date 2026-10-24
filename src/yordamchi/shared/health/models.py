@@ -14,8 +14,8 @@ from yordamchi.persistence.types import JSONText
 
 
 class HealthEvent(Base):
-    """started | clean_exit | unclean_restart | wake_gap | smoke_ok | smoke_failed | cli_version | pressure |
-    disk_low."""
+    """started | clean_exit | unclean_restart | wake_gap | network_gap | smoke_ok | smoke_failed | cli_version |
+    pressure | disk_low."""
 
     __tablename__ = "health_events"
     __table_args__ = (Index("ix_health_events_bot_at", "bot", "at"),)

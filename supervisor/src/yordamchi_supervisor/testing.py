@@ -194,8 +194,8 @@ class TempData:
         path.chmod(mode)
 
     def write_heartbeat(self, bot: str, *, at: datetime, pid: int, started_at: str) -> None:
-        path = self.paths.run / f"{bot}.heartbeat.json"
-        body = {
+        """A heartbeat in the T32 shape, from before T32b (no poll attempt fields), written at `at`."""
+        body: dict[str, object] = {
             "pid": pid,
             "version": "2026.10.24-abcdef0",
             "started_at": started_at,
@@ -203,6 +203,37 @@ class TempData:
             "mode": "normal",
             "loop_lag_ms": 3,
         }
+        self._write_beat(bot, body, at)
+
+    def write_poll_heartbeat(
+        self,
+        bot: str,
+        *,
+        at: datetime,
+        pid: int,
+        started_at: str,
+        attempt_at: datetime | None,
+        kind: str = "none",
+        failures: int = 0,
+        ok_at: datetime | None = None,
+        mode: str = "normal",
+    ) -> None:
+        """A heartbeat in the T32b shape, written at `at`: the poll attempt fields as `shared/health` writes them."""
+        body: dict[str, object] = {
+            "pid": pid,
+            "version": "2026.10.24-abcdef0",
+            "started_at": started_at,
+            "last_poll_ok_at": None if ok_at is None else ok_at.isoformat(),
+            "mode": mode,
+            "loop_lag_ms": 3,
+            "last_poll_attempt_at": None if attempt_at is None else attempt_at.isoformat(),
+            "last_poll_error_kind": kind,
+            "consecutive_poll_failures": failures,
+        }
+        self._write_beat(bot, body, at)
+
+    def _write_beat(self, bot: str, body: dict[str, object], at: datetime) -> None:
+        path = self.paths.run / f"{bot}.heartbeat.json"
         path.write_text(json.dumps(body), encoding="utf-8")
         os.utime(path, (at.timestamp(), at.timestamp()))
 

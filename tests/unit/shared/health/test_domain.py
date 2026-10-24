@@ -25,6 +25,7 @@ from yordamchi.shared.health.domain import (
     Mode,
     OnlineMessage,
     OnlineStep,
+    PollErrorKind,
     QueuedWork,
     WorkStatus,
 )
@@ -35,30 +36,40 @@ TZ = "Asia/Tashkent"
 
 
 # --- the heartbeat file -------------------------------------------------------------------------------------------
-def test_the_heartbeat_holds_the_six_spec_fields_with_aware_iso_instants() -> None:
+def test_the_heartbeat_holds_the_spec_and_attempt_fields_with_aware_iso_instants() -> None:
     beat = Heartbeat(
         pid=4242,
         version="2026.10.24-abcdef0",
         started_at=NOW - timedelta(hours=1),
-        last_poll_ok_at=NOW,
+        last_poll_ok_at=NOW - timedelta(minutes=2),
         mode=Mode.PROBATION,
         loop_lag_ms=3,
+        last_poll_attempt_at=NOW,
+        last_poll_error_kind=PollErrorKind.NETWORK,
+        consecutive_poll_failures=4,
     )
     assert domain.heartbeat_json(beat) == {
         "pid": 4242,
         "version": "2026.10.24-abcdef0",
         "started_at": "2026-10-24T08:05:00+00:00",
-        "last_poll_ok_at": "2026-10-24T09:05:00+00:00",
+        "last_poll_ok_at": "2026-10-24T09:03:00+00:00",
         "mode": "probation",
         "loop_lag_ms": 3,
+        "last_poll_attempt_at": "2026-10-24T09:05:00+00:00",
+        "last_poll_error_kind": "network",
+        "consecutive_poll_failures": 4,
     }
 
 
-def test_before_the_first_poll_last_poll_ok_at_is_null_and_lag_is_never_negative() -> None:
+def test_before_the_first_poll_the_poll_fields_are_empty_and_counts_never_negative() -> None:
     beat = Heartbeat(pid=1, version="v", started_at=NOW, last_poll_ok_at=None, mode=Mode.NORMAL, loop_lag_ms=-2)
     body = domain.heartbeat_json(beat)
     assert body["last_poll_ok_at"] is None
     assert body["loop_lag_ms"] == 0
+    assert body["last_poll_attempt_at"] is None
+    assert body["last_poll_error_kind"] == "none"
+    assert body["consecutive_poll_failures"] == 0
+    assert domain.heartbeat_json(replace(beat, consecutive_poll_failures=-1))["consecutive_poll_failures"] == 0
 
 
 def test_a_naive_instant_is_refused() -> None:
@@ -96,6 +107,55 @@ def test_before_the_first_poll_the_timer_shows_the_new_process_for_a_minute() ->
     assert not domain.timer_writes(
         Mode.NORMAL, last_poll_ok_at=None, started_at=NOW - grace - timedelta(seconds=1), now=NOW
     )
+
+
+def test_while_polls_fail_on_the_network_the_timer_writes_within_a_minute_of_the_last_attempt() -> None:
+    started, ok = NOW - timedelta(hours=1), NOW - timedelta(minutes=10)
+    window = domain.LIVE_ATTEMPT_WINDOW
+    for attempt, writes in ((NOW - window, True), (NOW - window - timedelta(seconds=1), False)):
+        assert (
+            domain.timer_writes(
+                Mode.NORMAL,
+                last_poll_ok_at=ok,
+                started_at=started,
+                now=NOW,
+                last_poll_attempt_at=attempt,
+                last_poll_error_kind=PollErrorKind.NETWORK,
+            )
+            is writes
+        )
+
+
+@pytest.mark.parametrize("kind", [PollErrorKind.NONE, PollErrorKind.OTHER])
+def test_the_timer_never_covers_a_working_poll_or_another_failure(kind: PollErrorKind) -> None:
+    started = NOW - timedelta(hours=1)
+    assert not domain.timer_writes(
+        Mode.NORMAL,
+        last_poll_ok_at=NOW - timedelta(minutes=10),
+        started_at=started,
+        now=NOW,
+        last_poll_attempt_at=NOW,
+        last_poll_error_kind=kind,
+    )
+
+
+def test_a_live_loop_attempts_well_within_the_window() -> None:
+    # bots.common.PollConfig: the long poll and its grace, or the longest backoff and a probe.
+    assert max(25 + 10, 30 + 10) < domain.LIVE_ATTEMPT_WINDOW.total_seconds() < 120
+
+
+# --- network outages ----------------------------------------------------------------------------------------------
+def test_an_outage_of_five_minutes_is_told_from_its_first_failure() -> None:
+    since = NOW - timedelta(minutes=5)
+    assert domain.network_gap(since, NOW) == Gap(from_=since, to=NOW)
+    assert domain.network_gap(since + timedelta(seconds=1), NOW) is None
+    assert domain.network_gap(None, NOW) is None
+
+
+def test_the_outage_notice_names_it_in_tashkent_time() -> None:
+    gap = Gap(from_=datetime(2026, 10, 24, 9, 2, tzinfo=UTC), to=datetime(2026, 10, 24, 9, 41, tzinfo=UTC))
+    assert domain.network_gap_text(gap, timezone=TZ) == "Internet uzilgan edi 14:02–14:41"
+    assert domain.network_gap_ref(gap) == f"network-{int(gap.to.timestamp())}"
 
 
 # --- sleep and wake -----------------------------------------------------------------------------------------------
