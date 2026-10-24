@@ -1,0 +1,42 @@
+Sozlamalar · dev bot — to'liq ro'yxat (15 ta)
+
+## Kirish (egasi va chatlar)
+• access.dev_group_id = -1001234567890 — standart · mumkin: -9007199254740992–-1
+• access.owner_id = 424242 — standart · mumkin: 1–9007199254740992
+
+## Persona va ohang
+• persona.dev_tone = qisqa va iliq — o'zgartirilgan, standart: qisqa, aniq, texnik · mumkin: ≤ 300
+
+## Promptlar
+• prompt.dev_executor_extra = Testlarni ishga tushir. kalit: ••••g0Fe — o'zgartirilgan, standart: bo'sh · mumkin: ≤ 4000
+
+## Ovoz
+• voice.enabled = o'chirilgan — standart
+
+## Modellar
+• models.routing = sonnet — o'zgartirilgan, standart: haiku · mumkin: haiku, sonnet, opus, fable, best
+
+## Routing va loyihalar
+• projects.aliases = hr → BonviHR — o'zgartirilgan, standart: bo'sh · mumkin: ≤ 1000
+
+## Muhim qarorlar (gate)
+• gate.ask_classes = deploy, server_write, spend — o'zgartirilgan, standart: deploy, server_write, deploy_push, force_push, data_loss_db, docker_destroy, fs_destroy, repo_delete, repo_public, spend, third_party_send, architecture · mumkin: deploy, server_write, deploy_push, force_push, data_loss_db, docker_destroy, fs_destroy, repo_delete, repo_public, spend, third_party_send, architecture
+• gate.secret_scan_enabled = yoqilgan — standart
+
+## Xabar oynalari (burst)
+• burst.after_media_s = 15 s — o'zgartirilgan, standart: 10 s · mumkin: 2–60
+
+## Timeout'lar
+• timeouts.routing_s = 2.5 s — standart · mumkin: 0.5–15
+
+## Jadvallar
+• schedule.quiet_hours = 23:00-07:00 — o'zgartirilgan, standart: bo'sh · mumkin: HH:MM-HH:MM yoki bo'sh (o'chiq)
+
+## Limitlar (xarajat, parallel ish)
+• caps.google_monthly_usd = 40 USD — standart · mumkin: 0–10000
+
+## Cheklovlar (matn, fayl, xotira)
+• assistant.warm_clients = routing → 2, report → 1, settings → 0 — standart · mumkin: routing, report, settings, qa → 0 | 1 | 2
+
+## Serverlar
+• servers.hosts = bonvi-srv — o'zgartirilgan, standart: bo'sh · mumkin: host nomlari (masalan: server, bonvi-srv)

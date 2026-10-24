@@ -65,6 +65,9 @@ qa.session_idle_rotate_h sessions.idle_close_min turns.result_grace_s
 """.split()  # noqa: SIM905
 # SPEC §5.7 gives the shim window inline ("in the last 120 s"); the T07 wiring note named its key (T18).
 SPEC_KEYS.append("gate.shim_grant_window_s")
+# SPEC §5.3 gives the dev Assistant limit as `timeouts.<kind>_s`; the settings kind needs its own (T21). The T12 wiring
+# notes name the warm-pool size per kind and the routing effort (orchestrator decision 2026-10-24).
+SPEC_KEYS.extend(["timeouts.settings_s", "assistant.warm_clients", "models.routing_effort"])
 
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")

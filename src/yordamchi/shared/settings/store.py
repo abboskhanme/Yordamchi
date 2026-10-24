@@ -30,6 +30,11 @@ async def get_latest_version_number(s: AsyncSession, key: str) -> int:
     return (await s.scalar(select(func.max(SettingVersion.version)).where(SettingVersion.key == key))) or 0
 
 
+async def find_newest_setting_version(s: AsyncSession) -> SettingVersion | None:
+    """The row written last in this DB, whatever its key ("oldingi holatiga qaytar" reverts it)."""
+    return await s.scalar(select(SettingVersion).order_by(SettingVersion.id.desc()).limit(1))
+
+
 async def list_setting_history(s: AsyncSession, key: str) -> list[SettingVersion]:
     """Every row of one key, newest first (revert reads the one before the latest)."""
     query = select(SettingVersion).where(SettingVersion.key == key).order_by(SettingVersion.version.desc())

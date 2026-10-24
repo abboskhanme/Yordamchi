@@ -9,7 +9,7 @@ A new setting is one declaration in `defaults.py`, never a change here. Values a
 - `bots`: `DEV`, `PERSONAL` or `BOTH`. A `BOTH` key is shared: the personal bot falls back to the dev bot's value
   (SPEC §2.3). A key whose default differs per process (`PerBot`, `FROM_BOOTSTRAP`) is never shared that way: each
   bot keeps its own value, because its default already says the bots differ.
-- `check`: `Range`, `OneOf`, `SubsetOf`, `MaxLen`, `Regex`, `HostList`, `TimeOfDay`, `Duration`.
+- `check`: `Range`, `OneOf`, `SubsetOf`, `MaxLen`, `Regex`, `HostList`, `TimeOfDay`, `Duration`, `DictOf`.
 - `weakens(old, new) -> bool`: set on every safeguard; a weakening change asks the owner once (UC-09).
 
 This module is pure (C6 lists it with the domain modules).
@@ -249,6 +249,30 @@ class Duration:
 
     def options(self) -> str:
         return "HH:MM-HH:MM" + (" yoki bo'sh (o'chiq)" if self.allow_empty else "")
+
+
+class DictOf:
+    """A `dict[str, str]` whose keys come from `keys` and whose values from `values`; a key may be left out.
+
+    SPEC §4.3 lists no check for dict values; `assistant.warm_clients` (TASKS T12) needs one, so `"9"` warm clients is
+    refused at the change instead of being clamped by the reader.
+    """
+
+    __slots__ = ("keys", "values")
+
+    def __init__(self, keys: Iterable[str], values: Iterable[str]) -> None:
+        self.keys: tuple[str, ...] = tuple(keys)
+        self.values: tuple[str, ...] = tuple(values)
+
+    def problem(self, value: SettingValue) -> str | None:
+        if not isinstance(value, dict):
+            return "not_a_dict"
+        if not set(value) <= set(self.keys):
+            return "unknown_key"
+        return None if all(item in self.values for item in value.values()) else "not_an_option"
+
+    def options(self) -> str:
+        return f"{', '.join(self.keys)} → {' | '.join(self.values)}"
 
 
 # --- weakens: (old, new) -> True when the change removes or loosens a safeguard ------------------------------------

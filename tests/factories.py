@@ -10,6 +10,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Final
 
@@ -29,6 +30,7 @@ from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName, Paths
 from yordamchi.dev.deps import DevDeps
 from yordamchi.dev.gate import domain as gate_domain
+from yordamchi.dev.gate import service as gate_service
 from yordamchi.dev.gate import store as gate_store
 from yordamchi.dev.gate.domain import Policy
 from yordamchi.dev.gate.models import Decision
@@ -50,11 +52,13 @@ from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.inbox.domain import Attachment, Content, IncomingUpdate, StoredUpdate, UpdateKind, UpdateStatus
 from yordamchi.shared.outbox import service as outbox_service
 from yordamchi.shared.outbox import store as outbox_store
+from yordamchi.shared.outbox.models import OutboxMessage
 from yordamchi.shared.outbox.service import SenderState
 from yordamchi.shared.settings import defaults, store
 from yordamchi.shared.settings import domain as settings_domain
-from yordamchi.shared.settings.domain import Snapshot
+from yordamchi.shared.settings.domain import PendingChange, Snapshot
 from yordamchi.shared.settings.models import SettingVersion
+from yordamchi.shared.settings.service import AskOwner
 from yordamchi.shared.vault import service as vault_service
 from yordamchi.shared.vault.domain import NewSecret, SecretRef
 
@@ -914,6 +918,35 @@ async def add_setting_row(
             origin_update_id=None,
             created_at=at,
         )
+
+
+async def list_setting_rows(db: Database, key: str) -> list[SettingVersion]:
+    """Every `setting_versions` row of `key`, newest first."""
+    async with db.read() as s:
+        return await store.list_setting_history(s, key)
+
+
+async def list_replies(db: Database, bot: BotName = BotName.DEV) -> list[OutboxMessage]:
+    """Every queued outbox row of `bot`, oldest first (the settings replies are `report` rows)."""
+    async with db.read() as s:
+        return await outbox_store.list_outbox_messages(s, bot.value)
+
+
+class RecordingAsker:
+    """A `settings.service.AskOwner` that records each question and numbers it (the personal bot's conversational
+    confirm is P3; the dev bot's asker is `gate.service.ask_setting_change`)."""
+
+    def __init__(self) -> None:
+        self.asked: list[PendingChange] = []
+
+    async def __call__(self, change: PendingChange) -> int:
+        self.asked.append(change)
+        return len(self.asked)
+
+
+def gate_asker(deps: DevDeps) -> AskOwner:
+    """The dev bot's asker, as `bots/dev/app.py` binds it."""
+    return partial(gate_service.ask_setting_change, deps)
 
 
 # --- turns ---

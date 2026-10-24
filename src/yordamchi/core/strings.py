@@ -275,9 +275,71 @@ ROUTING_WRONG_TARGET_NONE = Msg(
 
 # --- settings ---
 ERR_SETTING_UNKNOWN = Msg("«{key}» degan sozlama yo'q.")
-ERR_SETTING_INVALID = Msg("«{key}» uchun bu qiymat to'g'ri emas. Mumkin: {options}.")
+ERR_SETTING_INVALID = Msg("«{key}» uchun bu qiymat to'g'ri emas. Mumkin: {options}. Hech narsa o'zgarmadi.")
 ERR_SETTING_PERSONAL_ONLY = Msg("«{key}» shaxsiy botning sozlamasi — buni shaxsiy botga ayting.")
 ERR_SETTING_DEV_ONLY = Msg("«{key}» dev botning sozlamasi — buni dev botga ayting.")
+# UC-09: one line restates every change; it applies from the next message, with no restart.
+SETTING_CHANGE_LINE = Msg("{key}: {old} → {new}")
+SETTING_CHANGED = Msg("Sozlama o'zgardi: {change}. Keyingi xabardan kuchga kiradi.")
+SETTING_REVERTED = Msg("Oldingi holatiga qaytardim: {change}. Keyingi xabardan kuchga kiradi.")
+SETTINGS_UNCHANGED = Msg("O'zgartiradigan narsa yo'q — hammasi allaqachon shunday.")
+SETTINGS_NOTHING_TO_REVERT = Msg("Qaytaradigan o'zgarish yo'q.")
+SETTING_NOTHING_TO_REVERT = Msg("«{key}» hali o'zgartirilmagan — qaytaradigan narsa yo'q.")
+# UC-09 F, SPEC §3.2.15 step 3: a change that weakens a safeguard is ONE important decision; "ha" applies it.
+SETTINGS_SUBJECT = Msg("Sozlamalar")
+SETTING_WEAKEN_QUESTION = Msg(
+    "Sozlamalar · Muhim qaror #{decision_id}: {change}. Bu himoyani susaytiradi. Qo'llaymi? (ha / yo'q)"
+)
+SETTING_CHANGE_DECLINED = Msg("Sozlamalar · #{decision_id} bekor qilindi, o'zgarmadi: {change}.")
+# The chat interpretation (SPEC §3.2.15 step 1): an ambiguous request gets one clarifying question.
+SETTINGS_CLARIFY = Msg("Aniqlashtiring, qaysi birini nazarda tutdingiz: {options}? Aniqroq qilib ayting.")
+SETTINGS_CLARIFY_OPTION = Msg("{number}) {change}")
+SETTINGS_UNCLEAR = Msg(
+    "Qaysi sozlamani o'zgartirishni tushunmadim. Aniqroq ayting, masalan: «rasmdan keyin 15 soniya kut». "
+    "Hammasini ko'rish: «sozlamalaring qanday?»."
+)
+SETTINGS_NEEDS_CODE = Msg(
+    "Buni sozlama bilan qilib bo'lmaydi — kod o'zgarishi kerak. «Yordamchi'da … o'zgartir» deb ayting, "
+    "o'z-o'zini yangilash (self-update) orqali qilaman."
+)
+# Values as the owner reads them.
+SETTING_ON = Msg("yoqilgan")
+SETTING_OFF = Msg("o'chirilgan")
+SETTING_EMPTY = Msg("bo'sh")
+# "sozlamalaring qanday?" (UC-09): a grouped summary, then the full list as a `.md` file (tests/golden/settings/).
+SETTINGS_BOTS: Final[Mapping[str, Msg]] = MappingProxyType({"dev": Msg("dev"), "personal": Msg("shaxsiy")})
+SETTINGS_GROUPS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "access": Msg("Kirish (egasi va chatlar)"),
+        "persona": Msg("Persona va ohang"),
+        "prompts": Msg("Promptlar"),
+        "voice": Msg("Ovoz"),
+        "speech": Msg("Nutq xizmatlari (STT/TTS)"),
+        "language": Msg("Til"),
+        "models": Msg("Modellar"),
+        "routing": Msg("Routing va loyihalar"),
+        "decisions": Msg("Muhim qarorlar (gate)"),
+        "burst": Msg("Xabar oynalari (burst)"),
+        "timeouts": Msg("Timeout'lar"),
+        "schedules": Msg("Jadvallar"),
+        "caps": Msg("Limitlar (xarajat, parallel ish)"),
+        "limits": Msg("Cheklovlar (matn, fayl, xotira)"),
+        "servers": Msg("Serverlar"),
+    }
+)
+SETTINGS_LIST_HEAD = Msg("Sozlamalar · {bot} bot: {total} ta, {groups} guruh; standartdan farqli — {changed} ta.")
+SETTINGS_LIST_GROUP = Msg("• {group} — {count} ta: {items}")
+SETTINGS_LIST_DEFAULTS = Msg("hammasi standart")
+SETTINGS_LIST_ITEM = Msg("{key} = {value}")
+SETTINGS_LIST_FOOT = Msg(
+    "To'liq ro'yxat — faylda. O'zgartirish uchun shunchaki ayting, masalan: «rasmdan keyin 15 soniya kut»; "
+    "bekor qilish: «oldingi holatiga qaytar»."
+)
+SETTINGS_FILE_HEAD = Msg("Sozlamalar · {bot} bot — to'liq ro'yxat ({total} ta)")
+SETTINGS_FILE_GROUP = Msg("## {group}")
+SETTINGS_FILE_ITEM = Msg("• {key} = {value} — standart{options}")
+SETTINGS_FILE_ITEM_CHANGED = Msg("• {key} = {value} — o'zgartirilgan, standart: {default}{options}")
+SETTINGS_FILE_OPTIONS = Msg(" · mumkin: {options}")
 
 # --- turns ---
 DELIVERY_UNCERTAIN = Msg("{project}: oxirgi topshiriq bajarilmay qoldi — qayta yuboraymi?")

@@ -15,6 +15,7 @@ from yordamchi.shared.settings.registry import (
     FROM_BOOTSTRAP,
     PERSONAL,
     BotScope,
+    DictOf,
     Duration,
     Group,
     HostList,
@@ -734,6 +735,31 @@ TIMEOUTS_ROUTING_S = Setting(
 # --- settings ---
 MODELS_SETTINGS = _claude_model(
     "models.settings", "sonnet", bots=BOTH, doc="Model that interprets a settings change said in chat."
+)
+TIMEOUTS_SETTINGS_S = Setting(
+    "timeouts.settings_s",
+    float,
+    20.0,
+    check=Range(5, 60),
+    group=Group.TIMEOUTS,
+    bots=BOTH,
+    doc="Interpreting a settings change said in chat (SPEC §5.3 timeouts.<kind>_s; a cold ask by default).",
+)
+# Keys other tasks asked for (docs/PENDING_WIRING.md, T12 assistant pool), declared here by T21. Their readers are
+# the assistant pool wiring (T34) and the routing ask (T20).
+ASSISTANT_KINDS: Final = ("routing", "report", "settings", "qa")
+WARM_CLIENT_COUNTS: Final = ("0", "1", "2")  # cold on demand · live client · live client + hot spare
+ASSISTANT_WARM_CLIENTS = Setting(
+    "assistant.warm_clients",
+    dict[str, str],
+    {"routing": "2", "report": "1", "settings": "0"},
+    check=DictOf(ASSISTANT_KINDS, WARM_CLIENT_COUNTS),
+    group=Group.LIMITS,
+    bots=BOTH,
+    doc="Warm claude clients kept per assistant kind (0 cold, 1 live, 2 live + spare); a missing kind is 0.",
+)
+MODELS_ROUTING_EFFORT = _effort(
+    "models.routing_effort", "low", bots=DEV, doc="Effort of the warm routing assistant (a cold ask at default: 7 s)."
 )
 
 # --- turns ---

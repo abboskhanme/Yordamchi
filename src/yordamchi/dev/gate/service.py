@@ -12,6 +12,10 @@ answer, and the control-socket backends of the Layer 2 shims and the pre-push ho
   another instruction declines it. It returns what to deliver to the agent; `turns` (T24) delivers it.
 - `check_shim` / `report_secret_block` answer the control socket's `gate_check` and `secret_blocked`
   (`bots/cli/protocol.py` holds the wire format; T34 mounts both).
+- `ask_setting_change(deps, change)` is the dev bot's asker for a settings change that weakens a safeguard (UC-09 F,
+  SPEC §3.2.15 step 3): ONE `settings_weaken` decision, bound and answered like any other. "ha" applies the change
+  in the answer's unit of work (`settings.apply_pending_change`) and consumes the decision; it has no agent to
+  deliver to.
 
 Every verdict that is not a plain allow, every question, answer and consumed grant is an audit event written in the
 unit of work of the change it describes. Ports (git, the Messenger) are awaited only outside units of work (A3).
@@ -65,11 +69,12 @@ from yordamchi.shared.audit import service as audit
 from yordamchi.shared.audit.domain import AuditActor, AuditKind
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
-from yordamchi.shared.settings.domain import Snapshot
+from yordamchi.shared.settings.domain import PendingChange, Snapshot
 
 log = get_log(__name__)
 
 GATE_KIND: Final = "gate"
+SETTINGS_KIND: Final = "settings_weaken"  # a settings change that weakens a safeguard (no project, no agent)
 COMMAND_SHOWN_CHARS: Final = 300  # of the command in the owner's question
 INPUT_STORED_CHARS: Final = 2000
 MAX_DEPLOY_REFS: Final = 4  # a push sending more refs than this is judged as "every push deploys"
@@ -352,8 +357,17 @@ def _payload(row: Decision) -> JsonObject:
     return dict(row.payload_json) if isinstance(row.payload_json, dict) else {}
 
 
+def _subject(row: Decision) -> str:
+    """What a decision is about, first in every line the owner reads: its project, or "Sozlamalar"."""
+    if row.project_id:
+        return row.project_id
+    return S.SETTINGS_SUBJECT() if row.kind == SETTINGS_KIND else "?"
+
+
 def _question(row: Decision) -> BotText:
     """SPEC §3.2.3 step 4: one question naming the project, what runs, where, and the consequence."""
+    if row.kind == SETTINGS_KIND:  # UC-09 F: the restated change; `input_redacted` holds it
+        return S.SETTING_WEAKEN_QUESTION(decision_id=row.id, change=row.input_redacted or "?")
     template = S.DECISION_QUESTIONS.get(row.gate_class or "unclear", S.DECISION_QUESTIONS["unclear"])
     consequence = S.GATE_CONSEQUENCES.get(str(_payload(row).get("reason", "")))
     command = row.input_redacted or ""
@@ -612,6 +626,47 @@ async def pending_items(deps: DevDeps) -> tuple[PendingItem, ...]:
     return tuple(PendingItem("decision", row.id, row.project_id) for row in rows if now < row.expires_at)
 
 
+# --- settings changes that weaken a safeguard (UC-09 F; SPEC §3.2.15 step 3) ----------------------------------------
+async def ask_setting_change(deps: DevDeps, change: PendingChange) -> int:
+    """The dev bot's `settings.AskOwner`: ONE question before a weakening settings change applies; returns its
+    decision id. The same change asked again while its question is open reuses that decision, with no second
+    question. It expires after `gate.approval_ttl_min` like any decision; "ha" then asks again."""
+    snap = await settings.snapshot(deps)
+    now = deps.clock.now()
+    action = change.action_sha256
+    async with deps.db.uow() as s:
+        open_rows = await store.list_decisions_with_status(s, ("pending",), limit=_RECENT_DECISIONS)
+        same = [
+            row
+            for row in open_rows
+            if row.kind == SETTINGS_KIND and row.input_sha256 == action and now < row.expires_at
+        ]
+        if same:
+            row = same[-1]
+            asked = False
+        else:
+            row = await store.add_decision(
+                s,
+                kind=SETTINGS_KIND,
+                project_id=None,
+                turn_id=None,
+                gate_class=None,
+                tool_name=None,
+                input_sha256=action,
+                input_redacted=redact.scrubbed(change.restated)[:INPUT_STORED_CHARS],
+                target=change.items[0].key[:200],
+                payload={"change": change.to_json()},
+                created_at=now,
+                expires_at=domain.decision_expires_at(now, snap[defaults.GATE_APPROVAL_TTL_MIN]),
+            )
+            keys: list[JsonValue] = [item.key for item in change.items]
+            await _audit_decision(s, deps, row, AuditKind.DECISION_ASKED, AuditActor.OWNER, {"keys": keys})
+            asked = True
+    if asked:
+        await post_question(deps, row.id, snap=snap)
+    return row.id
+
+
 # --- the owner's answer (SPEC §3.2.3 steps 5–8) ---------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class DecisionReply:
@@ -686,7 +741,7 @@ async def answer_decision(deps: DevDeps, origin: OwnerOrigin, reply: DecisionRep
     if isinstance(binding, domain.NotAnApproval):
         return DecisionAnswer(AnswerKind.NOT_AN_APPROVAL)
     if isinstance(binding, domain.Ambiguous):
-        projects_of = {row.id: row.project_id or "?" for row in recent}
+        projects_of = {row.id: _subject(row) for row in recent}
         items = (S.DECISION_ITEM(decision_id=i, project=projects_of.get(i, "?")) for i in binding.decision_ids)
         text = S.WHICH_DECISION(decisions=", ".join(items))
         await _tell(deps, snap, text, reply_to=None)
@@ -722,9 +777,12 @@ def _answered(row: Decision, kind: AnswerKind, reply: BotText, delivery: str = "
 async def _approve(
     s: Session, deps: DevDeps, origin: OwnerOrigin, row: Decision, *, now: datetime, ttl_min: int
 ) -> _Resolved:
-    """ "ha": a single-use grant that expires (step 6); an expired question is asked again instead (step 8)."""
-    project = row.project_id or "?"
+    """ "ha": a single-use grant that expires (step 6); an expired question is asked again instead (step 8). A
+    settings change applies at once instead of becoming a grant."""
+    project = _subject(row)
     result = domain.resolve_approval(_state(row), now=now, ttl_min=ttl_min)
+    if result.outcome is ApprovalOutcome.APPROVED and row.kind == SETTINGS_KIND:
+        return await _apply_setting_change(s, deps, origin, row, now=now)
     if result.outcome is ApprovalOutcome.APPROVED:
         await store.mark_decision_resolved(
             s, row.id, status="approved", at=now, update_id=origin.update_id, grant_expires_at=result.grant_expires_at
@@ -747,8 +805,9 @@ async def _approve(
 async def _decline(
     s: Session, deps: DevDeps, origin: OwnerOrigin, row: Decision, binding: domain.Bound, *, now: datetime
 ) -> _Resolved:
-    """ "yo'q", or another instruction (step 7): a pending question is denied, an unused grant is withdrawn."""
-    project = row.project_id or "?"
+    """ "yo'q", or another instruction (step 7): a pending question is denied, an unused grant is withdrawn. A
+    settings change is simply not made; it has no agent to carry an instruction to."""
+    project = _subject(row)
     status = "denied" if row.status == "pending" else "cancelled"
     changed = row.status in domain.OPEN_STATUSES and await store.mark_decision_resolved(
         s, row.id, status=status, at=now, update_id=origin.update_id, from_status=row.status
@@ -757,6 +816,9 @@ async def _decline(
         return _answered(row, AnswerKind.CLOSED, S.DECISION_CLOSED(project=project, decision_id=row.id))
     data: JsonObject = {"status": status, "verdict": binding.verdict.value}
     await _audit_decision(s, deps, row, AuditKind.DECISION_RESOLVED, AuditActor.OWNER, data)
+    if row.kind == SETTINGS_KIND:
+        reply = S.SETTING_CHANGE_DECLINED(decision_id=row.id, change=row.input_redacted or "?")
+        return _answered(row, AnswerKind.DECLINED, reply)
     if binding.verdict is OwnerVerdict.INSTRUCT:
         delivery = prompts.render("dev/gate_instructed", decision_id=str(row.id), instruction=binding.instruction)
         reply = S.DECISION_REDIRECTED(project=project, decision_id=row.id)
@@ -786,6 +848,29 @@ async def _reask(s: Session, deps: DevDeps, row: Decision, *, now: datetime, ttl
     await store.set_superseded_by(s, row.id, fresh.id)
     await _audit_decision(s, deps, fresh, AuditKind.DECISION_ASKED, AuditActor.SYSTEM, {"reasked_from": row.id})
     return fresh.id
+
+
+async def _apply_setting_change(
+    s: Session, deps: DevDeps, origin: OwnerOrigin, row: Decision, *, now: datetime
+) -> _Resolved:
+    """ "ha" to a `settings_weaken` decision: approve it, write the change and consume the decision, all in this unit
+    of work, so the change applies exactly once and only together with the answer. A change that cannot be read
+    back is cancelled, so the next bare "ha" does not bind to it again."""
+    closed = _answered(row, AnswerKind.CLOSED, S.DECISION_CLOSED(project=_subject(row), decision_id=row.id))
+    change = PendingChange.from_json(_payload(row).get("change"))
+    if change is None:
+        if await store.mark_decision_resolved(s, row.id, status="cancelled", at=now, update_id=origin.update_id):
+            data: JsonObject = {"status": "cancelled", "error": "unreadable_change"}
+            await _audit_decision(s, deps, row, AuditKind.DECISION_RESOLVED, AuditActor.SYSTEM, data)
+        log.warning("settings_decision_unreadable", decision_id=row.id)
+        return closed
+    if not await store.mark_decision_resolved(s, row.id, status="approved", at=now, update_id=origin.update_id):
+        return closed  # answered meanwhile
+    await settings.apply_pending_change(s, bot=deps.bot, origin=origin, change=change, at=now, decision_id=row.id)
+    await store.mark_decision_consumed(s, row.id, at=now, payload=_payload(row))
+    await _audit_decision(s, deps, row, AuditKind.DECISION_RESOLVED, AuditActor.OWNER, {"status": "approved"})
+    reply = S.SETTING_REVERTED if change.reason == "revert" else S.SETTING_CHANGED
+    return _answered(row, AnswerKind.APPROVED, reply(change=row.input_redacted or change.restated))
 
 
 # --- the control socket: shims and the pre-push hook (SPEC §3.1.1, §5.7 Layer 2) ------------------------------------
