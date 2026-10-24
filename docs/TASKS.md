@@ -183,17 +183,17 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | T34 | U9b `bots/dev` composition root, routers, intents (§6.1 order), control socket (`gate_check`, `secret_blocked`, `status`), startup §2.5, shutdown §2.6, recovery §2.7, scheduler + retention; P2 intents → `S.NOT_YET(phase)` | build-backend | T09–T24, T29–T32 | no | `bots/dev/{app,telegram,intents}.py` | WIRE STR ERR DEF MIG (final) | UC-01 (end to end), UC-06 (restart notice ≤ 60 s), NFR-REL-02/05/07, NFR-SEC-04 (exit 78), NFR-SPD-01, A7 | scripted conversation passes on fakes | **DONE** 2026-10-24 (MT 13b78d1; scripted end-to-end conversation green; dry-start OK) |
-| T35 | U9c golden tests + catalog completeness | test-backend | T34 | no | `tests/golden/{progress,result,holat,settings_list}.txt` + tests | STR (fixes) | UC-11 format, UC-06, UC-09 list, NFR-LANG-01, `test_error_catalog` | goldens reviewed | todo |
+| T35 | U9c golden tests + catalog completeness | test-backend | T34 | no | `tests/golden/{progress,result,holat,settings_list}.txt` + tests | STR (fixes) | UC-11 format, UC-06, UC-09 list, NFR-LANG-01, `test_error_catalog` | goldens reviewed | in progress (2026-10-24) |
 
 ## Phase 10 — System tests [parallel, max 5]
 
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T36 | Fault suite: 50 × `kill -9`, outbound network fault, sleep/wake, restart notice | test-backend | T34 | yes | `tests/fault/` | — | NFR-REL-03/04/05/06/07, UC-06 | 0 silent drops, 0 double deliveries, dup ≤ 2 % | todo |
-| T37 | Load: 15 projects × 10 min | test-backend | T34 | yes | `tests/fault/test_load.py` | — | NFR-CAP-01/02 | 0 lost, every result delivered | todo |
+| T36 | Fault suite: 50 × `kill -9`, outbound network fault, sleep/wake, restart notice | test-backend | T34 | yes | `tests/fault/` | — | NFR-REL-03/04/05/06/07, UC-06 | 0 silent drops, 0 double deliveries, dup ≤ 2 % | in progress (2026-10-24) |
+| T37 | Load: 15 projects × 10 min | test-backend | T34 | yes | `tests/fault/test_load.py` | — | NFR-CAP-01/02 | 0 lost, every result delivered | in progress (2026-10-24) |
 | T38 | STT mixed-language live eval + S7 | test-backend | T13, T19, X03, X04 | yes | `tests/eval/stt/`, `tests/live/test_spike_s7.py` | — | UC-05 (each configured provider) | meets thresholds; S7 decision | **BLOCKED** (X03, X04) |
 | T39 | Live e2e P1: stranger/leave/privacy, push without asking, account switch, CLI smoke, live interrupt | test-e2e | T34, X01, X02, X07 | yes | `tests/live/` | — | UC-01, NFR-SEC-11, NFR-SEC-04 (next turn on new account ≤ 60 s), NFR-REL-08, UC-03 | all green on the test bot | **BLOCKED** (X01, X02, X07) |
-| T40 | Migration tests: `0001` on empty `dev.db` + `personal.db`, `alembic check`, one head; save `p1_release.db` | test-migration | T34 | yes | `tests/migrations/`, `tests/migrations/fixtures/p1_release.db` | — | SPEC §12 alembic rows | green | todo |
+| T40 | Migration tests: `0001` on empty `dev.db` + `personal.db`, `alembic check`, one head; save `p1_release.db` | test-migration | T34 | yes | `tests/migrations/`, `tests/migrations/fixtures/p1_release.db` | — | SPEC §12 alembic rows | green | in progress (2026-10-24) |
 
 ## Phase 11 — QA [parallel, 2]
 
@@ -209,7 +209,7 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 | T43 | Install on the Mac via `scripts/install.py` (owner types tokens; owner go-ahead) — **freezes `0001`** | ship-devops | T28, T40, T41, T42, X01, X05 | no | DATA tree, releases, plists | — | NFR-OPS-01, SPEC §12 install row | `python -m yordamchi.check` all green from launchd | **BLOCKED** (X01, X05) |
 | T44 | Live latency p90 report (≥ 20 samples per row) | test-backend | T43 | no | `tests/live/latency.py` | — | SPD dev rows: ack 1 s, routing 4 s, report 4 s, `holat?` 3 s, interrupt 3 s, STT 5 s, first progress 30 s | every row meets p90 | todo |
 | T45 | Owner grades UC-02 "no question needed" subset | owner | T27, T43 | no | — | — | UC-02 | graded pass | todo |
-| T46 | `docs/QOLLANMA.md` (Uzbek) for P1 | ship-docs | T34 | yes | `docs/QOLLANMA.md` | — | SPEC §12 docs row | covers every P1 intent | todo |
+| T46 | `docs/QOLLANMA.md` (Uzbek) for P1 | ship-docs | T34 | yes | `docs/QOLLANMA.md` | — | SPEC §12 docs row | covers every P1 intent | in progress (2026-10-24) |
 | T47 | P1 DoD gate (`/check-done`, SPEC §12) | orchestrator | T36–T46 | no | — | — | P1 exit list (SPEC §7) | every §12 box machine-confirmed | todo |
 
 ---
