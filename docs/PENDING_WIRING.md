@@ -94,3 +94,12 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - `git reset --hard`, `git checkout -- .`, `git restore .` and `git stash drop/clear` must **ask (fs_destroy)** when the working tree holds uncommitted changes that existed before the current turn started (the owner may have edited at the Mac). Otherwise they stay free. Add a `dirty_before_turn` fact.
   - Add a `remote_hosts` fact (git remote URL → host), so a push to a remote *name* that points at a server is caught at Layer 1, not only by the ssh shim (residual R-20).
 - [ ] T17: `projects.deploy_branches_json` holds fnmatch globs, with `*` when the workflows can't be parsed.
+
+## From T17 (projects + git)
+- [ ] T34 `app.py`:
+  - set `DevDeps.git = GitCli(build_search_path(paths, login_shell_path))`;
+  - run `projects.service.sync_projects(deps)` under `core.aio.forever`, at startup and then every `SCAN_INTERVAL_S` (120 s);
+  - add intent rows `alias_project`, `archive_project`, `describe_project` and `list_projects`.
+- [ ] Optional settings `schedule.projects_scan_s` (120) and `timeouts.git_s` (10) in SPEC §4.3 and `SPEC_KEYS`, replacing the domain constants.
+- [ ] T20: content and fuzzy routing only over `Project.routable`; exact names via `find_project` / `domain.find_projects`; use `ProjectAmbiguous` / `ProjectNotFound`.
+- [ ] **T17b (orchestrator decision, fail closed):** platform Git integrations deploy without a workflow file. If a project has `vercel.json`, `.vercel/project.json`, `netlify.toml`, `render.yaml`, `railway.json`/`railway.toml` or `app.yaml` (App Engine), its default branch counts as deploying. Small change in `dev/projects/domain.py` plus tests; it can ride with T20 or T24.

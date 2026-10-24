@@ -229,3 +229,12 @@ question. Correct any line and it changes.
 - [2026-10-24] Shim grants → a consumed grant stores the approved call's ssh/scp/rsync argv (recipe parts as wildcards); the shim allows only a match from the same session within the window → an approved deploy script can run its own ssh lines.
 - [2026-10-24] Unknown non-MCP tools → allowed in FULL after path checks, denied in READ_ONLY/PLAN_ONLY → new Claude Code tools must not break coding sessions.
 - [2026-10-24] `git reset --hard` / `checkout -- .` → free only when the tree held no uncommitted changes from before the turn; otherwise `fs_destroy` (T18 adds the fact) → the owner's own edits at the Mac are irreversible data; the agent's own changes are routine.
+
+## Projects (T17, merged 2026-10-24)
+- [2026-10-24] Archive and `*-wt-*` folders → registered but flagged non-routable (exact name only); files, hidden entries and symlinks are skipped → look-alikes (HRMentor vs HRMentor-wt-agent-api) never win a content route.
+- [2026-10-24] Aliases, archived flag, description and executor → live in the `projects.*` settings and are applied on read; the row mirrors them → a chat change applies at once (UC-18).
+- [2026-10-24] Deploy branches → workflows from the working tree plus the pushed commit; an unreadable workflow → every branch and tag deploys; only `github.ref == 'refs/heads/…'`-style `if:` narrows the set → it can only over-ask, never miss (UC-13).
+- [2026-10-24] Deploy-named workflows → count all their jobs only when no job carries its own deploy signal → otherwise "tests on every branch, deploy on main" would make every push ask.
+- [2026-10-24] Deploy cache key → HEAD + workflow names/sizes/mtimes + rules version; the gate always uses the fresh check → stale caches can't hide a deploy.
+- [2026-10-24] Platform Git integrations (Vercel, Netlify, Render, Railway, App Engine) → the default branch counts as deploying when their config file exists (T17b) → they deploy without any workflow file.
+- [2026-10-24] Git adapter → `find_commit` (not `commit`, for the A-rule grep); `remote_url` strips credentials; `GitFailed(reason)` with only `locked` retryable → safe and explicit.
