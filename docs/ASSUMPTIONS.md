@@ -215,3 +215,17 @@ question. Correct any line and it changes.
 - [2026-10-24] Interrupt words → only as a whole phrase, the first clause, or the "yo'q, boshqacha…" prefix; a caption never counts; a voice note counts only if its transcript is ≤ 4 words; "serverni to'xtat" is an instruction; "kut" with nothing assembling counts as an interrupt; an interrupt never drops a voice note awaiting its transcript → avoids false stops.
 - [2026-10-24] Follow-up merge (dev) → never merge an interrupt or a follow-up routed to another project; always merge a continuation (a reply to the turn, a late album item, or a part started within `after_text_s` of the turn's last part; a voice note's start = arrival − duration − 1 s); otherwise merge only if routed to the same project with ≥ `merge_min_confidence`. Personal bot: merge only before the reply is sent → UC-02.
 - [2026-10-24] `inbound_updates.burst_id` FK → `ON DELETE SET NULL`, indexed → burst retention would otherwise scan or fail.
+
+## Gate domain (T07, merged 2026-10-24)
+- [2026-10-24] Shell parsing → a small POSIX scanner, not `shlex` → quoting, nested `$(…)` and heredocs decide data vs code.
+- [2026-10-24] Heredocs → into `cat` they are data; into a shell they are parsed and keyword-scanned; into an interpreter they are keyword-scanned → keeps the heredoc commit idiom free.
+- [2026-10-24] A program name known only at run time (`$CMD`, `$(…)`, piped code) → ask (`opaque_command`) → fail closed.
+- [2026-10-24] Make/npm targets → recipes are judged (incl. `pre`/`post` scripts and install hooks); `$(RUN) pytest` is judged with the variable name; a missing recipe → ask (`recipe_unknown`) → a deploy can't hide behind a script name, and the owner's Makefiles stay free.
+- [2026-10-24] Grant key → sha256 of tool + input without description/timeout/background → the agent rewrites the description on retry.
+- [2026-10-24] One question per call → the strongest class asks (repo_delete > data_loss_db > docker_destroy > fs_destroy > force_push > deploy > deploy_push > server_write > repo_public > spend > third_party_send); all findings are audited.
+- [2026-10-24] Tag pushes and `gh pr merge` → `deploy_push` whenever the project has any deploy branch → the target isn't in the command.
+- [2026-10-24] Forbidden (never askable) → DATA, `~/.config/yordamchi`, Claude credentials/settings/CLAUDE.md (incl. recursive readers started above them), keychain reads, killing or launchctl on the bots, the helper or socket, `git push --no-verify`, any hooksPath or `GIT_CONFIG_*` override, `env -i`, any `ANTHROPIC_*`/`CLAUDE_*` assignment, `rm -rf /` or `~` → these would disable the safety net itself.
+- [2026-10-24] Approval text → "ha" followed by substantive words ("ha lekin staging'ga") counts as a decline plus an instruction; naming a project with no pending decision approves nothing → R-18.
+- [2026-10-24] Shim grants → a consumed grant stores the approved call's ssh/scp/rsync argv (recipe parts as wildcards); the shim allows only a match from the same session within the window → an approved deploy script can run its own ssh lines.
+- [2026-10-24] Unknown non-MCP tools → allowed in FULL after path checks, denied in READ_ONLY/PLAN_ONLY → new Claude Code tools must not break coding sessions.
+- [2026-10-24] `git reset --hard` / `checkout -- .` → free only when the tree held no uncommitted changes from before the turn; otherwise `fs_destroy` (T18 adds the fact) → the owner's own edits at the Mac are irreversible data; the agent's own changes are routine.

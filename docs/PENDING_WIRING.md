@@ -81,3 +81,16 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Future FKs to `bursts.id` (turns, deliveries, route_decisions, answers) must be `ON DELETE SET NULL` or left out. Bursts are deleted after 30 days, while those rows live 90–400 days.
 - [ ] T27: the eval runner replays `tests/eval/burst/cases.yaml` (32 dev cases; the format is described at the top of that file).
 - [ ] T46 QOLLANMA: a line on how "kut" and "to'xta" behave.
+
+## From T07 (gate domain)
+- [ ] DEF: add the setting `gate.shim_grant_window_s` (default 120, weakens on increase; SPEC §5.7). `shim_verdict` takes it as `window_s`.
+- [ ] T18 strings: an Uzbek consequence or "where" message for each gate `Reason` code; messages for the no-class asks `opaque_command`, `unparseable` and `recipe_unknown`; deny prompts for `read_only_policy`, `plan_only_policy` and `self_update_main`.
+- [ ] T18 service:
+  - loop fetching facts until `needs()` is empty (max 3 rounds);
+  - make recipes are keyed `ScriptRef("make", "<makefile>:<target>" or "<target>", dir)`;
+  - pass None for binary or missing scripts;
+  - call `remote_invocations()` when a grant is consumed, so the shims can match.
+- [ ] T18 hardening (orchestrator decision 2026-10-24):
+  - `git reset --hard`, `git checkout -- .`, `git restore .` and `git stash drop/clear` must **ask (fs_destroy)** when the working tree holds uncommitted changes that existed before the current turn started (the owner may have edited at the Mac). Otherwise they stay free. Add a `dirty_before_turn` fact.
+  - Add a `remote_hosts` fact (git remote URL → host), so a push to a remote *name* that points at a server is caught at Layer 1, not only by the ssh shim (residual R-20).
+- [ ] T17: `projects.deploy_branches_json` holds fnmatch globs, with `*` when the workflows can't be parsed.
