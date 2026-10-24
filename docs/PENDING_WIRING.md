@@ -83,7 +83,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - pre-parse uses `burst.domain.interrupt_of` / `TurnInput.interrupt`, the single interrupt-word list.
 - [ ] Future FKs to `bursts.id` (turns, deliveries, route_decisions, answers) must be `ON DELETE SET NULL` or left out. Bursts are deleted after 30 days, while those rows live 90–400 days.
 - [ ] T27: the eval runner replays `tests/eval/burst/cases.yaml` (32 dev cases; the format is described at the top of that file).
-- [ ] T46 QOLLANMA: a line on how "kut" and "to'xta" behave.
+- [x] T46 QOLLANMA: a line on how "kut" and "to'xta" behave. Done in T46 (QOLLANMA §2, §3).
 
 ## From T07 (gate domain)
 - [ ] DEF: add the setting `gate.shim_grant_window_s` (default 120, weakens on increase; SPEC §5.7). `shim_verdict` takes it as `window_s`.
@@ -138,7 +138,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [x] T34: the aiogram Message → `IncomingUpdate` translation (attachments, caption, `media_group_id`, `reply_to`) lives in each `bots/<bot>/telegram.py`, because `common.py` is locked. Dev bot done in T34 (`bots/dev/telegram.incoming_of`); the personal bot's at P3.
 - [ ] T32: the heartbeat writer is the `heartbeat` hook (`PollTick(at, updates)`). Still to add: a polling pause mode (heartbeat at least every 30 s while paused) for self-update probation (P2).
 - [ ] T15 (optional): send the `guarded()` owner notice as a priority-0 outbox row.
-- [ ] T28 check script and QOLLANMA:
+- [ ] T28 check script and QOLLANMA (QOLLANMA §1 anonymous-admin line done in T46; check script still open):
   - `DEV_GROUP_ID` must be a `-100…` **supergroup** id. A basic group that Telegram later upgrades changes its id, and the bot would then leave it as foreign.
   - The owner must not post as an **anonymous admin**: messages then come from `GroupAnonymousBot` and are dropped.
 
@@ -235,7 +235,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - `decisions(kind=wrong_target_revert)`; on "ha" `_REVERTED`, on "yo'q" `_KEPT`.
 - [ ] Routing asks don't carry images yet (≤ 2 images need a media download).
 - [ ] Settings (SPEC §4.3 + `SPEC_KEYS`): `routing.clarify_expire_min` = 30, `routing.correct_window_min` = 120 (T21 adds `models.routing_effort`).
-- [ ] T46 QOLLANMA: answering "X'gami yoki Y'gami?" ("2", a name, "hech biri") and "bu X uchun edi".
+- [x] T46 QOLLANMA: answering "X'gami yoki Y'gami?" ("2", a name, "hech biri") and "bu X uchun edi". Done in T46 (QOLLANMA §2, §3).
 
 ## From T27 (burst + secrets evals)
 - [x] Redact bugs T27-B1 and T27-B2 fixed on main (5cc9076), with regression tests.
@@ -322,7 +322,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - SPEC §4.2: the extra `digests` columns;
   - SPEC §4.3: candidate keys `timeouts.report_budget_s`, `timeouts.digest_refresh_s`, `timeouts.handoff_synthesis_s`, `digest.active_within_days`;
   - the new prompts `report_context.md`, `digest_handoff_fallback.md`;
-  - QOLLANMA lines.
+  - QOLLANMA lines. Done in T46 (QOLLANMA §5).
 
 ## From T29 (questions)
 - [x] T34:
@@ -342,7 +342,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - SPEC §4.2 `questions`: `UNIQUE(turn_id, tool_use_id)`;
   - SPEC §3.2.2: the binding order;
   - the prompt `questions_answer.md`;
-  - QOLLANMA: how to answer ("2", option text, own words, voice, reply, "BonviHR 2").
+  - QOLLANMA: how to answer ("2", option text, own words, voice, reply, "BonviHR 2"). Done in T46 (QOLLANMA §4).
 
 ## From T31 (servers)
 - [x] T34 `app.py`:
@@ -375,4 +375,4 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] T24 `domain.title_of`: a burst that starts with a photo gets the title "[image]" (reports show «[image]»); skip bare part labels.
 - [ ] P2: the control socket's `selftest` and `headers`, the probation peek poller (`app._probation` only waits for the flag now), and `status.drained`.
 - [ ] P3: the personal bot's `bots/personal/{app,telegram,intents}.py`, on the same `common` pieces.
-- [ ] SPEC §6.1 / QOLLANMA (T46): the early commands before binding, "sozlama: …" for a settings change by chat, "X serverini kuzat" / "X'ni kuzatma", `/hisobot [X]`, `/stop`.
+- [ ] SPEC §6.1 / QOLLANMA (T46): QOLLANMA part done in T46 (§3, §5–§7); SPEC §6.1 still open: the early commands before binding, "sozlama: …" for a settings change by chat, "X serverini kuzat" / "X'ni kuzatma", `/hisobot [X]`, `/stop`.
