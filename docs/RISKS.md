@@ -81,6 +81,9 @@
 | R-47 | Auto-created GitHub repos land under the wrong account or go public. | L | M | Private by default, under the `gh` account `abboskhanme` (assumption). Making a repo public is an important decision. |
 | R-48 | Mixed-language voice notes are mis-transcribed: Russian or English terms are dropped or translated, or a project name is misspelled and routes wrongly. | M | M | `uz-UZ`/`ru-RU`/`en-US` hints on every request, as in OvozYoz. The vocabulary is built from the registry plus owner-added terms. The dev bot echoes the transcript and target before acting. A mixed-language test set is part of acceptance (UC-05). |
 | R-49 | Video downloads (yt-dlp) break when sites change, or conflict with a platform's terms (YouTube). | M | L | Pin and auto-update yt-dlp. On failure, fall back to a summary or the direct link. Personal use only, on the owner's explicit request; the owner accepts the terms risk. |
+| R-50 | Routing eval margins are at the thresholds (clear 112/115 needed 112; silent wrong 1 of max 1); a model update or re-record can flip it red with no code change. | M | M | Owner-written descriptions by chat; re-record only deliberately; consider sonnet routing if haiku drifts (latency budget allows p90 < 3.5 s). |
+| R-51 | The CLI shows the model only ~2 KB of a hook's `additionalContext`; longer instruction blocks are silently cut (T33). | H | H | Fix in progress: additionalContext capped (~1.5 KB, tested); long blocks go in the user message; a live marker test guards it. |
+| R-52 | Forwarded messages were treated as the owner's own words (a forwarded "ha" approved a deploy) (T33). | M | H | Fix in progress: `forwarded` carried from Telegram; forwarded content can never approve, answer, change settings or stop. |
 
 ## 7. Start on day one (blocks the build if late)
 

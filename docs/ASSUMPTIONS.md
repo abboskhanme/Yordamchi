@@ -318,3 +318,11 @@ question. Correct any line and it changes.
 - [2026-10-24] Fixed SPEC timings are domain constants for now: interrupt 2 s, usage-limit retry 10 min (40 s after an account switch), investigation 60 steps / 3 min, smoke 5 min on haiku, scheduler tick 15 s.
 - [2026-10-24] PEM block inside a source file → the pre-push hook also scans each file's joined added lines for multi-line secrets, reporting the line where the block starts → T25 bug.
 - [2026-10-24] Guard fall-through cwd → `can_use_tool` uses the cwd PreToolUse recorded for that tool-use id, else the session's last known cwd (256 ids kept) → both entry points give the same verdict.
+
+## Routing eval round 2 (T26), merged 2026-10-24
+- [2026-10-24] UC-10 met on 170 live haiku answers: clear 97.4 %, context 96.2 % (0 wrong), ambiguous 96.6 %, silent wrong 1 → the margins sit on the thresholds, so a re-record can turn the suite red with no code change (RISKS R-10). Owner-written descriptions ("X tavsifi: …") are the cheapest way to widen the margin.
+- [2026-10-24] Project descriptions → metadata lines skipped; source order README → CLAUDE.md → SPEC goal → PLAN.md; ≤ 300 chars, topped up when < 80 chars → the model needs real descriptions.
+- [2026-10-24] Name rules → an ordinary-word folder name (Yordamchi, Wooden) counts only when capitalized, suffixed, or before "loyiha"; aliases of ≤ 3 letters need a suffix; of several named projects, the only one carrying a target suffix ('da/'ga/'ni…) is the target ('dagi/'dan mark the source); names joined by "va" share a suffix; "arxiv"/"архив" count as archive → "yordamchi skript yoz" no longer goes to Yordamchi.
+- [2026-10-24] Context agreement → when the model's first choice (even below threshold) is the one active project, the follow-up routes as context (0.8) → follow-ups no longer ask every time.
+- [2026-10-24] `timeouts.routing_s` = 3.8 s (was 2.5; that cut 16 % of asks); routing model stays haiku, effort low (p90 2.8 s) → NFR-SPD routing ≤ 4 s.
+- [2026-10-24] `asks: true` grading → for messages that point at no specific candidate set, any question naming ≥ 2 candidates passes; context "wrong" means a wrong project → fair grading on the real registry.
