@@ -56,9 +56,49 @@ BACKUP_FAILED = Msg(
 )
 BACKUP_DISK_LOW = Msg("Zaxira nusxa olinmadi: diskda {free_mb} MB bo'sh joy bor, kamida {need_mb} MB kerak.")
 
+# --- self-update (SPEC §3.2.12, UC-19; T57) ---
+# The supervisor speaks only when the bots may not be able to: a rollback and a manual repair. Every other outcome is
+# posted by the dev bot from `updates/<id>/status.json`.
+ROLLED_BACK = Msg(
+    "Yordamchi yangilanishi {version} ishlamadi: {reason}. Avtomatik ravishda oldingi versiyaga ({previous}) "
+    "qaytdim, botlar yana ishlayapti.{db} Yangilanish paytida kelgan xabarlaringiz yo'qolmadi — hozir ishlanadi."
+)
+ROLLED_BACK_DB = Msg(" Ma'lumotlar bazasi yangilanishdan oldingi nusxadan tiklandi.")
+MANUAL_REPAIR = Msg(
+    "Yordamchi yangilanishi {version} ishlamadi ({reason}) va oldingi versiya {previous} ham sog'lom ishga tushmadi. "
+    "Mac'da qo'lda tiklash kerak: 1) `launchctl print gui/$(id -u)/uz.yordamchi.dev` holatini ko'ring; "
+    "2) jurnal: ~/Library/Logs/Yordamchi/dev.jsonl va supervisor.jsonl; "
+    "3) `ls -l ~/Library/Application\\ Support/Yordamchi/releases` — `current` qaysi versiyaga "
+    "qarayotganini tekshiring; "
+    "4) docs/DEPLOY.md dagi qaytarish bo'limiga amal qiling. Bazaning yangilanishdan oldingi nusxasi: "
+    "backups/pre-update/{update_id}/."
+)
+UPDATE_JOURNAL_LOST = Msg(
+    "Yangilanish {update_id} o'rtasida to'xtab qolgan, lekin supervisor qaysi qadamda qolganini bilmaydi "
+    "(state.json yo'qolgan). Hech narsani o'zgartirmadim; Mac'da `releases/current` va botlar holatini tekshiring."
+)
+SUPERVISOR_SWITCHED_BACK = Msg(
+    "Supervisor yangilanishi {version} ishga tushmadi; oldingi supervisor ({previous}) qaytarildi va ishlayapti."
+)
+UPDATE_REASONS: Final = {
+    "migration_failed": Msg("ma'lumotlar bazasi migratsiyasi xato bilan tugadi"),
+    "no_heartbeat": Msg("yangi versiya ishga tushmadi (heartbeat kelmadi)"),
+    "polling_not_started": Msg("yangi versiya Telegram'dan xabar olishni boshlamadi"),
+    "selftest_failed": Msg("yangi versiya o'z-o'zini tekshirishdan o'tmadi"),
+    "crash_loop": Msg("yangi versiya qayta-qayta yiqildi"),
+    "supervisor_restarted": Msg("almashtirish o'rtasida supervisor qayta ishga tushdi"),
+    "switch_failed": Msg("yangi versiyaga o'tib bo'lmadi"),
+}
+REASON_OTHER = Msg("kutilmagan xato ({code})")
+
 # --- the supervisor itself ---
 SUPERVISOR_ERROR = Msg("Supervisor ichida xato ({job}). Tafsilotlar: ~/Library/Logs/Yordamchi/supervisor.jsonl.")
 
 
 def bot_name(bot: str) -> str:
     return BOT_NAMES.get(bot, bot)
+
+
+def update_reason(code: str) -> str:
+    entry = UPDATE_REASONS.get(code)
+    return entry() if entry is not None else REASON_OTHER(code=code)

@@ -54,18 +54,21 @@ class FakeLaunchctl:
 
     def __init__(self) -> None:
         self.jobs: dict[str, FakeJob] = {}
+        self.unloaded: dict[str, FakeJob] = {}  # booted out, remembered so a bootstrap continues `runs`
         self.calls: list[list[str]] = []
         self.timeouts: list[float] = []
         self.kick_fails = False
         self.hang = False
         self._next_pid = 5000
 
-    def run(self, argv: Sequence[str], *, timeout: float) -> RunResult:
+    def run(self, argv: Sequence[str], *, timeout: float) -> RunResult:  # noqa: PLR0911 - one return per verb
         self.calls.append(list(argv))
         self.timeouts.append(timeout)
         if self.hang:
             return RunResult(returncode=None, stderr="timeout")
         verb, target = argv[1], argv[-1]
+        if verb == "bootstrap":
+            return self._bootstrap(target)
         label = target.rsplit("/", 1)[-1]
         job = self.jobs.get(label)
         if job is None:
@@ -82,7 +85,19 @@ class FakeLaunchctl:
             job.pid = self._next_pid
             job.runs += 1
             return RunResult(returncode=0)
+        if verb == "bootout":
+            self.unloaded[label] = self.jobs.pop(label)
+            return RunResult(returncode=0)
         return RunResult(returncode=64)
+
+    def _bootstrap(self, plist: str) -> RunResult:
+        label = Path(plist).stem
+        if label in self.jobs:
+            return RunResult(returncode=37, stderr="Bootstrap failed: 5: Input/output error")
+        before = self.unloaded.pop(label, None)
+        self._next_pid += 1
+        self.jobs[label] = FakeJob(pid=self._next_pid, runs=1 if before is None else before.runs + 1)
+        return RunResult(returncode=0)
 
     def kicks(self) -> list[list[str]]:
         return [call for call in self.calls if call[1] == "kickstart"]

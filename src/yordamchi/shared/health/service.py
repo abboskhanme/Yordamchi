@@ -74,6 +74,7 @@ from yordamchi.shared.health.domain import (
     WorkStatus,
 )
 from yordamchi.shared.health.models import KvState
+from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.outbox import service as outbox
 from yordamchi.shared.outbox.domain import Kind
 from yordamchi.shared.settings import defaults
@@ -672,3 +673,35 @@ async def apply_retention(deps: SharedDeps) -> int:
     )
     log.info("health_retention_applied", events_deleted=deleted)
     return deleted
+
+
+# --- self-update: drain and probation (SPEC §3.2.12; the supervisor side is T57) -----------------------------------
+type Peek = Callable[[int], Awaitable[int]]
+"""`getUpdates(offset=<offset>, limit=1, timeout=0)` without confirming anything; returns how many are held. The
+polling runner in `bots/` builds it (aiogram lives there, C5)."""
+
+
+async def read_probation(deps: SharedDeps, version: str) -> domain.ProbationFlag | None:
+    """SPEC §2.5 step 6: the probation flag, when it names this release."""
+    raw = await asyncio.to_thread(_read_json, deps.paths.probation_flag)
+    return domain.probation_for(raw, version)
+
+
+async def read_drain(deps: SharedDeps) -> domain.DrainFlag | None:
+    return domain.drain_flag(await asyncio.to_thread(_read_json, deps.paths.drain_flag))
+
+
+async def mark_drained(deps: SharedDeps, flag: domain.DrainFlag) -> None:
+    """Polling is paused and nothing is left running: the supervisor may snapshot the DB now."""
+    data = json_value.dumps(domain.drained_json(flag, at=deps.clock.now())).encode()
+    await asyncio.to_thread(_write_private_file, deps.paths.drained_marker(deps.bot), data)
+    log.info("drained", bot=deps.bot.value, update_id=flag.update_id)
+
+
+async def probation_peek(deps: SharedDeps, peek: Peek) -> int:
+    """One probation poll: it reads the stored offset and peeks from there, and never advances it, so Telegram keeps
+    every owner message for whichever release ends up running (a rollback restores the DB, and nothing is lost)."""
+    offset = await inbox.get_poll_offset(deps)
+    held = await peek(offset)
+    log.info("probation_peek", bot=deps.bot.value, offset=offset, held=held)
+    return held

@@ -52,3 +52,17 @@ class LaunchCtl:
     def kickstart(self, label: str) -> bool:
         result = self._runner.run([LAUNCHCTL, "kickstart", "-k", self.target(label)], timeout=KICKSTART_TIMEOUT_S)
         return result.ok
+
+    def bootout(self, label: str) -> bool:
+        """Unload the job and stop its process (the updater, before it restores a DB under it). True when it is not
+        loaded afterwards, including when it was not loaded to begin with."""
+        result = self._runner.run([LAUNCHCTL, "bootout", self.target(label)], timeout=KICKSTART_TIMEOUT_S)
+        if result.ok:
+            return True
+        status = self.status(label)
+        return status is not None and not status.loaded
+
+    def bootstrap(self, plist: str) -> bool:
+        """Load the job from its plist again (it starts at once: `RunAtLoad`)."""
+        result = self._runner.run([LAUNCHCTL, "bootstrap", f"gui/{self._uid}", plist], timeout=KICKSTART_TIMEOUT_S)
+        return result.ok

@@ -799,6 +799,98 @@ ERR_OAUTH_CALLBACK_INVALID = Msg(
     "Yuborilgan manzilda kirish kodi yo'q. Ruxsat bergach ochilgan sahifa manzilini to'liq yuboring."
 )
 
+# --- selfupdate ---
+# UC-19, SPEC §3.2.12: "O'zingga X qo'sh". Every message starts with the project name (Yordamchi itself).
+SELFUPDATE_STARTED = Msg(
+    "{project}: o'zimni yangilashni boshladim ({branch}). Ishni alohida branch'da qilaman; testlar o'tmasa hech "
+    "narsa almashtirilmaydi. Natijasini aytaman."
+)
+SELFUPDATE_REQUESTED = Msg(
+    "{project}: o'zgarishlar tayyor ({files} ta fayl). Endi supervisor yangi versiyani yig'adi, to'liq testdan "
+    "o'tkazadi va almashtiradi — shu paytda kelgan xabarlaringiz yo'qolmaydi, keyin ishlanadi."
+)
+SELFUPDATE_CORE_QUESTION = Msg(
+    "{project}: bu yangilanish himoya qatlamiga tegadi (#{decision_id}). Nima o'zgaradi: {summary}. "
+    "Tegilgan himoya qismlari: {files}. Qo'llaymi? «ha» yoki «yo'q» deb javob bering."
+)
+SELFUPDATE_CORE_DECLINED = Msg("{project}: yangilanishni qo'llamayman (#{decision_id}). Branch saqlanib qoladi.")
+SELFUPDATE_SPLIT_NEEDED = Msg(
+    "{project}: bu o'zgarish ham supervisor'ga, ham botlarga tegadi. Xavfsizlik uchun ularni bitta yangilanishda "
+    "qo'llamayman — ikkita alohida so'rov qilib bering. Branch {branch} saqlanib qoldi."
+)
+SELFUPDATE_NO_CHANGES = Msg("{project}: yangilanish ishi hech qanday commit qoldirmadi — qo'llaydigan narsa yo'q.")
+SELFUPDATE_TURN_FAILED = Msg(
+    "{project}: yangilanish ishi oxiriga yetmadi ({reason}). Hech narsa almashtirilmadi; branch {branch} saqlanib "
+    "qoldi. Davom ettirish uchun «Yordamchi'da main'ga qayt» deb, keyin so'rovni qaytadan ayting."
+)
+SELFUPDATE_DONE = Msg(
+    "{project}: yangilandim — versiya {version}. O'zgardi: {changes}. Testlar: {tests}. Holat: botlar ishga "
+    "tushdi, xabar olish va o'z-o'zini tekshirish o'tdi."
+)
+SELFUPDATE_DONE_NOT_MERGED = Msg(
+    "{project}: yangilandim — versiya {version} ishlayapti (testlar: {tests}), lekin branch {branch} main'ga "
+    "qo'shilmadi: {reason}."
+)
+SELFUPDATE_REFUSED = Msg("{project}: yangilanish qo'llanmadi — {reason}. Hozirgi versiya o'zgarmadi.")
+SELFUPDATE_FAILED = Msg("{project}: yangilanish to'xtadi — {reason}. Botlar avvalgi versiyada ishlayapti.")
+SELFUPDATE_ROLLED_BACK = Msg(
+    "{project}: yangi versiya {version} ishlamadi ({reason}), avtomatik ravishda {previous} ga qaytdim. "
+    "Xabarlaringiz yo'qolmadi."
+)
+SELFUPDATE_SUPERVISOR_DONE = Msg("{project}: supervisor yangilandi — versiya {version}. Testlar: {tests}.")
+SELFUPDATE_SUPERVISOR_SWITCHED_BACK = Msg(
+    "{project}: yangi supervisor {version} {seconds} soniyada ishga tushmadi — oldingisiga ({previous}) qaytardim."
+)
+SELFUPDATE_TESTS = Msg("{count} ta (oldin {previous})")
+SELFUPDATE_TESTS_FIRST = Msg("{count} ta")
+SELFUPDATE_DETAIL = Msg("{reason}: {detail}")
+SELFUPDATE_REASONS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "tests_failed": Msg("testlar o'tmadi"),
+        "tests_dropped": Msg("testlar soni kamaydi"),
+        "tests_uncounted": Msg("testlar sonini aniqlab bo'lmadi"),
+        "build_failed": Msg("yangi versiyani yig'ib bo'lmadi"),
+        "trial_failed": Msg("yangi supervisor sinov ishga tushirishdan o'tmadi"),
+        "split_needed": Msg("o'zgarish supervisor'ga ham, botlarga ham tegadi"),
+        "kind_mismatch": Msg("o'zgarish turi so'rovga mos emas"),
+        "commit_missing": Msg("commit ishchi nusxada topilmadi"),
+        "no_changes": Msg("o'zgarish yo'q"),
+        "already_current": Msg("bu versiya allaqachon ishlayapti"),
+        "core_declined": Msg("himoya qatlamidagi o'zgarishga ruxsat berilmadi"),
+        "drain_timeout": Msg("ishlayotgan vazifalar vaqtida tugamadi"),
+        "snapshot_failed": Msg("bazaning zaxira nusxasini olib bo'lmadi"),
+        "bots_not_loaded": Msg("botlar ishga tushirilmagan"),
+        "migration_failed": Msg("ma'lumotlar bazasi migratsiyasi xato bilan tugadi"),
+        "no_heartbeat": Msg("yangi versiya ishga tushmadi"),
+        "polling_not_started": Msg("yangi versiya Telegram'dan xabar olishni boshlamadi"),
+        "selftest_failed": Msg("yangi versiya o'z-o'zini tekshirishdan o'tmadi"),
+        "crash_loop": Msg("yangi versiya qayta-qayta yiqildi"),
+        "probation_ignored": Msg("yangi versiya sinov rejimini bilmaydi"),
+        "supervisor_restarted": Msg("almashtirish o'rtasida supervisor qayta ishga tushdi"),
+        "supervisor_not_started": Msg("yangi supervisor ishga tushmadi"),
+        "merge_not_ff": Msg("main shu orada o'zgargan"),
+        "merge_failed": Msg("main'ga qo'shib bo'lmadi"),
+        "branch_lost": Msg("ish boshqa branch'da qoldi"),
+        "git_failed": Msg("git buyrug'i bajarilmadi"),
+        "bad_request": Msg("so'rov fayli buzilgan"),
+        "turn_failed": Msg("ish xato bilan tugadi"),
+        "turn_interrupted": Msg("ish to'xtatildi"),
+        "turn_cancelled": Msg("ish bekor qilindi"),
+        "turn_missing": Msg("ish topilmadi"),
+        "journal_lost": Msg("supervisor qaysi qadamda qolganini bilmaydi"),
+    }
+)
+SELFUPDATE_REASON_OTHER = Msg("kutilmagan holat ({code})")
+ERR_SELFUPDATE_BUSY = Msg("{project}: oldingi yangilanish hali tugamagan ({update}). Tugagach yana ayting.")
+ERR_SELFUPDATE_DIRTY = Msg(
+    "{project}: ishchi nusxada {count} ta saqlanmagan o'zgarish bor — ular yangilanishga aralashmasligi uchun "
+    "boshlamadim."
+)
+ERR_SELFUPDATE_NOT_ON_MAIN = Msg(
+    "{project}: ishchi nusxa «{branch}» branch'da, main'da emas. Yangilanish main'dan boshlanadi — avval "
+    "«Yordamchi'da main'ga qayt» deb ayting."
+)
+
 
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(

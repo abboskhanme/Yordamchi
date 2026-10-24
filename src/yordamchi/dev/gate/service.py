@@ -16,6 +16,10 @@ answer, and the control-socket backends of the Layer 2 shims and the pre-push ho
   SPEC §3.2.15 step 3): ONE `settings_weaken` decision, bound and answered like any other. "ha" applies the change
   in the answer's unit of work (`settings.apply_pending_change`) and consumes the decision; it has no agent to
   deliver to.
+- `ask_selfupdate_core(deps, …)` / `take_selfupdate_core(deps, id)` (UC-19, Q5): ONE `selfupdate_core` question
+  before a self-update that touches the protected core is applied, bound and answered like any other; "yo'q"
+  delivers nothing to an agent. `dev/selfupdate` reads the answer with `take_selfupdate_core`, which consumes an
+  approval (single use) and follows a re-ask to its newer decision.
 
 Every verdict that is not a plain allow, every question, answer and consumed grant is an audit event written in the
 unit of work of the change it describes. Ports (git, the Messenger) are awaited only outside units of work (A3).
@@ -76,7 +80,9 @@ log = get_log(__name__)
 
 GATE_KIND: Final = "gate"
 SETTINGS_KIND: Final = "settings_weaken"  # a settings change that weakens a safeguard (no project, no agent)
+SELFUPDATE_KIND: Final = "selfupdate_core"  # a self-update touching the protected core (UC-19, Q5; no agent)
 COMMAND_SHOWN_CHARS: Final = 300  # of the command in the owner's question
+CORE_FILES_SHOWN: Final = 8  # protected-core files named in a self-update question
 INPUT_STORED_CHARS: Final = 2000
 MAX_DEPLOY_REFS: Final = 4  # a push sending more refs than this is judged as "every push deploys"
 _FACT_ERRORS: Final = (YordamchiError, OSError, TimeoutError, ValueError)  # → the fact stays unknown (fail closed)
@@ -372,6 +378,12 @@ def _question(row: Decision) -> BotText:
     """SPEC §3.2.3 step 4: one question naming the project, what runs, where, and the consequence."""
     if row.kind == SETTINGS_KIND:  # UC-09 F: the restated change; `input_redacted` holds it
         return S.SETTING_WEAKEN_QUESTION(decision_id=row.id, change=row.input_redacted or "?")
+    if row.kind == SELFUPDATE_KIND:  # UC-19 Q5: what the update changes, in plain words, and which safeguards
+        files = _payload(row).get("files")
+        shown = ", ".join(str(item) for item in files[:CORE_FILES_SHOWN]) if isinstance(files, list) else "?"
+        return S.SELFUPDATE_CORE_QUESTION(
+            project=row.project_id or "?", decision_id=row.id, summary=row.input_redacted or "?", files=shown
+        )
     template = S.DECISION_QUESTIONS.get(row.gate_class or "unclear", S.DECISION_QUESTIONS["unclear"])
     consequence = S.GATE_CONSEQUENCES.get(str(_payload(row).get("reason", "")))
     command = row.input_redacted or ""
@@ -671,6 +683,71 @@ async def ask_setting_change(deps: DevDeps, change: PendingChange) -> int:
     return row.id
 
 
+# --- self-updates that touch the protected core (UC-19, Q5; SPEC §3.2.12 step 2) -----------------------------------
+class CoreAnswer(StrEnum):
+    PENDING = "pending"  # no answer yet; a "ha" to an expired question asks it again, so it stays pending
+    APPROVED = "approved"  # "ha": consumed by this call, so it is used exactly once
+    DECLINED = "declined"  # "yo'q", or another instruction
+    GONE = "gone"  # not a self-update question, or already used
+
+
+async def ask_selfupdate_core(deps: DevDeps, *, project_id: str, key: str, summary: str, files: Sequence[str]) -> int:
+    """ONE question before a self-update that changes the protected core (or weakens a safeguard default) is
+    applied; returns its decision id. `key` names the update (`selfupdate:<id>:<commit>`): asked again for the same
+    key while its question is open, the open decision is reused and nothing is sent twice. `summary` is the plain
+    description the owner reads; it is scrubbed before it is stored. No agent is waiting on it: `dev/selfupdate`
+    polls `take_selfupdate_core`."""
+    snap = await settings.snapshot(deps)
+    now = deps.clock.now()
+    action = domain.input_sha256(SELFUPDATE_KIND, {"key": key})
+    async with deps.db.uow() as s:
+        open_rows = await store.list_decisions_with_status(s, ("pending", "approved"), limit=_RECENT_DECISIONS)
+        same = [row for row in open_rows if row.kind == SELFUPDATE_KIND and row.input_sha256 == action]
+        if same:
+            return same[-1].id
+        listed: list[JsonValue] = list(files)
+        row = await store.add_decision(
+            s,
+            kind=SELFUPDATE_KIND,
+            project_id=project_id,
+            turn_id=None,
+            gate_class=None,
+            tool_name=None,
+            input_sha256=action,
+            input_redacted=redact.scrubbed(summary)[:INPUT_STORED_CHARS],
+            target=key[:200],
+            payload={"files": listed},
+            created_at=now,
+            expires_at=domain.decision_expires_at(now, snap[defaults.GATE_APPROVAL_TTL_MIN]),
+        )
+        await _audit_decision(s, deps, row, AuditKind.DECISION_ASKED, AuditActor.SYSTEM, {"files": len(listed)})
+    await post_question(deps, row.id, snap=snap)
+    return row.id
+
+
+async def take_selfupdate_core(deps: DevDeps, decision_id: int) -> tuple[CoreAnswer, int]:
+    """The owner's answer to a self-update question, and the decision id it now lives under (a "ha" to an expired
+    question asks a fresh one, `superseded_by`). An approval is consumed here, by one conditional UPDATE: the update
+    it allows is requested once."""
+    now = deps.clock.now()
+    async with deps.db.uow() as s:
+        row = await store.get_decision(s, decision_id)
+        for _ in range(_RECENT_DECISIONS):  # follow re-asks to the newest question
+            if row is None or row.superseded_by is None:
+                break
+            row = await store.get_decision(s, row.superseded_by)
+        if row is None or row.kind != SELFUPDATE_KIND:
+            return CoreAnswer.GONE, decision_id
+        if row.status == "pending":  # also past its expiry: a late "ha" asks it again (SPEC §3.2.3 step 8)
+            return CoreAnswer.PENDING, row.id
+        if row.status == "approved" and await store.mark_decision_consumed(s, row.id, at=now, payload=_payload(row)):
+            await _audit_decision(s, deps, row, AuditKind.GRANT_CONSUMED, AuditActor.SYSTEM, {"status": "consumed"})
+            return CoreAnswer.APPROVED, row.id
+        if row.status in ("denied", "cancelled"):
+            return CoreAnswer.DECLINED, row.id
+        return CoreAnswer.GONE, row.id
+
+
 # --- the owner's answer (SPEC §3.2.3 steps 5–8) ---------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class DecisionReply:
@@ -841,6 +918,8 @@ async def _decline(
     if row.kind == SETTINGS_KIND:
         reply = S.SETTING_CHANGE_DECLINED(decision_id=row.id, change=row.input_redacted or "?")
         return _answered(row, AnswerKind.DECLINED, reply)
+    if row.kind == SELFUPDATE_KIND:  # nothing goes to an agent: `dev/selfupdate` reads the answer and refuses
+        return _answered(row, AnswerKind.DECLINED, S.SELFUPDATE_CORE_DECLINED(project=project, decision_id=row.id))
     if binding.verdict is OwnerVerdict.INSTRUCT:
         delivery = prompts.render("dev/gate_instructed", decision_id=str(row.id), instruction=binding.instruction)
         reply = S.DECISION_REDIRECTED(project=project, decision_id=row.id)

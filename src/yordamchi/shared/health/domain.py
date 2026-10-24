@@ -642,3 +642,61 @@ def holat_text(view: HealthView) -> BotText:
         lines.append(S.HOLAT_DEGRADED(missing=", ".join(dict.fromkeys(view.degraded))))
     lines.append(_errors_line(view.errors, view.timezone))
     return join(lines)
+
+
+# --- self-update flags (SPEC §3.2.12 steps 2, 5–7; T57's supervisor writes them, both bots read them) ---------------
+PEEK_LIMIT: Final = 1  # probation `getUpdates(offset=N, limit=1, timeout=0)`: proves polling, consumes nothing
+PEEK_TIMEOUT_S: Final = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ProbationFlag:
+    """`run/flags/probation.json` naming this release: start in probation (heartbeat, socket and a peek poller only,
+    nothing real written) until the supervisor deletes the flag."""
+
+    update_id: str
+    version: str
+    nonce: str
+
+
+def probation_for(raw: JsonValue, version: str) -> ProbationFlag | None:
+    """The flag, when it names `version`; a flag for another release (the old one restarting) is not ours."""
+    if not isinstance(raw, dict):
+        return None
+    update_id, named, nonce = raw.get("id"), raw.get("version"), raw.get("nonce")
+    if not (isinstance(named, str) and named == version and isinstance(nonce, str) and nonce):
+        return None
+    return ProbationFlag(update_id=update_id if isinstance(update_id, str) else "", version=named, nonce=nonce)
+
+
+@dataclass(frozen=True, slots=True)
+class DrainFlag:
+    """`run/flags/drain.json`: stop starting turns, let coding turns finish (≤ `drain_max_min`, then ask), pause
+    polling and write `run/<bot>.drained` with this id."""
+
+    update_id: str
+    since: datetime | None
+    drain_max_min: int
+
+
+def drain_flag(raw: JsonValue) -> DrainFlag | None:
+    if not isinstance(raw, dict):
+        return None
+    update_id = raw.get("id")
+    if not isinstance(update_id, str) or not update_id:
+        return None
+    since = raw.get("since")
+    try:
+        started = datetime.fromisoformat(since) if isinstance(since, str) else None
+    except ValueError:
+        started = None
+    limit = raw.get("drain_max_min")
+    return DrainFlag(
+        update_id=update_id,
+        since=started if started is not None and started.tzinfo is not None else None,
+        drain_max_min=limit if isinstance(limit, int) and not isinstance(limit, bool) else 30,
+    )
+
+
+def drained_json(flag: DrainFlag, *, at: datetime) -> JsonObject:
+    return {"id": flag.update_id, "at": timefmt.require_aware(at).isoformat()}

@@ -338,6 +338,23 @@ async def test_the_gate_guard_scopes_the_session_and_the_turn(
     assert not denied.allow
 
 
+async def test_a_selfupdate_turn_in_a_reused_coding_session_runs_under_the_self_update_policy(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    """UC-19: the policy is the turn's. A `selfupdate` turn after an instruction in the same coding session must
+    still forbid pushing main; the instruction after it is FULL again."""
+    fakes.agents.script_turn(result())
+    first = await start(dev_deps, state)
+    await finish(dev_deps, fakes, first)
+    token = fakes.agents.opened[0][0].env["YORDAMCHI_SESSION_TOKEN"]
+    fakes.agents.script_turn(Pause())
+    await start(dev_deps, state, make_turn_request(PROJECT, "O'zingga yangi buyruq qo'sh", kind=TurnKind.SELFUPDATE))
+    assert len(fakes.agents.opened) == 1  # the same session
+    scope = state.scope_for(token)
+    assert scope is not None
+    assert scope.policy is Policy.SELF_UPDATE
+
+
 async def test_an_investigation_runs_read_only_in_its_own_session_outside_the_cap(
     dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
 ) -> None:

@@ -6,6 +6,7 @@ Block file (TASKS R2): each P1 feature adds its builders only inside its own `# 
 """
 
 import base64
+import json
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -44,6 +45,9 @@ from yordamchi.dev.questions import domain as questions_domain
 from yordamchi.dev.questions import store as questions_store
 from yordamchi.dev.questions.domain import QuestionStatus
 from yordamchi.dev.routing.domain import Activity, ActivityKind, Intent
+from yordamchi.dev.selfupdate import domain as selfupdate_domain
+from yordamchi.dev.selfupdate import store as selfupdate_store
+from yordamchi.dev.selfupdate.models import SelfUpdate
 from yordamchi.dev.servers import domain as servers_domain
 from yordamchi.dev.servers.models import ServerCheck as ServerCheckRow
 from yordamchi.dev.turns import store as turns_store
@@ -1344,3 +1348,45 @@ def outbox_text(row: OutboxMessage) -> str:
     text = row.payload_json.get("text")
     assert isinstance(text, str)
     return text
+
+
+# --- selfupdate ---
+SELF_BASE: Final = "a" * 40  # `main` when the work branch is cut
+SELF_HEAD: Final = "b" * 40  # the branch head after the turn
+SELF_RELEASE: Final = "2026.10.24-aaaaaaa"
+PROTECTED_CORE_TEXT: Final = (
+    "supervisor/**\nsrc/yordamchi/dev/gate/**\n.protected-core\n# pending: src/yordamchi/x/**\n"
+)
+
+
+async def make_self_project(
+    deps: DevDeps, fakes: Fakes, *, protected: str | None = PROTECTED_CORE_TEXT, branch: str = "main", changed: int = 0
+) -> Path:
+    """Yordamchi's own working copy, registered and clean on `main` at `SELF_BASE`, and a running release whose
+    `.protected-core` is `protected` (None: the release has none)."""
+    folder = make_project_folder(projects_root_of(deps.paths), selfupdate_domain.SELF_PROJECT, git_dir=True)
+    async with deps.db.uow() as s:
+        await make_project(s, selfupdate_domain.SELF_PROJECT, at=fakes.clock.now(), path=folder)
+    fakes.git.statuses[folder] = GitStatus(branch, SELF_BASE, None, 0, 0, changed, 0)
+    fakes.git.heads[folder] = SELF_BASE
+    fakes.git.branches[folder] = branch
+    release = deps.paths.releases / SELF_RELEASE
+    release.mkdir(parents=True, exist_ok=True)
+    if protected is not None:
+        (release / ".protected-core").write_text(protected, encoding="utf-8")
+    deps.paths.current_release.symlink_to(release)
+    return folder
+
+
+async def list_self_updates(db: Database) -> list[SelfUpdate]:
+    async with db.read() as s:
+        return list(reversed(await selfupdate_store.list_recent_self_updates(s, limit=100)))
+
+
+def write_update_status(paths: Paths, update_id: str, status: str, **fields: JsonValue) -> Path:
+    """`updates/<id>/status.json` as the supervisor writes it."""
+    path = paths.updates / update_id / "status.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body: dict[str, JsonValue] = {"id": update_id, "status": status, "final": False, **fields}
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path

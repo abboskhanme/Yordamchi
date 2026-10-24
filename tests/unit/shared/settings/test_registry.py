@@ -81,6 +81,8 @@ SPEC_KEYS.extend(
         "timeouts.server_check_s",
     ]
 )
+# SPEC §3.2.12 (T56): "No supervisor heartbeat within 60 s → it switches back"; the dev bot is the watcher.
+SPEC_KEYS.append("selfupdate.supervisor_switch_s")
 
 # SPEC §3.2.14 gives the artefact limits inline (1280×800, ≤ 50 MB, 49/46 MB, 720/480p, 64 kbps audio); T74 names them.
 SPEC_KEYS.extend(

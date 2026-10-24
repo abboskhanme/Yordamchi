@@ -844,7 +844,9 @@ async def _start_turn(deps: DevDeps, state: TurnsState, turn_id: int) -> None:
         return
     now = deps.clock.now()
     live.turn_id = turn_id  # before the move, so a stop that lands now finds this session
-    live.turn_kind = kind
+    # The gate policy is the turn's, not the session's: a `selfupdate` turn in Yordamchi's coding session that an
+    # instruction opened earlier still runs under SELF_UPDATE (no push or merge to main, UC-19).
+    live.turn_kind, live.policy = kind, domain.policy_of(kind)
     live.dirty = dirty
     live.turn_started_at = row.started_at or now
     live.started_at = now

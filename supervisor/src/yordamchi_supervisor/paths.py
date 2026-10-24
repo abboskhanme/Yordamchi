@@ -13,6 +13,7 @@ from typing import Final, Literal
 
 DATA_DIR_VAR: Final = "YORDAMCHI_DATA_DIR"
 LOG_DIR_VAR: Final = "YORDAMCHI_LOG_DIR"
+REPO_DIR_VAR: Final = "YORDAMCHI_REPO_DIR"
 LEGACY_DATA_VAR: Final = "YORDAMCHI_DATA"
 APP_DIR_NAME: Final = "Yordamchi"
 LAUNCHD_PREFIX: Final = "uz.yordamchi"
@@ -34,6 +35,13 @@ class SupervisorPaths:
     home: Path
     data: Path
     logs: Path
+    work_copy: Path | None = None  # `YORDAMCHI_REPO_DIR`; None = the SPEC §2.2 default
+
+    @property
+    def repo(self) -> Path:
+        """The working copy the executor edits (SPEC §2.2). The updater only reads commits from it (`git archive`),
+        merges a healthy update's branch and switches back to `main`; nothing ever runs from it."""
+        return self.work_copy or self.home / "Documents" / "Projects" / "Yordamchi"
 
     # --- data dir ------------------------------------------------------------------------------------------------
     def env_file(self, bot: Bot) -> Path:
@@ -64,6 +72,56 @@ class SupervisorPaths:
     def backups(self) -> Path:
         return self.data / "backups"
 
+    # --- releases and the self-updater (SPEC §2.2, §3.2.12) -------------------------------------------------------
+    @property
+    def releases(self) -> Path:
+        return self.data / "releases"
+
+    @property
+    def current_release(self) -> Path:
+        """`releases/current`, the symlink the bots run from."""
+        return self.releases / "current"
+
+    @property
+    def supervisor_releases(self) -> Path:
+        return self.data / "supervisor" / "releases"
+
+    @property
+    def supervisor_current(self) -> Path:
+        return self.data / "supervisor" / "current"
+
+    @property
+    def flags(self) -> Path:
+        return self.run / "flags"
+
+    @property
+    def drain_flag(self) -> Path:
+        return self.flags / "drain.json"
+
+    @property
+    def probation_flag(self) -> Path:
+        return self.flags / "probation.json"
+
+    def drained_marker(self, bot: Bot) -> Path:
+        return self.run / f"{bot}.drained"
+
+    def socket(self, bot: Bot) -> Path:
+        return self.run / f"{bot}.sock"
+
+    def update_dir(self, update_id: str) -> Path:
+        return self.updates / update_id
+
+    @property
+    def latest_update(self) -> Path:
+        return self.updates / "latest.json"
+
+    def pre_update_backup(self, update_id: str) -> Path:
+        return self.backups / "pre-update" / update_id
+
+    def plist(self, process: Process) -> Path:
+        """`~/Library/LaunchAgents/uz.yordamchi.<process>.plist`, what `launchctl bootstrap` loads again."""
+        return self.home / "Library" / "LaunchAgents" / f"{label(process)}.plist"
+
     @property
     def state_file(self) -> Path:
         """`supervisor/state.json`: watchdog and backup memory now, and the updater's step journal in T57."""
@@ -90,5 +148,6 @@ def resolve(environ: Mapping[str, str], home: Path) -> tuple[SupervisorPaths, li
         home=home,
         data=override(DATA_DIR_VAR) or home / "Library" / "Application Support" / APP_DIR_NAME,
         logs=override(LOG_DIR_VAR) or home / "Library" / "Logs" / APP_DIR_NAME,
+        work_copy=override(REPO_DIR_VAR),
     )
     return paths, ignored

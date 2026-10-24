@@ -1411,6 +1411,17 @@ INTEGRATIONS_REFRESH_FAILURES_MAX = Setting(
     doc="Refused refreshes in a row before the owner is asked to sign in again.",
 )
 
+# --- selfupdate ---
+SELFUPDATE_SUPERVISOR_SWITCH_S = Setting(
+    "selfupdate.supervisor_switch_s",
+    int,
+    60,
+    check=Range(30, 600),
+    group=Group.TIMEOUTS,
+    bots=DEV,
+    doc="How long a new supervisor has to show its heartbeat before the dev bot switches it back (SPEC §3.2.12).",
+)
+
 
 # Every Setting bound above, by key (Registry rejects a duplicate key).
 REGISTRY: Final = Registry.from_namespace(globals())

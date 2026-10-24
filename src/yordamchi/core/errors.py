@@ -95,6 +95,11 @@ class ErrorCode(StrEnum):
     INTEGRATION_URL_INVALID = "integration_url_invalid"
     INTEGRATION_ASSIGN_REFUSED = "integration_assign_refused"
 
+    # --- selfupdate ---
+    SELFUPDATE_BUSY = "selfupdate_busy"
+    SELFUPDATE_DIRTY = "selfupdate_dirty"
+    SELFUPDATE_NOT_ON_MAIN = "selfupdate_not_on_main"
+
 
 class YordamchiError(Exception):
     """Base of every error Yordamchi raises on purpose."""
@@ -534,3 +539,25 @@ class IntegrationAssignRefused(DomainError):
 
     def __init__(self) -> None:
         super().__init__(ErrorCode.INTEGRATION_ASSIGN_REFUSED)
+
+
+# --- selfupdate ---
+class SelfUpdateBusy(DomainError):
+    """A self-update is still on its way (`update` is its id): one at a time (UC-19)."""
+
+    def __init__(self, *, project: str, update: str) -> None:
+        super().__init__(ErrorCode.SELFUPDATE_BUSY, project=project, update=update)
+
+
+class SelfUpdateDirty(DomainError):
+    """The working copy has uncommitted changes, which would slip into the update."""
+
+    def __init__(self, *, project: str, count: int) -> None:
+        super().__init__(ErrorCode.SELFUPDATE_DIRTY, project=project, count=count)
+
+
+class SelfUpdateNotOnMain(DomainError):
+    """The working copy is on another branch: a self-update always starts from `main`."""
+
+    def __init__(self, *, project: str, branch: str) -> None:
+        super().__init__(ErrorCode.SELFUPDATE_NOT_ON_MAIN, project=project, branch=branch)

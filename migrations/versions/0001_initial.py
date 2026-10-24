@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 14:49:36.597050
+Create Date: 2026-10-24 14:57:00.437693
 """
 
 from collections.abc import Sequence
@@ -215,6 +215,31 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_projects")),
         sa.UniqueConstraint("path", name=op.f("uq_projects_path")),
     )
+    op.create_table(
+        "self_updates",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("kind", sa.String(length=16), nullable=False),
+        sa.Column("branch", sa.String(length=160), nullable=False),
+        sa.Column("base_commit", sa.String(length=40), nullable=True),
+        sa.Column("commit", sa.String(length=40), nullable=True),
+        sa.Column("version", sa.String(length=40), nullable=True),
+        sa.Column("changed_files_json", sa.Text(), nullable=False),
+        sa.Column("touches_core", sa.Boolean(), nullable=False),
+        sa.Column("decision_id", sa.Integer(), nullable=True),
+        sa.Column("turn_id", sa.Integer(), nullable=True),
+        sa.Column("tests_count", sa.Integer(), nullable=True),
+        sa.Column("result_code", sa.String(length=64), nullable=True),
+        sa.Column("summary", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("requested_at", sa.DateTime(), nullable=True),
+        sa.Column("finished_at", sa.DateTime(), nullable=True),
+        sa.Column("reported_at", sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_self_updates")),
+    )
+    with op.batch_alter_table("self_updates", schema=None) as batch_op:
+        batch_op.create_index("ix_self_updates_status", ["status"], unique=False)
+
     op.create_table(
         "server_checks",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -632,6 +657,10 @@ def downgrade() -> None:
         batch_op.drop_index("ix_server_checks_host_at")
 
     op.drop_table("server_checks")
+    with op.batch_alter_table("self_updates", schema=None) as batch_op:
+        batch_op.drop_index("ix_self_updates_status")
+
+    op.drop_table("self_updates")
     op.drop_table("projects")
     op.drop_table("poll_offsets")
     with op.batch_alter_table("outbox_messages", schema=None) as batch_op:
