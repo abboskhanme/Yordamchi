@@ -911,7 +911,6 @@ cases:
         vercel.json: {framework: nextjs, git: {deploymentEnabled: {main: true}}}
     command: git push origin main
     expect: ask:deploy_push
-    xfail: "T17b pending: Vercel/Netlify config files do not mark the default branch as deploying yet"
   - id: netlify_toml_push_main
     labels: [ci_deploy, push]
     context:
@@ -924,7 +923,6 @@ cases:
             environment = { NODE_ENV = "production" }
     command: git push origin main
     expect: ask:deploy_push
-    xfail: "T17b pending: Vercel/Netlify config files do not mark the default branch as deploying yet"
   - id: vercel_json_push_feature
     labels: [ci_deploy, push, routine]
     context:
