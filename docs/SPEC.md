@@ -528,7 +528,7 @@ turn, and at park time, into `digests.handoff_note` (≤ 4,000 chars).
    | Capability | Order |
    |---|---|
    | STT | Google → OpenRouter → none |
-   | TTS | Google → OpenRouter → Edge (`tts.edge_voice = "uz-UZ-MadinaNeural"`) → text only |
+   | TTS | **OpenRouter** (Gemini TTS models; owner decision 2026-10-24) → Google direct (only if a key is present) → Edge (`tts.edge_voice = "uz-UZ-MadinaNeural"`) → text only |
    | Video understanding | Google → OpenRouter → none (pages still work through Claude WebFetch) |
    | News grounding fallback | Google only |
 4. The reply `S.SPEECH_CONFIGURED(stt, tts, video, notes)` names each provider and says when the tier is
