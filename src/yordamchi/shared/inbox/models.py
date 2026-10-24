@@ -9,7 +9,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Index, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from yordamchi.core.json_value import JsonValue
@@ -36,8 +36,7 @@ class InboundUpdate(Base):
     payload_json: Mapped[JsonValue] = mapped_column(JSONText, nullable=True)
     synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(16))  # received | attached | ignored | failed
-    # T16 (burst) adds ForeignKey("bursts.id") once that table exists.
-    burst_id: Mapped[int | None] = mapped_column(Integer)
+    burst_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("bursts.id", ondelete="SET NULL"), index=True)
     received_at: Mapped[datetime]
 
 

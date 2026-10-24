@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 09:30:13.952236
+Create Date: 2026-10-24 10:04:43.924827
 """
 
 from collections.abc import Sequence
@@ -35,6 +35,31 @@ def upgrade() -> None:
         batch_op.create_index("ix_audit_events_kind_at", ["kind", "at"], unique=False)
 
     op.create_table(
+        "bursts",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("bot", sa.String(length=16), nullable=False),
+        sa.Column("chat_id", sa.BigInteger(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("opened_at", sa.DateTime(), nullable=False),
+        sa.Column("last_part_at", sa.DateTime(), nullable=False),
+        sa.Column("closes_at", sa.DateTime(), nullable=False),
+        sa.Column("closed_at", sa.DateTime(), nullable=True),
+        sa.Column("close_reason", sa.String(length=16), nullable=True),
+        sa.Column("input_json", sa.Text(), nullable=True),
+        sa.Column("route_id", sa.Integer(), nullable=True),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_bursts")),
+    )
+    with op.batch_alter_table("bursts", schema=None) as batch_op:
+        batch_op.create_index("ix_bursts_bot_status", ["bot", "status"], unique=False)
+        batch_op.create_index(
+            "uq_bursts_bot_chat_id_assembling",
+            ["bot", "chat_id"],
+            unique=True,
+            sqlite_where=sa.text("status IN ('holding', 'open')"),
+            postgresql_where=sa.text("status IN ('holding', 'open')"),
+        )
+
+    op.create_table(
         "health_events",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("bot", sa.String(length=16), nullable=False),
@@ -45,28 +70,6 @@ def upgrade() -> None:
     )
     with op.batch_alter_table("health_events", schema=None) as batch_op:
         batch_op.create_index("ix_health_events_bot_at", ["bot", "at"], unique=False)
-
-    op.create_table(
-        "inbound_updates",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("bot", sa.String(length=16), nullable=False),
-        sa.Column("update_id", sa.BigInteger(), nullable=False),
-        sa.Column("chat_id", sa.BigInteger(), nullable=False),
-        sa.Column("user_id", sa.BigInteger(), nullable=True),
-        sa.Column("message_id", sa.BigInteger(), nullable=True),
-        sa.Column("kind", sa.String(length=16), nullable=False),
-        sa.Column("media_group_id", sa.String(length=64), nullable=True),
-        sa.Column("reply_to_message_id", sa.BigInteger(), nullable=True),
-        sa.Column("payload_json", sa.Text(), nullable=True),
-        sa.Column("synthetic", sa.Boolean(), nullable=False),
-        sa.Column("status", sa.String(length=16), nullable=False),
-        sa.Column("burst_id", sa.Integer(), nullable=True),
-        sa.Column("received_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_inbound_updates")),
-        sa.UniqueConstraint("bot", "update_id", name=op.f("uq_inbound_updates_bot_update_id")),
-    )
-    with op.batch_alter_table("inbound_updates", schema=None) as batch_op:
-        batch_op.create_index("ix_inbound_updates_bot_status_update_id", ["bot", "status", "update_id"], unique=False)
 
     op.create_table(
         "kv_state",
@@ -140,12 +143,43 @@ def upgrade() -> None:
             postgresql_where=sa.text("removed_at IS NULL"),
         )
 
+    op.create_table(
+        "inbound_updates",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("bot", sa.String(length=16), nullable=False),
+        sa.Column("update_id", sa.BigInteger(), nullable=False),
+        sa.Column("chat_id", sa.BigInteger(), nullable=False),
+        sa.Column("user_id", sa.BigInteger(), nullable=True),
+        sa.Column("message_id", sa.BigInteger(), nullable=True),
+        sa.Column("kind", sa.String(length=16), nullable=False),
+        sa.Column("media_group_id", sa.String(length=64), nullable=True),
+        sa.Column("reply_to_message_id", sa.BigInteger(), nullable=True),
+        sa.Column("payload_json", sa.Text(), nullable=True),
+        sa.Column("synthetic", sa.Boolean(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("burst_id", sa.Integer(), nullable=True),
+        sa.Column("received_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["burst_id"], ["bursts.id"], name=op.f("fk_inbound_updates_burst_id_bursts"), ondelete="SET NULL"
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_inbound_updates")),
+        sa.UniqueConstraint("bot", "update_id", name=op.f("uq_inbound_updates_bot_update_id")),
+    )
+    with op.batch_alter_table("inbound_updates", schema=None) as batch_op:
+        batch_op.create_index("ix_inbound_updates_bot_status_update_id", ["bot", "status", "update_id"], unique=False)
+        batch_op.create_index(batch_op.f("ix_inbound_updates_burst_id"), ["burst_id"], unique=False)
+
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # Rollback restores the pre-update DB copy, not downgrade() (CONVENTIONS §8).
     # ### commands auto generated by Alembic - please adjust! ###
+    with op.batch_alter_table("inbound_updates", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_inbound_updates_burst_id"))
+        batch_op.drop_index("ix_inbound_updates_bot_status_update_id")
+
+    op.drop_table("inbound_updates")
     with op.batch_alter_table("vault_secrets", schema=None) as batch_op:
         batch_op.drop_index(
             "uq_vault_secrets_name_active",
@@ -162,14 +196,19 @@ def downgrade() -> None:
     op.drop_table("setting_versions")
     op.drop_table("poll_offsets")
     op.drop_table("kv_state")
-    with op.batch_alter_table("inbound_updates", schema=None) as batch_op:
-        batch_op.drop_index("ix_inbound_updates_bot_status_update_id")
-
-    op.drop_table("inbound_updates")
     with op.batch_alter_table("health_events", schema=None) as batch_op:
         batch_op.drop_index("ix_health_events_bot_at")
 
     op.drop_table("health_events")
+    with op.batch_alter_table("bursts", schema=None) as batch_op:
+        batch_op.drop_index(
+            "uq_bursts_bot_chat_id_assembling",
+            sqlite_where=sa.text("status IN ('holding', 'open')"),
+            postgresql_where=sa.text("status IN ('holding', 'open')"),
+        )
+        batch_op.drop_index("ix_bursts_bot_status")
+
+    op.drop_table("bursts")
     with op.batch_alter_table("audit_events", schema=None) as batch_op:
         batch_op.drop_index("ix_audit_events_kind_at")
         batch_op.drop_index("ix_audit_events_bot_at")

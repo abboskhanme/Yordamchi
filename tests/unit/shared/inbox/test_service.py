@@ -16,6 +16,7 @@ from tests.factories import (
     UNKNOWN_FORMAT_KEY,
     Fakes,
     db_file_bytes,
+    make_burst_row,
     make_owner_origin,
     make_update,
     origin_of,
@@ -315,13 +316,15 @@ async def test_received_updates_are_read_in_update_id_order_and_attached_once(de
     assert GOOGLE not in first.content.text
     assert (first.kind, first.status, first.content.secret_ids) == (UpdateKind.TEXT, UpdateStatus.RECEIVED, (1,))
 
+    async with dev_deps.db.uow() as s:  # `burst_id` is a real foreign key into `bursts`
+        first_burst, second_burst = await make_burst_row(s), await make_burst_row(s)
     async with dev_deps.db.uow() as s:
-        assert await service.mark_updates_attached(s, bot=dev_deps.bot, update_ids=[21, 22], burst_id=7) == 2
+        assert await service.mark_updates_attached(s, bot=dev_deps.bot, update_ids=[21, 22], burst_id=first_burst) == 2
     async with dev_deps.db.uow() as s:
-        assert await service.mark_updates_attached(s, bot=dev_deps.bot, update_ids=[21, 24], burst_id=8) == 0
+        assert await service.mark_updates_attached(s, bot=dev_deps.bot, update_ids=[21, 24], burst_id=second_burst) == 0
     assert [item.update_id for item in await service.list_received_updates(dev_deps, limit=10)] == [23]
     by_id = {row.update_id: row for row in await _rows(dev_deps)}
-    assert (by_id[21].status, by_id[21].burst_id, by_id[24].status) == ("attached", 7, "ignored")
+    assert (by_id[21].status, by_id[21].burst_id, by_id[24].status) == ("attached", first_burst, "ignored")
 
 
 async def test_the_queue_survives_a_restart(dev_deps: DevDeps) -> None:
@@ -353,7 +356,8 @@ async def test_retention_deletes_finished_rows_after_30_days_and_nulls_payloads_
     fakes.clock.set(start - timedelta(days=3))
     await _accept(dev_deps, make_update(34))  # attached, recent → untouched
     async with dev_deps.db.uow() as s:
-        await service.mark_updates_attached(s, bot=dev_deps.bot, update_ids=[31, 34], burst_id=1)
+        burst_id = await make_burst_row(s)
+        await service.mark_updates_attached(s, bot=dev_deps.bot, update_ids=[31, 34], burst_id=burst_id)
     fakes.clock.set(start)
 
     assert await service.apply_retention(dev_deps) == 2

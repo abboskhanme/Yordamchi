@@ -8,14 +8,14 @@ Block file (TASKS R2): each P1 feature adds its builders only inside its own `# 
 import base64
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 
 from tests.fakes.agent import FakeAgentRuntime
 from tests.fakes.assistant import FakeAssistant
-from tests.fakes.clock import FakeClock
+from tests.fakes.clock import DEFAULT_START, FakeClock
 from tests.fakes.git import FakeGit, FakeGitHub
 from tests.fakes.keystore import InMemoryKeystore
 from tests.fakes.mac_host import FakeMacHost
@@ -30,12 +30,17 @@ from yordamchi.core.paths import BotName, Paths
 from yordamchi.dev.deps import DevDeps
 from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
-from yordamchi.persistence.uow import Database
+from yordamchi.persistence.uow import Database, Session
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.burst import domain as burst_domain
+from yordamchi.shared.burst import store as burst_store
+from yordamchi.shared.burst.domain import BurstPart, BurstStatus, CloseReason, WindowSettings
 from yordamchi.shared.cost.domain import Provider, Usage
-from yordamchi.shared.inbox.domain import Attachment, IncomingUpdate, UpdateKind
+from yordamchi.shared.inbox.domain import Attachment, Content, IncomingUpdate, StoredUpdate, UpdateKind, UpdateStatus
 from yordamchi.shared.settings import defaults, store
+from yordamchi.shared.settings import domain as settings_domain
+from yordamchi.shared.settings.domain import Snapshot
 from yordamchi.shared.settings.models import SettingVersion
 
 # --- core ---
@@ -224,6 +229,114 @@ def make_owner_origin(bot: BotName = BotName.DEV, *, update_id: int = 1, chat_id
 
 # --- outbox ---
 # --- burst ---
+_MIME: Final[dict[UpdateKind, str]] = {
+    UpdateKind.PHOTO: "image/jpeg",
+    UpdateKind.VIDEO: "video/mp4",
+    UpdateKind.DOCUMENT: "application/pdf",
+    UpdateKind.AUDIO: "audio/mpeg",
+    UpdateKind.VOICE: "audio/ogg",
+}
+
+
+def make_default_snapshot(bot: BotName = BotName.DEV) -> Snapshot:
+    """Every setting of `bot` at its default, resolved from the registry (values are never copied into tests)."""
+    bootstrap = defaults.bootstrap_values(
+        owner_id=OWNER_ID, dev_group_id=DEV_GROUP_ID, personal_group_id=PERSONAL_GROUP_ID
+    )
+    resolution = settings_domain.resolve(defaults.REGISTRY, bot, own={}, dev={}, bootstrap=bootstrap)
+    return Snapshot(bot=bot, version=0, values=resolution.values, sources=resolution.sources)
+
+
+def make_window_settings(**overrides: float) -> WindowSettings:
+    """The SPEC §4.3 BURST defaults as one pass reads them, with fields replaced by name."""
+    return replace(burst_domain.window_settings(make_default_snapshot()), **overrides)
+
+
+def _attachment(update_id: int, kind: UpdateKind, duration_s: int | None) -> Attachment | None:
+    if kind not in _MIME:
+        return None
+    return Attachment(file_id=f"file-{update_id}", mime=_MIME[kind], size_bytes=2048, duration_s=duration_s)
+
+
+def make_media_update(
+    update_id: int,
+    *,
+    kind: UpdateKind = UpdateKind.PHOTO,
+    caption: str | None = None,
+    media_group_id: str | None = None,
+    duration_s: int | None = None,
+    reply_to_message_id: int | None = None,
+    bot: BotName = BotName.DEV,
+) -> IncomingUpdate:
+    """An owner photo, file or voice note (no text) as a handler would build it."""
+    update = make_update(
+        update_id,
+        text=None,
+        kind=kind,
+        caption=caption,
+        attachment=_attachment(update_id, kind, duration_s),
+        bot=bot,
+    )
+    return replace(update, media_group_id=media_group_id, reply_to_message_id=reply_to_message_id)
+
+
+def make_part(
+    update_id: int = 1,
+    *,
+    at_s: float = 0.0,
+    kind: UpdateKind | None = None,
+    text: str | None = None,
+    caption: str | None = None,
+    media_group_id: str | None = None,
+    duration_s: int | None = None,
+    message_id: int | None = None,
+    reply_to_message_id: int | None = None,
+    synthetic: bool = False,
+    start: datetime = DEFAULT_START,
+) -> BurstPart:
+    """A part received `at_s` seconds after `start`, built the way the burst builds it (`part_from_update`): a voice
+    note starts out waiting for its transcript. Without `kind`, a text if `text` is given, else a photo."""
+    part_kind = kind or (UpdateKind.TEXT if text is not None else UpdateKind.PHOTO)
+    stored = StoredUpdate(
+        update_id=update_id,
+        chat_id=DEV_GROUP_ID,
+        kind=part_kind,
+        status=UpdateStatus.RECEIVED,
+        user_id=OWNER_ID,
+        message_id=message_id if message_id is not None else 5000 + update_id,
+        media_group_id=media_group_id,
+        reply_to_message_id=reply_to_message_id,
+        synthetic=synthetic,
+        received_at=start + timedelta(seconds=at_s),
+        content=Content(text=text, caption=caption, attachment=_attachment(update_id, part_kind, duration_s)),
+    )
+    return burst_domain.part_from_update(stored)
+
+
+async def make_burst_row(
+    s: Session,
+    *,
+    bot: BotName = BotName.DEV,
+    at: datetime = DEFAULT_START,
+    status: BurstStatus = BurstStatus.CLOSED,
+) -> int:
+    """A closed one-part burst row, for tables that point at `bursts` (`inbound_updates.burst_id`). Returns its id."""
+    part = make_part(text="salom", start=at)
+    row = await burst_store.add_burst(
+        s,
+        bot=bot.value,
+        chat_id=DEV_GROUP_ID if bot is BotName.DEV else OWNER_ID,
+        status=status.value,
+        opened_at=at,
+        last_part_at=at,
+        closes_at=at,
+        closed_at=at,
+        close_reason=CloseReason.QUIET.value,
+        input_json=burst_domain.parts_json((part,), str),
+    )
+    return row.id
+
+
 # --- projects ---
 # --- gate ---
 # --- voice ---

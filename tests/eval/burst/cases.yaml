@@ -1,0 +1,317 @@
+# Burst eval cases, dev bot (UC-02, UC-03; SPEC §4.4, §3.2.5). Seeded by T16; T27 adds the runner and extends the
+# set (`thresholds.toml` [burst] dev_cases_min = 24; P3: >= 40 across both bots).
+#
+# A case replays owner parts on virtual time with the default BURST settings (SPEC §4.3):
+#   parts[]      t             seconds after the first part was received
+#                kind          inbox UpdateKind: text | photo | video | document | audio | voice | link | edited | other
+#                text/caption  the message text, or a file's caption
+#                media_group   album id (Telegram media_group_id)
+#                duration_s    voice: the note's length (its recording began this long before it arrived)
+#                transcript_t  voice: when the STT result arrives; omitted = it never arrives
+#                transcript    voice: the transcript text
+#                message_id / reply_to   optional: a reply_to equal to an earlier part's message_id
+# expect.bursts[] in close order (at the same instant an interrupt comes first):
+#                parts         indexes into `parts` of the turn input's parts, in order ("kut" holds are left out)
+#                closes_t      seconds after the first part when it closes
+#                reason        quiet | cap | hold_expired | interrupted | interrupt
+# expect.follow_up (optional): the second burst closed while the first was a running dev turn
+#                running_project, route {project | null, confidence}  →  merge (bool), reason
+#                (burst.domain.decide_dev_follow_up, merge_min_confidence = 0.85)
+# labels:        interpretable · no_question_needed · unrelated · interrupt — the UC-02/UC-03 subsets.
+
+cases:
+  # --- REQUIREMENTS §4.1 UC-02 acceptance rows ---
+  - id: photo_then_text_6s
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, kind: photo}
+      - {t: 6, kind: text, text: "shu xatoni tuzat"}
+    expect:
+      bursts:
+        - {parts: [0, 1], closes_t: 8.0, reason: quiet}
+
+  - id: text_then_voice_within_2s
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat"}
+      - {t: 1.9, kind: voice, duration_s: 14, transcript_t: 5.0, transcript: "registratsiya sahifasini ham"}
+    expect:
+      bursts:
+        - {parts: [0, 1], closes_t: 7.0, reason: quiet}
+
+  - id: album_of_4_then_text_3s
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0.0, kind: photo, media_group: a1}
+      - {t: 0.2, kind: photo, media_group: a1}
+      - {t: 0.4, kind: photo, media_group: a1}
+      - {t: 0.6, kind: photo, media_group: a1}
+      - {t: 3.6, kind: text, text: "shu to'rttala xatoni tuzat"}
+    expect:
+      bursts:
+        - {parts: [0, 1, 2, 3, 4], closes_t: 5.6, reason: quiet}
+
+  - id: lone_photo_proceeds
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, kind: photo}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 10.0, reason: quiet}
+
+  - id: lone_error_screenshot_document
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, kind: document}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 10.0, reason: quiet}
+
+  - id: complete_question_short_window
+    labels: [no_question_needed]
+    parts:
+      - {t: 0, kind: text, text: "BonviHR qanday ishlayapti?"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 1.2, reason: quiet}
+
+  # --- SPEC §4.4 window rules ---
+  - id: other_text_window
+    parts:
+      - {t: 0, kind: text, text: "login sahifasini tuzat"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+
+  - id: ellipsis_is_not_complete
+    parts:
+      - {t: 0, kind: text, text: "Login sahifasida xato bor..."}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+
+  - id: link_only_waits_like_media
+    labels: [interpretable]
+    parts:
+      - {t: 0, kind: link, text: "https://bonvi.uz/hr/login"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 10.0, reason: quiet}
+
+  - id: captioned_photo_complete_caption
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, kind: photo, caption: "Shu xatoni tuzating."}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 1.2, reason: quiet}
+
+  - id: colon_announces_a_screenshot
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0, kind: text, text: "Mana xato:"}
+      - {t: 4, kind: photo}
+    expect:
+      bursts:
+        - {parts: [0, 1], closes_t: 14.0, reason: quiet}
+
+  - id: album_with_complete_caption_gap
+    labels: [interpretable, no_question_needed]
+    parts:
+      - {t: 0.0, kind: photo, media_group: a2, caption: "Bu uchta xatoni tuzat."}
+      - {t: 0.3, kind: photo, media_group: a2}
+      - {t: 0.6, kind: photo, media_group: a2}
+    expect:
+      bursts:
+        - {parts: [0, 1, 2], closes_t: 2.1, reason: quiet}
+
+  - id: voice_alone
+    labels: [interpretable]
+    parts:
+      - {t: 0, kind: voice, duration_s: 10, transcript_t: 3.0, transcript: "BonviHR'da testlarni yurgiz"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 5.0, reason: quiet}
+
+  - id: slow_transcript_then_photo
+    labels: [interpretable]
+    parts:
+      - {t: 0, kind: voice, duration_s: 30, transcript_t: 8.0, transcript: "mana bu sahifadagi xato"}
+      - {t: 2, kind: photo}
+    expect:
+      bursts:
+        - {parts: [0, 1], closes_t: 12.0, reason: quiet}
+
+  - id: hard_cap
+    parts:
+      - {t: 0, kind: photo}
+      - {t: 9, kind: photo}
+      - {t: 18, kind: photo}
+      - {t: 27, kind: photo}
+    expect:
+      bursts:
+        - {parts: [0, 1, 2, 3], closes_t: 30.0, reason: cap}
+
+  - id: part_after_the_window_is_a_new_burst
+    parts:
+      - {t: 0, kind: text, text: "login sahifasini tuzat"}
+      - {t: 5, kind: text, text: "HRMentor'da testlarni yurgiz"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+        - {parts: [1], closes_t: 7.0, reason: quiet}
+
+  # --- UC-03 "kut" while assembling ---
+  - id: kut_holds_for_the_next_part
+    labels: [interpretable]
+    parts:
+      - {t: 0, kind: photo}
+      - {t: 1, kind: text, text: "kut"}
+      - {t: 61, kind: text, text: "mana, shu xatoni tuzat"}
+    expect:
+      bursts:
+        - {parts: [0, 2], closes_t: 63.0, reason: quiet}
+
+  - id: kut_hold_expires
+    parts:
+      - {t: 0, kind: photo}
+      - {t: 1, kind: text, text: "kut, rasm yuboraman"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 121.0, reason: hold_expired}
+
+  - id: kut_hold_is_exempt_from_the_cap
+    parts:
+      - {t: 0, kind: photo}
+      - {t: 5, kind: text, text: "kut"}
+      - {t: 65, kind: photo}
+      - {t: 74, kind: photo}
+    expect:
+      bursts:
+        - {parts: [0, 2, 3], closes_t: 84.0, reason: quiet}
+
+  # --- UC-03 interrupt words: closed at once, never merged ---
+  - id: stop_during_assembly
+    labels: [interrupt]
+    parts:
+      - {t: 0, kind: photo}
+      - {t: 1, kind: text, text: "to'xta"}
+    expect:
+      bursts:
+        - {parts: [1], closes_t: 1.0, reason: interrupt}
+        - {parts: [0], closes_t: 1.0, reason: interrupted}
+
+  - id: kut_with_nothing_assembling
+    labels: [interrupt]
+    parts:
+      - {t: 0, kind: text, text: "kut"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 0.0, reason: interrupt}
+
+  - id: stop_all
+    labels: [interrupt]
+    parts:
+      - {t: 0, kind: text, text: "Hammasini to'xtat!"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 0.0, reason: interrupt}
+
+  - id: redirect
+    labels: [interrupt]
+    parts:
+      - {t: 0, kind: text, text: "yo'q, boshqacha qil: login sahifasini qayta yoz"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 0.0, reason: interrupt}
+
+  - id: voice_stop_leaves_the_burst
+    labels: [interrupt]
+    parts:
+      - {t: 0, kind: photo}
+      - {t: 1, kind: voice, duration_s: 1, transcript_t: 2.0, transcript: "To'xta."}
+    expect:
+      bursts:
+        - {parts: [1], closes_t: 2.0, reason: interrupt}
+        - {parts: [0], closes_t: 2.0, reason: interrupted}
+
+  - id: stop_word_inside_an_instruction_is_content
+    labels: [interpretable]
+    parts:
+      - {t: 0, kind: text, text: "serverni to'xtat"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+
+  # --- UC-02 follow-ups while the first burst's turn runs ---
+  - id: follow_up_begun_right_after_a_complete_text
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat."}
+      - {t: 1.8, kind: text, text: "va registratsiyani ham"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 1.2, reason: quiet}
+        - {parts: [1], closes_t: 3.8, reason: quiet}
+      follow_up: {running_project: BonviHR, route: {project: null, confidence: 0.4}, merge: true, reason: continuation}
+
+  - id: long_voice_note_begun_inside_the_window
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat"}
+      - {t: 62, kind: voice, duration_s: 60, transcript_t: 65.0, transcript: "parol maydoni ham ko'rinmayapti"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+        - {parts: [1], closes_t: 67.0, reason: quiet}
+      follow_up: {running_project: BonviHR, route: {project: BonviHR, confidence: 0.6}, merge: true, reason: continuation}
+
+  - id: reply_into_the_running_turn
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat", message_id: 700}
+      - {t: 300, kind: text, text: "buni ham", reply_to: 700}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+        - {parts: [1], closes_t: 302.0, reason: quiet}
+      follow_up: {running_project: BonviHR, route: {project: BonviHR, confidence: 0.3}, merge: true, reason: continuation}
+
+  - id: confident_follow_up_for_the_same_project
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat"}
+      - {t: 40, kind: text, text: "BonviHR'da registratsiya sahifasini ham tuzat"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+        - {parts: [1], closes_t: 42.0, reason: quiet}
+      follow_up: {running_project: BonviHR, route: {project: BonviHR, confidence: 0.95}, merge: true, reason: confident}
+
+  - id: unsure_follow_up_is_its_own_turn
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat"}
+      - {t: 40, kind: text, text: "dizaynni ham yangilash kerak"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+        - {parts: [1], closes_t: 42.0, reason: quiet}
+      follow_up: {running_project: BonviHR, route: {project: BonviHR, confidence: 0.7}, merge: false, reason: unsure}
+
+  - id: unrelated_follow_up_is_not_merged
+    labels: [unrelated]
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat"}
+      - {t: 40, kind: text, text: "HRMentor'da testlarni yurgiz"}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 2.0, reason: quiet}
+        - {parts: [1], closes_t: 42.0, reason: quiet}
+      follow_up: {running_project: BonviHR, route: {project: HRMentor, confidence: 1.0}, merge: false, reason: other_project}
+
+  - id: unrelated_quick_reply_is_not_merged
+    labels: [unrelated]
+    parts:
+      - {t: 0, kind: text, text: "BonviHR'da login sahifasini tuzat.", message_id: 701}
+      - {t: 1.5, kind: text, text: "HRMentor'ga ham shuni qil", reply_to: 701}
+    expect:
+      bursts:
+        - {parts: [0], closes_t: 1.2, reason: quiet}
+        - {parts: [1], closes_t: 3.5, reason: quiet}
+      follow_up: {running_project: BonviHR, route: {project: HRMentor, confidence: 0.98}, merge: false, reason: other_project}
