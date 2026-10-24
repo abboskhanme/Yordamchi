@@ -267,7 +267,9 @@ same-user processes; the gate's forbidden rules keep the executor away from the 
    - store only the redacted payload;
    - enqueue priority 0: delete the owner message plus the masked confirmation (if secrets were found);
      reaction `ui.seen_reaction` (default empty = none: the owner found 👀 on every message odd, 2026-10-24;
-     "→ X" and typing are the ack); `sendChatAction(typing)` (deduped per chat for 4 s, repeated
+     "→ X" and typing are the ack) or, when it is empty, the read mark `ui.read_mark` (👀 set and removed at once,
+     op `mark_read`: the owner sees ✓✓ and no reaction; the Bot API has no read method for a bot in a group,
+     `readBusinessMessage` being for business accounts only); `sendChatAction(typing)` (deduped per chat for 4 s, repeated
      every 4 s while work for this chat is pending ≤ 60 s).
 4. `burst.service.on_part`: attaches to the chat's open burst, or opens one, and recomputes `closes_at` with
    `burst.domain.window()` (§4.4).

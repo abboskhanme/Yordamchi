@@ -38,8 +38,9 @@ Telefonda o'qish uchun. Qo'shtirnoq ichidagi bot javoblari — botning aynan o'z
   - To'xtatish uchun faqat `to'xta`, `stop`, `bas` (pastdagi jadval).
 - **"Yozmoqda…"** faqat tez javoblarda (hisobot, `holat?`, sozlamalar) javob kelguncha ko'rinadi; loyiha ishida
   "→ {loyiha}" qatori va jonli qator yetarli. Ish paytida ham ko'rsin desangiz: `sozlama: ack.typing_for_work true`.
-- Bot xabarlaringizga reaksiya qo'ymaydi (faqat "kut"ga 👌). Har xabarga belgi qo'ysin desangiz:
-  `sozlama: ui.seen_reaction 👀`.
+- Bot xabaringizni o'qiganini ✓✓ bilan ko'rsatadi: 👀 ni bir lahzaga qo'yib, darhol olib tashlaydi, xabarda
+  reaksiya qolmaydi (Telegram'da botlar uchun boshqa yo'l yo'q). O'chirish: `sozlama: ui.read_mark o'chir`.
+  Reaksiya doim qolsin desangiz: `sozlama: ui.seen_reaction 👀`. "kut"ga 👌 qo'yiladi.
 - **Oddiy gap**: `salom`, `qandaysan?`, `rahmat` — bot oddiy javob beradi, loyiha yoki holat haqida hech narsa
   qo'shmaydi. `nima qila olasan?` yoki `/yordam` — bot nimalar qila olishini ro'yxat qilib ko'rsatadi.
 - **Ovozli xabar** o'zbek, rus va inglizcha aralash bo'lsa ham tushuniladi. Bot uni matnga

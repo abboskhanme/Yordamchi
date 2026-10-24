@@ -222,6 +222,18 @@ async def test_react_sets_one_emoji_reaction_not_a_button(
     }
 
 
+async def test_mark_read_sets_a_reaction_and_removes_it_at_once(
+    messenger: TelegramMessenger, session: RecordingSession
+) -> None:
+    """Owner, 2026-10-24: ✓✓ on his group messages with nothing left on them. The Bot API has no read method for a
+    bot in a group (`readBusinessMessage` is for business accounts), so a reaction is set and removed."""
+    await messenger.mark_read(DEV_GROUP, 56, "\U0001f440", timeout=TIMEOUT)
+    assert [call.params for call in session.calls("setMessageReaction")] == [
+        {"chat_id": DEV_GROUP, "message_id": 56, "reaction": [{"type": "emoji", "emoji": "\U0001f440"}]},
+        {"chat_id": DEV_GROUP, "message_id": 56, "reaction": []},
+    ]
+
+
 async def test_pin_is_silent_and_chat_action_is_typing(messenger: TelegramMessenger, session: RecordingSession) -> None:
     await messenger.pin(DEV_GROUP, 9, timeout=TIMEOUT)
     await messenger.chat_action(DEV_GROUP, ChatAction.TYPING, timeout=TIMEOUT)

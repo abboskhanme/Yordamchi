@@ -318,6 +318,15 @@ async def enqueue_reaction(
     return await _add(s, row, op=Op.REACT, payload=payload, key=domain.op_key(Kind.ACK, ref, Op.REACT))
 
 
+async def enqueue_read_mark(
+    s: Session, *, bot: BotName, chat_id: int, message_id: int, emoji: str, ref: str, at: datetime
+) -> int | None:
+    """Mark an owner message read (✓✓) with no reaction left on it (`Messenger.mark_read`; `ui.read_mark`)."""
+    row = _Row(bot=bot, chat_id=chat_id, kind=Kind.ACK, at=at)
+    payload = Payload(message_id=message_id, emoji=emoji)
+    return await _add(s, row, op=Op.MARK_READ, payload=payload, key=domain.op_key(Kind.ACK, ref, Op.MARK_READ))
+
+
 async def request_typing(s: Session, *, bot: BotName, chat_id: int, ref: str, at: datetime) -> int | None:
     """Show "typing…" in a chat for up to 60 s, repeated every 4 s; a hint sent < 4 s ago is not sent again. The
     newest request replaces an older pending one, and the next reply (or `stop_typing`) ends it. `ref` names what
@@ -708,6 +717,8 @@ async def _call(
         await messenger.edit_text(chat_id, _id(ready.message_id), text, parse_mode=mode, timeout=timeout)
     elif row.op is Op.REACT:
         await messenger.react(chat_id, _id(ready.message_id), payload.emoji or "", timeout=timeout)
+    elif row.op is Op.MARK_READ:
+        await messenger.mark_read(chat_id, _id(ready.message_id), payload.emoji or "", timeout=timeout)
     elif row.op is Op.CHAT_ACTION:
         await messenger.chat_action(chat_id, ChatAction(payload.action or ChatAction.TYPING), timeout=timeout)
     else:

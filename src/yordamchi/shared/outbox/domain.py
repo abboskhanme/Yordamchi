@@ -38,6 +38,7 @@ class Op(StrEnum):
     EDIT_TEXT = "edit_text"
     DELETE = "delete"
     REACT = "react"
+    MARK_READ = "mark_read"  # a reaction set and removed at once: the owner sees ✓✓, no reaction stays
     CHAT_ACTION = "chat_action"
     PIN = "pin"
     SEND_PHOTO = "send_photo"
@@ -481,6 +482,7 @@ _KEYS: Final[Mapping[Op, frozenset[str]]] = {
     Op.EDIT_TEXT: frozenset({"text", "message_id", "target", "every_s"}),
     Op.DELETE: frozenset({"message_id"}),
     Op.REACT: frozenset({"message_id", "emoji"}),
+    Op.MARK_READ: frozenset({"message_id", "emoji"}),
     Op.CHAT_ACTION: frozenset({"action", "until"}),
     Op.PIN: frozenset({"message_id", "target"}),
     **dict.fromkeys(FILE_OPS, _FILE_KEYS),
@@ -508,9 +510,9 @@ def check_payload(op: Op, payload: Payload) -> None:
         _require(payload.text_if_after_failed is None or payload.after is not None, "an alternative needs `after`")
     elif op is Op.EDIT_TEXT:
         _require(bool(payload.text) and one_target, "edit_text needs text and one target")
-    elif op in {Op.DELETE, Op.REACT}:
+    elif op in {Op.DELETE, Op.REACT, Op.MARK_READ}:
         _require(payload.message_id is not None, f"{op.value} needs a message_id")
-        _require(op is Op.DELETE or bool(payload.emoji), "react needs an emoji")
+        _require(op is Op.DELETE or bool(payload.emoji), f"{op.value} needs an emoji")
     elif op is Op.CHAT_ACTION:
         _require(payload.action in _ACTIONS and payload.until is not None, "chat_action needs an action and until")
     elif op is Op.PIN:
@@ -841,7 +843,7 @@ def resend_on_unknown(key: str) -> bool:
 
 
 def max_attempts(op: Op) -> int:
-    if op in {Op.DELETE, Op.REACT, Op.CHAT_ACTION}:
+    if op in {Op.DELETE, Op.REACT, Op.MARK_READ, Op.CHAT_ACTION}:
         return ACK_MAX_ATTEMPTS
     if op in {Op.EDIT_TEXT, Op.PIN}:
         return EDIT_MAX_ATTEMPTS

@@ -138,6 +138,10 @@ class TelegramMessenger:
         method = SetMessageReaction(chat_id=chat_id, message_id=message_id, reaction=[ReactionTypeEmoji(emoji=emoji)])
         await self._call(method, timeout=timeout)
 
+    async def mark_read(self, chat_id: int, message_id: int, emoji: str, *, timeout: float) -> None:
+        await self.react(chat_id, message_id, emoji, timeout=timeout)
+        await self._call(SetMessageReaction(chat_id=chat_id, message_id=message_id, reaction=[]), timeout=timeout)
+
     async def chat_action(self, chat_id: int, action: ChatAction, *, timeout: float) -> None:
         await self._call(SendChatAction(chat_id=chat_id, action=action.value), timeout=timeout)
 

@@ -130,6 +130,8 @@ SPEC_KEYS.append("timeouts.github_s")
 SPEC_KEYS.append("ui.hold_reaction")
 # T34b (owner, 2026-10-24): "typing…" for quick answers only; long work has its reaction and progress line instead.
 SPEC_KEYS.append("ack.typing_for_work")
+# Owner, 2026-10-24: ✓✓ on his group messages with no reaction left (the Bot API has no read method for groups).
+SPEC_KEYS.append("ui.read_mark")
 # Owner, 2026-10-24: OvozYoz is a code sample only; the dev bot must never register or open it.
 SPEC_KEYS.append("projects.excluded")
 

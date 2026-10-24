@@ -276,7 +276,8 @@ async def test_the_owner_in_the_dev_group_reaches_the_inbox_and_is_acknowledged(
         "received",
     )
     await send_outbox(dev.deps)  # acks are durable outbox rows since T15; one sender pass delivers them
-    assert sorted(dev.methods()) == ["sendChatAction"]  # `ui.seen_reaction` is empty by default: typing is the ack
+    # typing, and the read mark: a reaction set and removed at once (✓✓, nothing left; `ui.seen_reaction` is empty)
+    assert sorted(dev.methods()) == ["sendChatAction", "setMessageReaction", "setMessageReaction"]
     dev.session.assert_no_reply_markup()
 
 

@@ -113,6 +113,15 @@ UI_SEEN_REACTION = Setting(
     bots=BOTH,
     doc="Reaction put on each owner message as the 'seen' ack (SPEC §3.2.1); empty: none.",
 )
+UI_READ_MARK = Setting(
+    "ui.read_mark",
+    str,
+    "\U0001f440",
+    check=MaxLen(8),
+    group=Group.PERSONA,
+    bots=BOTH,
+    doc="Reaction set and removed at once on each owner message so Telegram shows it read (✓✓); empty: off.",
+)
 UI_HOLD_REACTION = Setting(
     "ui.hold_reaction",
     str,

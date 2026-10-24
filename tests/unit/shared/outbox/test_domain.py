@@ -247,6 +247,8 @@ def test_stored_text_fields_are_scrubbed() -> None:
         (Op.EDIT_TEXT, Payload(text="a"), "one target"),
         (Op.EDIT_TEXT, Payload(text="a", message_id=1, target="x:y:0"), "one target"),
         (Op.REACT, Payload(message_id=1), "emoji"),
+        (Op.MARK_READ, Payload(message_id=1), "emoji"),
+        (Op.MARK_READ, Payload(emoji="x"), "message_id"),
         (Op.CHAT_ACTION, Payload(action="dance", until=T0), "action"),
         (Op.SEND_PHOTO, Payload(caption="a"), "path or content"),
         (Op.SEND_DOCUMENT, Payload(content="a"), "filename"),
@@ -459,6 +461,7 @@ def test_transient_failures_back_off_and_end_per_op() -> None:
     message = _row(3, attempts=domain.MESSAGE_MAX_ATTEMPTS - 1)
     assert isinstance(domain.after_failure(message, Failure.UNKNOWN_DELIVERY, error_code="x", now=T0), Retry)
     assert domain.max_attempts(Op.SEND_TEXT) > domain.max_attempts(Op.EDIT_TEXT) > domain.max_attempts(Op.DELETE)
+    assert domain.max_attempts(Op.MARK_READ) == domain.max_attempts(Op.REACT)  # an ack: a few tries, never a resend
 
 
 # --- timeouts and retention ----------------------------------------------------------------------------------------

@@ -65,6 +65,7 @@ async def _record(
     scan: SecretScan,
     at: datetime,
     reaction: str,
+    read_mark: str,
     max_parts: int,
 ) -> _Recorded | None:
     """Inside the caller's unit of work: the idempotency key, then the vault, then the redacted payload, then the ack.
@@ -101,15 +102,16 @@ async def _record(
     payload = domain.payload_json(content, redact.scrubbed)
     await store.set_update_payload(s, row_id, payload=payload, status=status.value)
     plan = domain.plan_ack(update, scan, status=status, stored=stored, vault_error=vault_error)
-    await _enqueue_ack(s, update, plan, reaction=reaction, max_parts=max_parts, at=at)
+    await _enqueue_ack(s, update, plan, reaction=reaction, read_mark=read_mark, max_parts=max_parts, at=at)
     return _Recorded(status=status, stored=stored, vault_error=vault_error)
 
 
 async def _enqueue_ack(
-    s: Session, update: IncomingUpdate, plan: AckPlan, *, reaction: str, max_parts: int, at: datetime
+    s: Session, update: IncomingUpdate, plan: AckPlan, *, reaction: str, read_mark: str, max_parts: int, at: datetime
 ) -> None:
     """The ack as priority-0 outbox rows (SPEC §3.2.1 step 3), in the order the sender takes them: the delete, the
-    reply that waits for it, typing, the "seen" reaction."""
+    reply that waits for it, typing, then the "seen" reaction (`ui.seen_reaction`, it stays) or, when that is empty,
+    the read mark (`ui.read_mark`: ✓✓ and no reaction left; owner, 2026-10-24)."""
     bot, chat_id, ref = update.bot, plan.chat_id, f"update-{update.update_id}"
     if plan.delete_message and plan.message_id is not None:
         await outbox.enqueue_delete(s, bot=bot, chat_id=chat_id, message_id=plan.message_id, ref=ref, at=at)
@@ -131,9 +133,15 @@ async def _enqueue_ack(
         )
     if plan.typing:
         await outbox.request_typing(s, bot=bot, chat_id=chat_id, ref=ref, at=at)
-    if plan.react and plan.message_id is not None and reaction:  # `ui.seen_reaction` empty: no reaction
+    if not plan.react or plan.message_id is None:
+        return
+    if reaction:
         await outbox.enqueue_reaction(
             s, bot=bot, chat_id=chat_id, message_id=plan.message_id, emoji=reaction, ref=ref, at=at
+        )
+    elif read_mark:
+        await outbox.enqueue_read_mark(
+            s, bot=bot, chat_id=chat_id, message_id=plan.message_id, emoji=read_mark, ref=ref, at=at
         )
 
 
@@ -160,6 +168,7 @@ async def accept_update(deps: SharedDeps, origin: OwnerOrigin, update: IncomingU
             scan=scan,
             at=now,
             reaction=snap[defaults.UI_SEEN_REACTION],
+            read_mark=snap[defaults.UI_READ_MARK],
             max_parts=snap[defaults.OUTBOX_MAX_PARTS],
         )
     if recorded is None:

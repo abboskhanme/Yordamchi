@@ -36,6 +36,7 @@ FINAL = (
 SCREENSHOT = b"\x89PNG fake screenshot"
 DEFAULTS = make_default_snapshot()
 HOLD = DEFAULTS[defaults.UI_HOLD_REACTION]
+READ_MARK = DEFAULTS[defaults.UI_READ_MARK]
 
 
 def route_reply(intent: str, project: str | None, confidence: float = 0.95) -> dict[str, JsonValue]:
@@ -241,8 +242,8 @@ async def test_a_coding_instruction_is_acked_by_its_route_line_then_the_progress
         await bot.advance(2)
         await bot.fakes.agents.release(bot.fakes.agents.sends[-1][0])  # the work goes on: no typing comes back
         await bot.advance(30)
-        # owner, 2026-10-24: 👀 on every message looked odd; `ui.seen_reaction` is empty, "→ BonviHR" is the ack
-        assert reactions_on(bot, instruction) == []
+        # owner, 2026-10-24: 👀 on every message looked odd. The read mark sets one and removes it at once (✓✓)
+        assert reactions_on(bot, instruction) == [f"[{{'type': 'emoji', 'emoji': '{READ_MARK}'}}]", "[]"]
         assert bot.posted("→ BonviHR")
         assert len(typing_requests(bot)) <= 1  # at most the one hint at intake, never repeated
         assert all(index < first_index(bot, "→ BonviHR") for index in typing_requests(bot))

@@ -82,6 +82,9 @@ class FakeMessenger:
     async def react(self, chat_id: int, message_id: int, emoji: str, *, timeout: float) -> None:
         self._record("react", chat_id, message_id=message_id, emoji=emoji, timeout=timeout)
 
+    async def mark_read(self, chat_id: int, message_id: int, emoji: str, *, timeout: float) -> None:
+        self._record("mark_read", chat_id, message_id=message_id, emoji=emoji, timeout=timeout)
+
     async def chat_action(self, chat_id: int, action: ChatAction, *, timeout: float) -> None:
         self._record("chat_action", chat_id, action=action, timeout=timeout)
 

@@ -146,7 +146,7 @@ async def test_lone_photo_proceeds_after_window(dev_deps: DevDeps, fakes: Fakes)
     assert (_ids(item), item.close_reason, item.is_media_only) == ([1], CloseReason.QUIET, True)
     await send_outbox(dev_deps)  # acks are durable outbox rows since T15; one sender pass delivers them
     assert fakes.messenger.sent("send_text") == []  # it proceeds; nothing asks the owner anything
-    assert {request.method for request in fakes.messenger.requests} == {"chat_action"}  # no "seen" reaction by default
+    assert {request.method for request in fakes.messenger.requests} == {"chat_action", "mark_read"}
 
 
 async def test_a_complete_question_adds_at_most_1_5_s(dev_deps: DevDeps, fakes: Fakes) -> None:

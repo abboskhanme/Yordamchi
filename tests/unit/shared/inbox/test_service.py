@@ -50,6 +50,7 @@ from yordamchi.shared.vault import service as vault
 GOOGLE = FAKE_KEYS["google_api_key"]
 ACK_TIMEOUT = outbox_domain.DEFAULT_CONFIG.ack_timeout_s
 SEEN = defaults.UI_SEEN_REACTION.default
+READ_MARK = defaults.UI_READ_MARK.default
 
 
 async def _accept(deps: DevDeps | PersonalDeps, update: IncomingUpdate) -> Accepted:
@@ -97,9 +98,12 @@ async def test_a_text_update_is_stored_received_and_acknowledged(dev_deps: DevDe
         "attachment": None,
         "secret_ids": [],
     }
-    # `ui.seen_reaction` is empty by default (owner, 2026-10-24): "typing…" alone is the ack
+    # `ui.seen_reaction` is empty by default (owner, 2026-10-24): typing, and the read mark for ✓✓ with no reaction left
     assert SEEN == ""
-    assert _calls(fakes) == [("chat_action", {"action": ChatAction.TYPING, "timeout": ACK_TIMEOUT})]
+    assert sorted(_calls(fakes), key=lambda call: call[0]) == [
+        ("chat_action", {"action": ChatAction.TYPING, "timeout": ACK_TIMEOUT}),
+        ("mark_read", {"message_id": update.message_id, "emoji": READ_MARK, "timeout": ACK_TIMEOUT}),
+    ]
 
 
 async def test_the_seen_reaction_is_read_from_settings_at_use_time(dev_deps: DevDeps, fakes: Fakes) -> None:
@@ -115,7 +119,7 @@ async def test_the_ack_goes_out_well_within_one_second(dev_deps: DevDeps, fakes:
     started = time.monotonic()
     await _accept(dev_deps, make_update(3))
     assert time.monotonic() - started < 1.0  # NFR SPD ack ≤ 1 s, on a real SQLite file
-    assert {request.method for request in fakes.messenger.requests} == {"chat_action"}
+    assert {request.method for request in fakes.messenger.requests} == {"chat_action", "mark_read"}
     assert fakes.clock.sleeps == []  # nothing waits before the ack
 
 
@@ -324,8 +328,22 @@ async def test_a_crash_during_the_delete_call_sends_it_again_after_the_restart(d
 
 
 # --- the ack never fails intake -------------------------------------------------------------------------------------
+async def test_a_reaction_that_stays_replaces_the_read_mark_and_an_empty_mark_is_off(
+    dev_deps: DevDeps, fakes: Fakes
+) -> None:
+    origin = make_owner_origin(update_id=901)
+    await settings.record_version(dev_deps, origin, defaults.UI_READ_MARK, "", reason="change")
+    await _accept(dev_deps, make_update(30))
+    assert [request.method for request in fakes.messenger.requests] == ["chat_action"]
+    await settings.record_version(dev_deps, origin, defaults.UI_SEEN_REACTION, "\U0001f440", reason="change")
+    await settings.record_version(dev_deps, origin, defaults.UI_READ_MARK, "\U0001f440", reason="change")
+    await _accept(dev_deps, make_update(31))
+    assert [request.method for request in fakes.messenger.requests].count("mark_read") == 0
+    assert len(fakes.messenger.sent("react")) == 1
+
+
 async def test_a_failed_reaction_does_not_fail_intake(dev_deps: DevDeps, fakes: Fakes) -> None:
-    fakes.messenger.fail_next("react", RateLimited(provider="telegram", retry_after=3))
+    fakes.messenger.fail_next("mark_read", RateLimited(provider="telegram", retry_after=3))
     accepted = await _accept(dev_deps, make_update(14))
     assert accepted.status is UpdateStatus.RECEIVED
     assert len(await _rows(dev_deps)) == 1
