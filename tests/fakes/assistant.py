@@ -1,5 +1,8 @@
 """`FakeAssistant`: replies queued per kind, a responder function, or recorded LLM fixtures (SPEC §8).
 
+A queued `dict` is a structured reply (routing): `structured` is the dict and `text` its JSON, as the real adapter
+returns them for a request with `output_schema`.
+
 Recorded fixtures live in `tests/fixtures/llm/<suite>/<key>.json` with `key = fixture_key(request)`; a request with
 no recording fails loudly (a stale key means the prompt changed: re-record with `pytest -m live --record-llm`).
 """
@@ -12,11 +15,18 @@ from pathlib import Path
 
 from yordamchi.core.json_value import JsonValue
 from yordamchi.ports.agent import RuntimeStatus
-from yordamchi.ports.assistant import Assistant, AssistantDelta, AssistantKind, AssistantReply, AssistantRequest
+from yordamchi.ports.assistant import (
+    Assistant,
+    AssistantDelta,
+    AssistantKind,
+    AssistantProfile,
+    AssistantReply,
+    AssistantRequest,
+)
 
 READY = RuntimeStatus(installed=True, version="2.1.309", logged_in=True, auth_method="claude.ai")
 
-type Scripted = AssistantReply | Exception | str
+type Scripted = AssistantReply | Exception | str | dict[str, JsonValue]
 type Responder = Callable[[AssistantRequest], AssistantReply]
 
 
@@ -29,6 +39,7 @@ def fixture_key(request: AssistantRequest) -> str:
             "prompt": request.prompt,
             "model": request.model,
             "schema": request.output_schema,
+            "instructions": request.instructions,
             "images": [path.name for path in request.images],
         },
         sort_keys=True,
@@ -68,15 +79,26 @@ class FakeAssistant:
         self._queued: defaultdict[str, deque[Scripted]] = defaultdict(deque)
         self.requests: list[AssistantRequest] = []
         self.resets: list[tuple[AssistantKind, str | None]] = []
+        self.warmed: list[AssistantProfile] = []
 
     def reply_with(self, kind: AssistantKind, *replies: Scripted) -> None:
         self._queued[kind].extend(replies)
 
-    def _reply(self, request: AssistantRequest, text: str) -> AssistantReply:
-        return AssistantReply(text=text, provider=self.provider, model=request.model, duration_ms=1)
+    def _reply(self, request: AssistantRequest, text: str, structured: JsonValue = None) -> AssistantReply:
+        return AssistantReply(
+            text=text,
+            provider=self.provider,
+            model=request.model,
+            duration_ms=1,
+            structured=structured,
+            prompt_version=request.prompt_version,
+        )
 
     async def probe(self, *, timeout: float) -> RuntimeStatus:
         return self.status
+
+    async def warm(self, profile: AssistantProfile, *, timeout: float) -> None:
+        self.warmed.append(profile)
 
     async def ask(self, request: AssistantRequest, *, timeout: float) -> AssistantReply:
         self.requests.append(request)
@@ -85,6 +107,8 @@ class FakeAssistant:
             item = queued.popleft()
             if isinstance(item, Exception):
                 raise item
+            if isinstance(item, dict):
+                return self._reply(request, json.dumps(item, ensure_ascii=False), structured=item)
             return self._reply(request, item) if isinstance(item, str) else item
         if self.fixtures is not None:
             key = fixture_key(request)

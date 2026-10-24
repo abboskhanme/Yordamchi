@@ -43,6 +43,8 @@ Line format: `{"t": <seconds since connect>, "kind": ..., "data": ...}`; `tests/
 | `now_redirect.jsonl` | `priority:"now"` + `origin: human` (never used by Yordamchi) | `task_updated.patch.is_backgrounded`, the empty `aborted_tools` result, the redirect result, a late CLI-started turn (S1) |
 | `set_model.jsonl` | `set_model("sonnet")` between turns | the `<local-command-stdout>` user echo (string content); the next `init` reports the new model |
 | `resume_missing.jsonl` | `resume=<unknown id>` | connect fails: `ResultError` "No conversation found with session ID" |
+| `assistant_report.jsonl` | the assistant pool (T12), `report` kind: two asks on one warm client, `effort=low`, a different owner-instructions block on each | custom system prompt, `tools: []`, `dontAsk`; the `UserPromptSubmit` hook on every turn with its `additionalContext`; per-turn cost from session totals |
+| `assistant_routing.jsonl` | the assistant pool, `routing` kind with an `output_format` JSON schema: two asks | `init.tools == ["StructuredOutput"]`; the `PreToolUse` hook for `StructuredOutput` (explicit allow under `dontAsk`); `result.structured_output`, `stop_reason: tool_use`, `num_turns: 2` |
 
 ## Synthetic (`synthetic_*.jsonl`), written by hand in the recorded shapes
 
@@ -56,6 +58,11 @@ Line format: `{"t": <seconds since connect>, "kind": ..., "data": ...}`; `tests/
 
 `version.txt` is `claude --version`; `auth_status_claude_ai.json` is `claude auth status` (sanitised). The logged-out
 and API-key variants are synthetic.
+
+The two `assistant_*` recordings were captured on 2026-10-24 (CLI 2.1.310, haiku) through `ClaudeAssistant` itself,
+with a client factory that tees the raw stream, the hooks and the sent messages into this format; session cwds became
+`/tmp/yordamchi-fixture/sessions/<kind>` (also inside the transcript path slug). Their prompts and instructions are test
+data, not product prompts.
 
 Re-record with the live suite (`pytest -m live tests/integration/test_claude_* tests/contract/test_agent_runtime.py`)
 after a CLI or SDK upgrade, and re-check docs/SPIKES.md N1–N12.
