@@ -50,10 +50,30 @@ ERR_CALL_TIMED_OUT = Msg("{operation} vaqtida tugamadi. Qayta urinib ko'ring.")
 ERR_NOT_INSTALLED = Msg("{binary} topilmadi. O'rnating yoki PATH'ni tekshiring.")
 
 # --- inbox ---
+# Markers that replace a key inside the stored text (SPEC §3.2.1 step 3); later stages and the LLM see only these.
+SECRET_MARKER = Msg("[kalit: {name} {masked}]")
+SECRET_REFUSED_MARKER = Msg("[rad etildi]")
+SECRET_NOT_STORED_MARKER = Msg("[kalit saqlanmadi]")
+# The masked reply after a message holding a key was deleted (UC-04).
+SECRETS_STORED = Msg("Kalit shifrlab saqlandi: {keys}.")
+CLAUDE_TOKEN_REFUSED = Msg(
+    "Claude login tokenini qabul qilmayman — akkauntlarni ClaudeManager boshqaradi. Token chatda ko'rindi: "
+    "uni bekor qilib, yangisini oling."
+)
+SECRET_NOT_DELETED = Msg(
+    "Xabaringizni o'chira olmadim (o'chirish huquqi yo'q yoki xabar 48 soatdan eski). Kalit chatda qoldi — "
+    "kalitni almashtiring."
+)
+
 # --- audit ---
 # --- vault ---
 ERR_VAULT_KEY_MISSING = Msg("Kalitlar ombori ochilmadi: master.key topilmadi. Installer'ni qayta ishga tushiring.")
+ERR_VAULT_KEY_INSECURE = Msg(
+    "Kalitlar ombori ochilmadi: master.key boshqalarga ham ochiq (ruxsat {mode}). "
+    "`chmod 600 ~/.config/yordamchi/master.key` qiling."
+)
 ERR_VAULT_DECRYPT_FAILED = Msg("«{name}» kalitini ochib bo'lmadi (ombor o'zgargan). Kalitni qayta yuboring.")
+ERR_VAULT_SECRET_NOT_FOUND = Msg("«{name}» degan kalit omborda yo'q.")
 
 # --- cost ---
 # --- access ---

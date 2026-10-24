@@ -6,11 +6,13 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import OperationalError, StatementError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.factories import open_test_db
 from yordamchi.core.paths import BotName, Paths
+from yordamchi.persistence import bulk
 from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.schema import head_revisions
 from yordamchi.persistence.uow import Database, ReadOnlyDatabase
@@ -100,6 +102,22 @@ async def test_insert_or_ignore_reports_whether_it_inserted(dev_db: Database) ->
     async with dev_db.uow() as s:
         assert await insert_or_ignore(s, KvState, values, conflict_columns=("bot", "key")) is True
         assert await insert_or_ignore(s, KvState, values, conflict_columns=("bot", "key")) is False
+
+
+async def test_batches_run_in_separate_units_of_work_until_one_falls_short(dev_db: Database) -> None:
+    async with dev_db.uow() as s:
+        s.add_all(KvState(bot="dev", key=f"k{n}", value_json=n, updated_at=AT) for n in range(5))
+    batches: list[int] = []
+
+    async def delete_some(s: AsyncSession, limit: int) -> int:
+        oldest = select(KvState.key).order_by(KvState.key).limit(limit)
+        touched = await bulk.affected_rows(s, delete(KvState).where(KvState.key.in_(oldest)))
+        batches.append(touched)
+        return touched
+
+    assert await bulk.run_in_batches(dev_db, delete_some, batch=2) == 5
+    assert batches == [2, 2, 1]
+    assert await bulk.run_in_batches(dev_db, delete_some, batch=2) == 0
 
 
 async def test_the_read_only_handle_cannot_write(tmp_path: Path) -> None:

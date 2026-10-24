@@ -27,7 +27,9 @@ class ErrorCode(StrEnum):
     # --- audit ---
     # --- vault ---
     VAULT_KEY_MISSING = "vault_key_missing"
+    VAULT_KEY_INSECURE = "vault_key_insecure"
     VAULT_DECRYPT_FAILED = "vault_decrypt_failed"
+    VAULT_SECRET_NOT_FOUND = "vault_secret_not_found"  # noqa: S105  # an error code, not a password
     # --- cost ---
     # --- access ---
     # --- outbox ---
@@ -126,10 +128,18 @@ class NotInstalled(ExternalError):
 # --- audit ---
 # --- vault ---
 class VaultKeyMissing(DomainError):
-    """`master.key` is absent or unreadable; the installer creates it, a bot never does (SPEC §4.5)."""
+    """`master.key` is absent, unreadable or not 32 base64 bytes; the installer creates it, a bot never does (SPEC
+    §4.5)."""
 
     def __init__(self) -> None:
         super().__init__(ErrorCode.VAULT_KEY_MISSING)
+
+
+class VaultKeyInsecure(DomainError):
+    """`master.key` is readable by the group or others (NFR-SEC-02 wants 0600); the vault refuses to use it."""
+
+    def __init__(self, *, mode: str) -> None:
+        super().__init__(ErrorCode.VAULT_KEY_INSECURE, mode=mode)
 
 
 class VaultDecryptFailed(DomainError):
@@ -137,6 +147,13 @@ class VaultDecryptFailed(DomainError):
 
     def __init__(self, *, name: str) -> None:
         super().__init__(ErrorCode.VAULT_DECRYPT_FAILED, name=name)
+
+
+class VaultSecretNotFound(DomainError):
+    """No active secret has this name (never stored, or removed)."""
+
+    def __init__(self, *, name: str) -> None:
+        super().__init__(ErrorCode.VAULT_SECRET_NOT_FOUND, name=name)
 
 
 # --- cost ---

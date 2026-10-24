@@ -5,6 +5,7 @@ as-is (Uzbek), so equal values always produce equal strings.
 """
 
 import json
+from collections.abc import Callable
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
@@ -19,4 +20,18 @@ def dumps(value: JsonValue) -> str:
 def loads(text: str) -> JsonValue:
     """Parse JSON text produced by `dumps` (or any JSON). Raises `ValueError` on invalid input."""
     value: JsonValue = json.loads(text)
+    return value
+
+
+def map_strings(value: JsonValue, fn: Callable[[str], str]) -> JsonValue:
+    """`value` with `fn` applied to every string, dict keys included, at any depth.
+
+    Used with `core.redact.scrubbed`: every audit `data_json`, inbox and outbox payload passes it (SPEC §4.5).
+    """
+    if isinstance(value, str):
+        return fn(value)
+    if isinstance(value, list):
+        return [map_strings(item, fn) for item in value]
+    if isinstance(value, dict):
+        return {fn(key): map_strings(item, fn) for key, item in value.items()}
     return value

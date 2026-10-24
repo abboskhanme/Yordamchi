@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-23 23:41:24.973908
+Create Date: 2026-10-24 09:24:05.688014
 """
 
 from collections.abc import Sequence
@@ -47,12 +47,41 @@ def upgrade() -> None:
         batch_op.create_index("ix_health_events_bot_at", ["bot", "at"], unique=False)
 
     op.create_table(
+        "inbound_updates",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("bot", sa.String(length=16), nullable=False),
+        sa.Column("update_id", sa.BigInteger(), nullable=False),
+        sa.Column("chat_id", sa.BigInteger(), nullable=False),
+        sa.Column("user_id", sa.BigInteger(), nullable=True),
+        sa.Column("message_id", sa.BigInteger(), nullable=True),
+        sa.Column("kind", sa.String(length=16), nullable=False),
+        sa.Column("media_group_id", sa.String(length=64), nullable=True),
+        sa.Column("reply_to_message_id", sa.BigInteger(), nullable=True),
+        sa.Column("payload_json", sa.Text(), nullable=True),
+        sa.Column("synthetic", sa.Boolean(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("burst_id", sa.Integer(), nullable=True),
+        sa.Column("received_at", sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_inbound_updates")),
+        sa.UniqueConstraint("bot", "update_id", name=op.f("uq_inbound_updates_bot_update_id")),
+    )
+    with op.batch_alter_table("inbound_updates", schema=None) as batch_op:
+        batch_op.create_index("ix_inbound_updates_bot_status_update_id", ["bot", "status", "update_id"], unique=False)
+
+    op.create_table(
         "kv_state",
         sa.Column("bot", sa.String(length=16), nullable=False),
         sa.Column("key", sa.String(length=64), nullable=False),
         sa.Column("value_json", sa.Text(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("bot", "key", name=op.f("pk_kv_state")),
+    )
+    op.create_table(
+        "poll_offsets",
+        sa.Column("bot", sa.String(length=16), nullable=False),
+        sa.Column("next_offset", sa.BigInteger(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("bot", name=op.f("pk_poll_offsets")),
     )
     op.create_table(
         "setting_versions",
@@ -67,14 +96,76 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_setting_versions")),
         sa.UniqueConstraint("key", "version", name=op.f("uq_setting_versions_key_version")),
     )
+    op.create_table(
+        "usage_records",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("bot", sa.String(length=16), nullable=False),
+        sa.Column("at", sa.DateTime(), nullable=False),
+        sa.Column("source", sa.String(length=32), nullable=False),
+        sa.Column("provider", sa.String(length=16), nullable=False),
+        sa.Column("is_paid_api", sa.Boolean(), nullable=False),
+        sa.Column("model", sa.String(length=96), nullable=False),
+        sa.Column("project_id", sa.String(length=64), nullable=True),
+        sa.Column("turn_id", sa.Integer(), nullable=True),
+        sa.Column("cost_usd_micros", sa.BigInteger(), nullable=False),
+        sa.Column("units_json", sa.Text(), nullable=False),
+        sa.Column("duration_ms", sa.Integer(), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_usage_records")),
+    )
+    with op.batch_alter_table("usage_records", schema=None) as batch_op:
+        batch_op.create_index("ix_usage_records_bot_at", ["bot", "at"], unique=False)
+        batch_op.create_index("ix_usage_records_provider_at", ["provider", "at"], unique=False)
+
+    op.create_table(
+        "vault_secrets",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("name", sa.String(length=64), nullable=False),
+        sa.Column("kind", sa.String(length=32), nullable=False),
+        sa.Column("ciphertext", sa.LargeBinary(), nullable=True),
+        sa.Column("nonce", sa.LargeBinary(length=12), nullable=True),
+        sa.Column("key_fp", sa.String(length=16), nullable=False),
+        sa.Column("last4", sa.String(length=4), nullable=False),
+        sa.Column("bots_json", sa.Text(), nullable=False),
+        sa.Column("origin_update_id", sa.BigInteger(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("removed_at", sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_vault_secrets")),
+    )
+    with op.batch_alter_table("vault_secrets", schema=None) as batch_op:
+        batch_op.create_index(
+            "uq_vault_secrets_name_active",
+            ["name"],
+            unique=True,
+            sqlite_where=sa.text("removed_at IS NULL"),
+            postgresql_where=sa.text("removed_at IS NULL"),
+        )
+
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # Rollback restores the pre-update DB copy, not downgrade() (CONVENTIONS §8).
     # ### commands auto generated by Alembic - please adjust! ###
+    with op.batch_alter_table("vault_secrets", schema=None) as batch_op:
+        batch_op.drop_index(
+            "uq_vault_secrets_name_active",
+            sqlite_where=sa.text("removed_at IS NULL"),
+            postgresql_where=sa.text("removed_at IS NULL"),
+        )
+
+    op.drop_table("vault_secrets")
+    with op.batch_alter_table("usage_records", schema=None) as batch_op:
+        batch_op.drop_index("ix_usage_records_provider_at")
+        batch_op.drop_index("ix_usage_records_bot_at")
+
+    op.drop_table("usage_records")
     op.drop_table("setting_versions")
+    op.drop_table("poll_offsets")
     op.drop_table("kv_state")
+    with op.batch_alter_table("inbound_updates", schema=None) as batch_op:
+        batch_op.drop_index("ix_inbound_updates_bot_status_update_id")
+
+    op.drop_table("inbound_updates")
     with op.batch_alter_table("health_events", schema=None) as batch_op:
         batch_op.drop_index("ix_health_events_bot_at")
 

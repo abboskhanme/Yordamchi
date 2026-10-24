@@ -1,0 +1,354 @@
+"""Intake rules, pure (SPEC §3.2.1 step 3, §4.5, §4.6; UC-04, NFR-REL-05).
+
+One Telegram update goes through intake in this order:
+1. the handler turns the aiogram object into an `IncomingUpdate` (no SQL, no decisions);
+2. `scan_secrets` finds every key in the text and caption, in memory only;
+3. the service writes the `(bot, update_id)` idempotency key; an update that is already there is a no-op;
+4. the vault stores each key, and `redacted_content` replaces it in the text: a stored key becomes
+   `[kalit: <name> ••••abcd]`, a Claude login token `[rad etildi]` (refused, never stored), a key the vault could not
+   take `[kalit saqlanmadi]`. Only that redacted, scrubbed content is written;
+5. `plan_ack` decides what the owner sees: a message holding a key is deleted and a masked reply follows; any other
+   message gets the "seen" reaction; typing shows while work for the chat is pending.
+
+Later stages (burst, voice, routing) read only `StoredUpdate`s, which hold the redacted content.
+"""
+
+import re
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import StrEnum
+from typing import Final
+
+from yordamchi.core import json_value, redact
+from yordamchi.core import strings as S
+from yordamchi.core.errors import DomainError
+from yordamchi.core.json_value import JsonObject, JsonValue
+from yordamchi.core.paths import BotName
+from yordamchi.core.redact import SecretHit
+from yordamchi.core.text import BotText, join
+from yordamchi.shared.access.domain import OwnerOrigin
+from yordamchi.shared.vault import domain as vault
+from yordamchi.shared.vault.domain import NewSecret, SecretRef
+
+PAYLOAD_KEEP: Final = timedelta(days=7)  # SPEC §4.2: "payload nulled 7 d"
+ROW_KEEP: Final = timedelta(days=30)  # "row 30 d"
+# Bound on each Telegram call of the ack. UC-04 wants a key message gone within 5 s, and the masked reply waits for
+# the delete: 2 × 2.5 s. SPEC §4.3 has no key for it yet (`timeouts.ack_s` is proposed); T15's outbox takes over.
+ACK_TIMEOUT_S: Final = 2.5
+
+
+class UpdateKind(StrEnum):
+    TEXT = "text"
+    VOICE = "voice"
+    AUDIO = "audio"
+    PHOTO = "photo"
+    VIDEO = "video"
+    DOCUMENT = "document"
+    LINK = "link"  # a text that is only URLs: it waits like media (SPEC §4.4)
+    EDITED = "edited"
+    MEMBER = "member"  # my_chat_member in the owner's own chat
+    OTHER = "other"
+
+
+class UpdateStatus(StrEnum):
+    RECEIVED = "received"  # durable, not yet attached to a burst (re-attached after a restart, SPEC §2.7)
+    ATTACHED = "attached"
+    IGNORED = "ignored"  # carries no request (a membership change)
+    FAILED = "failed"  # a key in it could not be stored; the owner was told to send it again
+
+
+# Retention never touches a row that is still waiting for a burst.
+TERMINAL: Final = frozenset({UpdateStatus.ATTACHED, UpdateStatus.IGNORED, UpdateStatus.FAILED})
+
+
+@dataclass(frozen=True, slots=True)
+class Attachment:
+    file_id: str
+    mime: str | None = None
+    size_bytes: int | None = None
+    duration_s: int | None = None
+    file_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IncomingUpdate:
+    """One Telegram update, as the handler translated it. Content fields never show in a repr."""
+
+    bot: BotName
+    update_id: int
+    chat_id: int
+    kind: UpdateKind
+    user_id: int | None = None
+    message_id: int | None = None
+    text: str | None = field(default=None, repr=False)
+    caption: str | None = field(default=None, repr=False)
+    attachment: Attachment | None = None
+    media_group_id: str | None = None
+    reply_to_message_id: int | None = None
+    synthetic: bool = False  # the supervisor's self-test: there is no Telegram message to touch
+
+
+@dataclass(frozen=True, slots=True)
+class Content:
+    """What `payload_json` holds: the redacted text and caption, the attachment, and the vault ids it referred to."""
+
+    text: str | None = field(default=None, repr=False)
+    caption: str | None = field(default=None, repr=False)
+    attachment: Attachment | None = None
+    secret_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class StoredUpdate:
+    """An accepted update as later stages read it (`list_received_updates`): its content is already redacted."""
+
+    update_id: int
+    chat_id: int
+    kind: UpdateKind
+    status: UpdateStatus
+    user_id: int | None
+    message_id: int | None
+    media_group_id: str | None
+    reply_to_message_id: int | None
+    synthetic: bool
+    received_at: datetime
+    content: Content
+
+
+@dataclass(frozen=True, slots=True)
+class Accepted:
+    """What `accept_update` did. A duplicate did nothing, so it carries no status."""
+
+    update_id: int
+    duplicate: bool
+    status: UpdateStatus | None = None
+    secrets: tuple[SecretRef, ...] = ()
+    refused: int = 0
+
+
+# --- origin -------------------------------------------------------------------------------------------------------
+def require_matching_origin(origin: OwnerOrigin, update: IncomingUpdate, bot: BotName) -> None:
+    """The `OwnerOrigin` proves this very update came from the owner; anything else is a wiring bug."""
+    same = (
+        origin.bot is bot
+        and update.bot is bot
+        and origin.update_id == update.update_id
+        and origin.chat_id == update.chat_id
+        and (update.user_id is None or origin.user_id == update.user_id)
+    )
+    if not same:
+        msg = f"owner origin {origin.bot}:{origin.update_id} does not match update {update.bot}:{update.update_id}"
+        raise ValueError(msg)
+
+
+# --- kinds and status ---------------------------------------------------------------------------------------------
+_LINKS_ONLY: Final = re.compile(r"\s*(?:https?://\S+\s*)+")
+
+
+def kind_for_text(text: str) -> UpdateKind:
+    """`link` for a text that is nothing but URLs, else `text`."""
+    return UpdateKind.LINK if _LINKS_ONLY.fullmatch(text) else UpdateKind.TEXT
+
+
+def initial_status(update: IncomingUpdate, *, vault_failed: bool) -> UpdateStatus:
+    if update.kind is UpdateKind.MEMBER:
+        return UpdateStatus.IGNORED
+    if vault_failed:
+        return UpdateStatus.FAILED
+    return UpdateStatus.RECEIVED
+
+
+# --- secrets ------------------------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class SecretScan:
+    """The `core.redact` hits in the text and the caption, in text order. In memory only, never persisted."""
+
+    text: tuple[SecretHit, ...] = ()
+    caption: tuple[SecretHit, ...] = ()
+
+    @property
+    def hits(self) -> tuple[SecretHit, ...]:
+        return self.text + self.caption
+
+    @property
+    def found_key(self) -> bool:
+        """A key or a refused token is in the message: it must leave the chat."""
+        return any(hit.vaultable or hit.refused for hit in self.hits)
+
+    @property
+    def refused(self) -> int:
+        return sum(1 for hit in self.hits if hit.refused)
+
+    def to_store(self) -> tuple[NewSecret, ...]:
+        """Each distinct key for the vault, in order. A refused token is never among them."""
+        seen: set[str] = set()
+        found: list[NewSecret] = []
+        for hit in self.hits:
+            if hit.vaultable and not hit.refused and hit.value not in seen:
+                seen.add(hit.value)
+                found.append(NewSecret(kind=hit.kind, value=hit.value))
+        return tuple(found)
+
+
+def scan_secrets(update: IncomingUpdate) -> SecretScan:
+    return SecretScan(
+        text=tuple(redact.find_secrets(update.text or "")),
+        caption=tuple(redact.find_secrets(update.caption or "")),
+    )
+
+
+def _marker(hit: SecretHit, stored: Mapping[str, SecretRef]) -> str:
+    if hit.refused:
+        return S.SECRET_REFUSED_MARKER()
+    if not hit.vaultable:  # a token-like part of a bot URL: masked, not a key to keep
+        return redact.MASK + vault.last4_of(hit.value, hit.kind)
+    ref = stored.get(hit.value)
+    if ref is None:
+        return S.SECRET_NOT_STORED_MARKER()
+    return S.SECRET_MARKER(name=ref.name, masked=ref.masked)
+
+
+def redact_text(text: str | None, hits: Sequence[SecretHit], stored: Mapping[str, SecretRef]) -> str | None:
+    """`text` with each hit (non-overlapping, in text order, as `find_secrets` returns them) replaced by its marker.
+    `stored` maps a key's value to its vault entry; a vaultable hit missing from it was not stored."""
+    if text is None:
+        return None
+    parts: list[str] = []
+    cursor = 0
+    for hit in hits:
+        parts.append(text[cursor : hit.start])
+        parts.append(_marker(hit, stored))
+        cursor = hit.end
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def redacted_content(update: IncomingUpdate, scan: SecretScan, stored: Mapping[str, SecretRef]) -> Content:
+    return Content(
+        text=redact_text(update.text, scan.text, stored),
+        caption=redact_text(update.caption, scan.caption, stored),
+        attachment=update.attachment,
+        secret_ids=tuple(sorted({ref.id for ref in stored.values()})),
+    )
+
+
+# --- payload_json -------------------------------------------------------------------------------------------------
+def payload_json(content: Content, scrub: Callable[[str], str]) -> JsonObject:
+    """The stored form of `content`; every string passes `scrub` (SPEC §4.1 ✱: redacted before the write)."""
+    attachment: JsonValue = None
+    if content.attachment is not None:
+        attachment = {
+            "file_id": content.attachment.file_id,
+            "mime": content.attachment.mime,
+            "size_bytes": content.attachment.size_bytes,
+            "duration_s": content.attachment.duration_s,
+            "file_name": content.attachment.file_name,
+        }
+    secret_ids: list[JsonValue] = []
+    secret_ids.extend(content.secret_ids)
+    payload: JsonObject = {
+        "text": content.text,
+        "caption": content.caption,
+        "attachment": attachment,
+        "secret_ids": secret_ids,
+    }
+    return {key: json_value.map_strings(value, scrub) for key, value in payload.items()}
+
+
+def _str(raw: JsonValue) -> str | None:
+    return raw if isinstance(raw, str) else None
+
+
+def _int(raw: JsonValue) -> int | None:
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
+
+
+def content_from_json(raw: JsonValue) -> Content:
+    """The inverse of `payload_json`. A nulled payload (older than 7 days) or a malformed one reads as empty."""
+    if not isinstance(raw, dict):
+        return Content()
+    attachment: Attachment | None = None
+    stored_attachment = raw.get("attachment")
+    if isinstance(stored_attachment, dict) and (file_id := _str(stored_attachment.get("file_id"))) is not None:
+        attachment = Attachment(
+            file_id=file_id,
+            mime=_str(stored_attachment.get("mime")),
+            size_bytes=_int(stored_attachment.get("size_bytes")),
+            duration_s=_int(stored_attachment.get("duration_s")),
+            file_name=_str(stored_attachment.get("file_name")),
+        )
+    ids = raw.get("secret_ids")
+    secret_ids = tuple(item for item in ids if isinstance(item, int)) if isinstance(ids, list) else ()
+    return Content(
+        text=_str(raw.get("text")), caption=_str(raw.get("caption")), attachment=attachment, secret_ids=secret_ids
+    )
+
+
+# --- ack ----------------------------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class AckPlan:
+    """What the owner sees right after intake (SPEC §3.2.1 step 3). The delete comes first, then the reply."""
+
+    chat_id: int
+    message_id: int | None
+    delete_message: bool  # it held a key: remove it from the cloud chat
+    react: bool  # the "seen" reaction; never on a message that is being deleted
+    typing: bool  # work is pending for this chat
+    notices: tuple[BotText, ...] = ()  # the masked reply, sent after the delete
+
+    @property
+    def replies(self) -> bool:
+        """There is a delete and/or a reply to send (the reply may only say the delete failed)."""
+        return bool(self.notices) or self.delete_message
+
+
+def plan_ack(
+    update: IncomingUpdate,
+    scan: SecretScan,
+    *,
+    status: UpdateStatus,
+    stored: Sequence[SecretRef],
+    vault_error: DomainError | None,
+) -> AckPlan:
+    on_telegram = update.message_id is not None and not update.synthetic
+    notices: list[BotText] = []
+    distinct = list({ref.id: ref for ref in stored}.values())
+    if distinct:
+        notices.append(S.SECRETS_STORED(keys=", ".join(f"{ref.name} {ref.masked}" for ref in distinct)))
+    if scan.refused:
+        notices.append(S.CLAUDE_TOKEN_REFUSED())
+    if vault_error is not None:
+        notices.append(S.ERRORS[vault_error.code](**vault_error.params))
+    return AckPlan(
+        chat_id=update.chat_id,
+        message_id=update.message_id,
+        delete_message=on_telegram and scan.found_key,
+        react=on_telegram and not scan.found_key and status is not UpdateStatus.IGNORED,
+        typing=status is UpdateStatus.RECEIVED,
+        notices=tuple(notices),
+    )
+
+
+def ack_reply(plan: AckPlan, *, deleted: bool) -> BotText | None:
+    """The one reply after intake, or None. A key message that stayed in the chat adds "kalitni almashtiring"."""
+    parts = list(plan.notices)
+    if plan.delete_message and not deleted:
+        parts.append(S.SECRET_NOT_DELETED())
+    return join(parts) if parts else None
+
+
+# --- polling offset and retention ---------------------------------------------------------------------------------
+def next_offset(current: int, update_ids: Iterable[int]) -> int:
+    """`max(update_id) + 1` over a fed batch, never below `current` (SPEC §3.2.1 step 1, §4.6)."""
+    return max([current, *(update_id + 1 for update_id in update_ids)])
+
+
+def payload_cutoff(now: datetime) -> datetime:
+    """A finished update's payload is nulled once `received_at` is strictly older than this."""
+    return now - PAYLOAD_KEEP
+
+
+def row_cutoff(now: datetime) -> datetime:
+    """A finished update's row is deleted once `received_at` is strictly older than this."""
+    return now - ROW_KEEP

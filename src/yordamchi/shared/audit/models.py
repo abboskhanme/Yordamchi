@@ -1,7 +1,8 @@
 """`audit_events`: append-only audit of executor inputs, gate verdicts, decisions, setting, integration and secret
 changes, sessions and dropped strangers (SPEC §4.2, NFR-SEC-10). Kept 90 days; no UPDATE or DELETE before that.
 
-`data_json` holds ids, codes, sha256 digests and scrubbed commands — never message text. T08 builds the feature.
+`data_json` holds ids, codes, sha256 digests and scrubbed commands — never message text. Rows are written only by
+`audit.service.record_event`, in the unit of work of the change they describe; `apply_retention` deletes them.
 """
 
 from datetime import datetime

@@ -18,6 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 # Execution option read by the engine's "begin" listener (persistence/engine.py).
 BEGIN_OPTION: Final = "yordamchi_begin"
 
+# The session a `(s: Session, …)` service function joins (CONVENTIONS §4, A3). Services annotate with this name, so
+# only persistence, `*/store.py` and `*/models.py` import sqlalchemy (C5).
+type Session = AsyncSession
+
 
 class ReadOnlyDatabase(RuntimeError):
     """A unit of work was opened on the read-only handle of the other bot's DB file."""

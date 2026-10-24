@@ -52,6 +52,12 @@ def test_json_encoding_is_canonical_and_keeps_uzbek() -> None:
         json_value.dumps(float("nan"))
 
 
+def test_map_strings_reaches_every_string_and_key_at_any_depth() -> None:
+    value: json_value.JsonValue = {"a": ["x", {"b": "y"}], "n": 3, "t": True, "z": None}
+    assert json_value.map_strings(value, str.upper) == {"A": ["X", {"B": "Y"}], "N": 3, "T": True, "Z": None}
+    assert json_value.map_strings(7, str.upper) == 7
+
+
 def test_prompt_slots_must_match_exactly() -> None:
     template = "Persona: {{ persona }}. Reply in {{lang}}."
     assert prompts.fill(template, {"persona": "qisqa", "lang": "uz"}) == "Persona: qisqa. Reply in uz."

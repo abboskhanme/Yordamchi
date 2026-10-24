@@ -1,7 +1,13 @@
+import base64
+import hashlib
+from pathlib import Path
+
 import pytest
 
+from tests.factories import write_master_key
 from tests.fakes.keystore import InMemoryKeystore
-from yordamchi.core.errors import VaultDecryptFailed
+from yordamchi.adapters.keystore.file import FileKeystore
+from yordamchi.core.errors import VaultDecryptFailed, VaultKeyInsecure, VaultKeyMissing
 from yordamchi.ports.keystore import FINGERPRINT_HEX, NONCE_BYTES, Keystore, Sealed
 
 AAD = b"google_api_key|google_api_key|7"
@@ -52,3 +58,75 @@ class TestInMemoryKeystore(KeystoreContract):
         sealed = InMemoryKeystore().seal(b"x", aad=AAD)
         with pytest.raises(VaultDecryptFailed):
             InMemoryKeystore().unseal(sealed, aad=AAD, name="k")
+
+
+class TestFileKeystore(KeystoreContract):
+    """The production adapter on a real 0600 key file in `tmp_path` (offline: no `live` mark needed)."""
+
+    @pytest.fixture
+    def key_path(self, tmp_path: Path) -> Path:
+        return tmp_path / "config" / "master.key"
+
+    @pytest.fixture
+    def keystore(self, key_path: Path) -> Keystore:
+        write_master_key(key_path)
+        return FileKeystore(key_path)
+
+    def test_the_fingerprint_is_the_sha256_of_the_raw_key(self, key_path: Path) -> None:
+        raw = write_master_key(key_path)
+        assert FileKeystore(key_path).fingerprint() == hashlib.sha256(raw).hexdigest()[:FINGERPRINT_HEX]
+
+    def test_the_same_key_file_opens_what_another_instance_sealed(self, key_path: Path) -> None:
+        write_master_key(key_path)
+        sealed = FileKeystore(key_path).seal(b"x", aad=AAD)  # e.g. the personal bot sealed it
+        assert FileKeystore(key_path).unseal(sealed, aad=AAD, name="k") == b"x"
+
+    def test_a_sealed_value_from_another_key_does_not_open(self, key_path: Path) -> None:
+        write_master_key(key_path)
+        sealed = InMemoryKeystore().seal(b"x", aad=AAD)
+        with pytest.raises(VaultDecryptFailed):
+            FileKeystore(key_path).unseal(sealed, aad=AAD, name="k")
+
+    def test_a_nonce_of_the_wrong_length_does_not_open(self, keystore: Keystore) -> None:
+        sealed = keystore.seal(b"x", aad=AAD)
+        with pytest.raises(VaultDecryptFailed):
+            keystore.unseal(Sealed(sealed.ciphertext, b"short", sealed.key_fp), aad=AAD, name="k")
+
+    def test_a_missing_key_file_raises_vault_key_missing_and_is_not_created(self, key_path: Path) -> None:
+        keystore = FileKeystore(key_path)
+        with pytest.raises(VaultKeyMissing):
+            keystore.seal(b"x", aad=AAD)
+        assert not key_path.exists()  # the installer creates it, never a bot
+
+    @pytest.mark.parametrize(
+        "content",
+        [b"", b"not base64 at all!", base64.b64encode(b"too short") + b"\n", base64.b64encode(bytes(33))],
+        ids=["empty", "not_base64", "short", "long"],
+    )
+    def test_a_malformed_key_file_raises_vault_key_missing(self, key_path: Path, content: bytes) -> None:
+        key_path.parent.mkdir(parents=True)
+        key_path.write_bytes(content)
+        key_path.chmod(0o600)
+        with pytest.raises(VaultKeyMissing):
+            FileKeystore(key_path).fingerprint()
+
+    @pytest.mark.parametrize("mode", [0o644, 0o640, 0o604, 0o660], ids=oct)
+    def test_a_key_others_can_read_is_refused(self, key_path: Path, mode: int) -> None:
+        write_master_key(key_path, mode=mode)
+        with pytest.raises(VaultKeyInsecure) as raised:
+            FileKeystore(key_path).fingerprint()
+        assert raised.value.params == {"mode": f"{mode:04o}"}
+
+    def test_a_fixed_key_file_works_without_a_restart(self, key_path: Path) -> None:
+        keystore = FileKeystore(key_path)
+        with pytest.raises(VaultKeyMissing):
+            keystore.fingerprint()
+        write_master_key(key_path)
+        assert len(keystore.fingerprint()) == FINGERPRINT_HEX
+
+    def test_the_key_is_read_once(self, key_path: Path) -> None:
+        write_master_key(key_path)
+        keystore = FileKeystore(key_path)
+        sealed = keystore.seal(b"x", aad=AAD)
+        key_path.unlink()
+        assert keystore.unseal(sealed, aad=AAD, name="k") == b"x"
