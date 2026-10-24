@@ -94,7 +94,7 @@ Shared codes: STR ERR DEF FAC (block files) · MIG (`0001` regenerated at MT) ·
 
 | ID | Item | Unblocks | Status |
 |---|---|---|---|
-| X01 | Telegram: create two bots, the dev private group, dev privacy off (or admin with delete + pin), join-groups off after adding, Telegram 2FA (SPEC §10.3) | T39, T43 | **partial** 2026-10-24 (update: dev privacy off ✓, join-groups off ✓, bot is admin with delete+pin ✓, OWNER_ID written ✓; the group `OrvionX Projects` is still a BASIC group (-5200568577) → must be upgraded to a supergroup, then DEV_GROUP_ID is written): both bots exist (dev `@OrvionXBot`, personal `@OrvionX_AI_Bot`), tokens are in the 0600 env files in DATA (never in git). Still to do: dev privacy off (`can_read_all_group_messages` is false), create the group and add the dev bot as admin, join-groups off, OWNER_ID and DEV_GROUP_ID. **Rotate both tokens before T43** (they were pasted into a chat transcript); T43 takes the new ones through hidden input |
+| X01 | Telegram: create two bots, the dev private group, dev privacy off (or admin with delete + pin), join-groups off after adding, Telegram 2FA (SPEC §10.3) | T39, T43 | **DONE** 2026-10-24: dev `@OrvionXBot` (privacy off, join-groups off, admin with delete+pin in supergroup `OrvionX Projects` -1004347183120), personal `@OrvionX_AI_Bot`; OWNER_ID and DEV_GROUP_ID are in the 0600 env files. **Before T43:** rotate both tokens (they were pasted into a chat transcript); T43 takes the new ones through hidden input. Optional: personal bot join-groups off. |
 | X02 | Second Telegram account for the stranger tests | T39 | **dropped**: the owner has none (2026-10-23). Stranger, leave and privacy are covered offline only (recording aiogram session + fakes, UC-01 offline AC); T39 omits the live stranger case |
 | X03 | Gemini key **and** OpenRouter key (S7 compares both; one key = S7 falls back to its default). Given to `pytest -m live` as env vars, never committed; by chat after T43 | T38 | todo |
 | X04 | Record ≥ 20 mixed-language voice notes (UC-05 set) | T38 | todo |
@@ -255,6 +255,6 @@ Waves: {T70 T71 T72 T73 T74} → {T75 T76} → T77 → T78 → T79.
 ## Blocked
 
 - T38 — waiting on X03 (Gemini + OpenRouter keys) and X04 (20 voice notes); asked 2026-10-23
-- T39 — waiting on X01 (Telegram setup); X02 dropped, X07 approved (2026-10-23)
-- T43 — waiting on X01 and X05 (`pmset`); asked 2026-10-23
+- T39 — X01 done; X02 dropped, X07 approved (2026-10-24); waits only on T34
+- T43 — X01 done; waiting on X05 (`pmset`), the token rotation and the ffmpeg pin
 - X08 (P4) — ChatGPT plan + `codex login` (money: owner decision). Ask at P3 start, so it does not gate T90
