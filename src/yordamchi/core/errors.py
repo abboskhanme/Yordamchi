@@ -81,6 +81,20 @@ class ErrorCode(StrEnum):
     VIDEO_CLIP_INVALID = "video_clip_invalid"
     VIDEO_TOO_LARGE = "video_too_large"
 
+    # --- integrations ---
+    OAUTH_REQUIRED = "oauth_required"
+    OAUTH_REAUTH_REQUIRED = "oauth_reauth_required"
+    OAUTH_CLIENT_METADATA_NEEDED = "oauth_client_metadata_needed"
+    OAUTH_PASTE_TIMED_OUT = "oauth_paste_timed_out"
+    OAUTH_NOT_PENDING = "oauth_not_pending"
+    OAUTH_CALLBACK_INVALID = "oauth_callback_invalid"
+    INTEGRATION_FAILED = "integration_failed"
+    INTEGRATION_NOT_FOUND = "integration_not_found"
+    INTEGRATION_EXISTS = "integration_exists"
+    INTEGRATION_NAME_INVALID = "integration_name_invalid"
+    INTEGRATION_URL_INVALID = "integration_url_invalid"
+    INTEGRATION_ASSIGN_REFUSED = "integration_assign_refused"
+
 
 class YordamchiError(Exception):
     """Base of every error Yordamchi raises on purpose."""
@@ -434,3 +448,89 @@ class VideoTooLarge(DomainError):
 
     def __init__(self, *, limit_mb: int) -> None:
         super().__init__(ErrorCode.VIDEO_TOO_LARGE, limit_mb=limit_mb)
+
+
+# --- integrations ---
+class OAuthRequired(ExternalError):
+    """The MCP server answered 401 and advertises OAuth (`WWW-Authenticate` with resource metadata): run the flow."""
+
+    def __init__(self, *, provider: str) -> None:
+        super().__init__(ErrorCode.OAUTH_REQUIRED, retryable=False, provider=provider)
+
+
+class OAuthReauthRequired(ExternalError):
+    """The authorization server refused the refresh token (expired, revoked, or none was issued)."""
+
+    def __init__(self, *, provider: str) -> None:
+        super().__init__(ErrorCode.OAUTH_REAUTH_REQUIRED, retryable=False, provider=provider)
+
+
+class OAuthClientMetadataNeeded(ExternalError):
+    """The server registers no clients dynamically and `integrations.oauth_client_metadata_url` is empty (CIMD)."""
+
+    def __init__(self, *, provider: str) -> None:
+        super().__init__(ErrorCode.OAUTH_CLIENT_METADATA_NEEDED, retryable=False, provider=provider)
+
+
+class OAuthPasteTimedOut(DomainError):
+    """The owner did not paste the redirect URL back within `integrations.oauth_paste_timeout_min`."""
+
+    def __init__(self, *, name: str, minutes: int) -> None:
+        super().__init__(ErrorCode.OAUTH_PASTE_TIMED_OUT, name=name, minutes=minutes)
+
+
+class OAuthNotPending(DomainError):
+    """A pasted redirect URL arrived while no OAuth flow waits for one (or none with its `state`)."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.OAUTH_NOT_PENDING)
+
+
+class OAuthCallbackInvalid(DomainError):
+    """The pasted text holds no authorization code (an `error=` redirect, or something else entirely)."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.OAUTH_CALLBACK_INVALID)
+
+
+class IntegrationFailed(DomainError):
+    """Validation or a call failed (UC-08 F). `reason` and `fix` are already-rendered Uzbek fragments of the catalog
+    (`S.INTEGRATION_REASONS`, `S.INTEGRATION_FIXES`); `reason_code` stays for code and logs."""
+
+    def __init__(self, *, name: str, reason: str, fix: str, reason_code: str) -> None:
+        super().__init__(ErrorCode.INTEGRATION_FAILED, name=name, reason=reason, fix=fix)
+        self.reason_code = reason_code
+
+
+class IntegrationNotFound(DomainError):
+    def __init__(self, *, name: str) -> None:
+        super().__init__(ErrorCode.INTEGRATION_NOT_FOUND, name=name)
+
+
+class IntegrationExists(DomainError):
+    """An active integration already answers to this name and works; re-adding is for a broken one only."""
+
+    def __init__(self, *, name: str) -> None:
+        super().__init__(ErrorCode.INTEGRATION_EXISTS, name=name)
+
+
+class IntegrationNameInvalid(DomainError):
+    """The name gives no usable slug (`^[a-z][a-z0-9_]{1,30}$` after transliteration)."""
+
+    def __init__(self, *, name: str) -> None:
+        super().__init__(ErrorCode.INTEGRATION_NAME_INVALID, name=name)
+
+
+class IntegrationUrlInvalid(DomainError):
+    """Not an https URL (plain http only for localhost), or it carries credentials in the userinfo part. The URL is
+    not echoed back: it may hold something secret."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.INTEGRATION_URL_INVALID)
+
+
+class IntegrationAssignRefused(DomainError):
+    """The personal bot adds integrations for itself only (SPEC §2.3)."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.INTEGRATION_ASSIGN_REFUSED)

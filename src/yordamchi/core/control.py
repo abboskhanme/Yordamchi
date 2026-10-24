@@ -10,6 +10,10 @@ Everything here is pure except `request()`, the CLI's one socket call. Fail clos
 anything malformed into an error answer, and the CLI reads every answer that is not a well-formed yes
 (`{"allow": true}`; `{"ok": true, "enforce": false}`) as a no. The session token says which executor session is
 calling; it is not a security boundary (SPEC §3.1.1), the gate's forbidden rules are.
+
+The `headers` method (T50) is routed apart from the gate's: `bots/cli/helper.py` asks for one MCP server's auth
+header at connect time (`headers_request`), and the bot answers with `dispatch_headers` behind
+`shared/integrations`. The answer is the only place a token crosses the socket; it never reaches argv or a log.
 """
 
 import json
@@ -25,6 +29,8 @@ from yordamchi.core.errors import YordamchiError
 GATE_CHECK: Final = "gate_check"
 SECRET_BLOCKED: Final = "secret_blocked"  # noqa: S105  # a method name, not a secret
 GATE_METHODS: Final = frozenset({GATE_CHECK, SECRET_BLOCKED})
+HEADERS: Final = "headers"
+MAX_HEADERS: Final = 16
 MAX_LINE_BYTES: Final = 64 * 1024
 MAX_ARGS: Final = 1024
 
@@ -73,6 +79,22 @@ class SecretAnswer:
 REFUSED: Final = GateAnswer(allow=False, reason="no_answer")
 
 
+@dataclass(frozen=True, slots=True)
+class HeadersRequest:
+    """`yordamchi-helper headers`: the auth header for MCP server `server_name` of the calling session."""
+
+    server_name: str
+    session_token: str = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class HeadersAnswer:
+    """The headers to send, or an `error_code` (snake_case, for logs; the helper then prints nothing and fails)."""
+
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    error_code: str = ""
+
+
 def _line(document: Mapping[str, object]) -> bytes:
     return json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode() + b"\n"
 
@@ -103,6 +125,10 @@ def secret_blocked_request(report: SecretBlocked) -> bytes:
     )
 
 
+def headers_request(request: HeadersRequest) -> bytes:
+    return _line({"method": HEADERS, "server_name": request.server_name, "session_token": request.session_token})
+
+
 def _object(line: bytes | None) -> dict[str, object] | None:
     if line is None or len(line) > MAX_LINE_BYTES:
         return None
@@ -129,6 +155,26 @@ def read_secret_answer(line: bytes | None) -> SecretAnswer | None:
     if document is None or document.get("ok") is not True:
         return None
     return SecretAnswer(ok=True, enforce=document.get("enforce") is not False)
+
+
+def read_headers_answer(line: bytes | None) -> dict[str, str] | None:
+    """The bot's answer to `headers`: an object of string headers (empty for a server without auth), or None (no
+    answer, an error, anything malformed). A header name or value holding a line break is refused, so nothing can be
+    smuggled into a request."""
+    document = _object(line)
+    headers = document.get("headers") if document is not None else None
+    if not isinstance(headers, dict) or len(headers) > MAX_HEADERS:
+        return None
+    clean: dict[str, str] = {}
+    for name, value in headers.items():
+        if not _header_safe(name) or not _header_safe(value):
+            return None
+        clean[name] = value
+    return clean
+
+
+def _header_safe(text: object) -> bool:
+    return isinstance(text, str) and 0 < len(text) <= 8192 and not any(char in text for char in "\r\n\0")
 
 
 # --- the bot side -----------------------------------------------------------------------------------------------
@@ -168,6 +214,20 @@ def parse_request(line: bytes) -> GateCheck | SecretBlocked:
     raise ProtocolError("unknown_method")
 
 
+def parse_headers_request(line: bytes) -> HeadersRequest:
+    """One `headers` request line → its typed request. `ProtocolError` for anything else."""
+    document = _object(line)
+    if document is None or document.get("method") != HEADERS:
+        raise ProtocolError("bad_request")
+    return HeadersRequest(_text(document, "server_name", limit=64), _text(document, "session_token", limit=256))
+
+
+def headers_answer_line(answer: HeadersAnswer) -> bytes:
+    if answer.error_code:
+        return error_line(answer.error_code)
+    return _line({"headers": dict(answer.headers)})
+
+
 def gate_answer_line(answer: GateAnswer) -> bytes:
     return _line({"allow": answer.allow, "reason": answer.reason})
 
@@ -196,6 +256,20 @@ async def dispatch(line: bytes, *, handlers: GateHandlers) -> bytes:
         if isinstance(request, GateCheck):
             return gate_answer_line(await handlers.gate_check(request))
         return secret_answer_line(await handlers.secret_blocked(request))
+    except ProtocolError as error:
+        return error_line(error.code)
+    except YordamchiError as error:
+        return error_line(error.code.value)
+
+
+type HeadersHandler = Callable[[HeadersRequest], Awaitable[HeadersAnswer]]
+
+
+async def dispatch_headers(line: bytes, *, handler: HeadersHandler) -> bytes:
+    """One `headers` request line → one answer line; the socket server routes `method_of(line) == HEADERS` here.
+    Malformed requests and expected failures (`YordamchiError`) become `{"error_code": …}`."""
+    try:
+        return headers_answer_line(await handler(parse_headers_request(line)))
     except ProtocolError as error:
         return error_line(error.code)
     except YordamchiError as error:

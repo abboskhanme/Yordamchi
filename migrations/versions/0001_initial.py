@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 13:26:44.832987
+Create Date: 2026-10-24 14:49:36.597050
 """
 
 from collections.abc import Sequence
@@ -100,6 +100,36 @@ def upgrade() -> None:
     )
     with op.batch_alter_table("health_events", schema=None) as batch_op:
         batch_op.create_index("ix_health_events_bot_at", ["bot", "at"], unique=False)
+
+    op.create_table(
+        "integrations",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("slug", sa.String(length=32), nullable=False),
+        sa.Column("display_name", sa.String(length=64), nullable=False),
+        sa.Column("kind", sa.String(length=16), nullable=False),
+        sa.Column("url", sa.String(length=500), nullable=False),
+        sa.Column("description", sa.String(length=200), nullable=False),
+        sa.Column("auth", sa.String(length=16), nullable=False),
+        sa.Column("header_name", sa.String(length=64), nullable=True),
+        sa.Column("secret_id", sa.Integer(), nullable=True),
+        sa.Column("bots_json", sa.Text(), nullable=False),
+        sa.Column("tool_policy_json", sa.Text(), nullable=False),
+        sa.Column("tools_cache_json", sa.Text(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("status_code", sa.String(length=48), nullable=True),
+        sa.Column("last_validated_at", sa.DateTime(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("removed_at", sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_integrations")),
+    )
+    with op.batch_alter_table("integrations", schema=None) as batch_op:
+        batch_op.create_index(
+            "uq_integrations_slug_active",
+            ["slug"],
+            unique=True,
+            sqlite_where=sa.text("removed_at IS NULL"),
+            postgresql_where=sa.text("removed_at IS NULL"),
+        )
 
     op.create_table(
         "kv_state",
@@ -383,6 +413,23 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f("ix_inbound_updates_burst_id"), ["burst_id"], unique=False)
 
     op.create_table(
+        "oauth_clients",
+        sa.Column("integration_id", sa.Integer(), nullable=False),
+        sa.Column("issuer", sa.String(length=200), nullable=True),
+        sa.Column("client_id", sa.String(length=200), nullable=False),
+        sa.Column("ciphertext", sa.LargeBinary(), nullable=True),
+        sa.Column("nonce", sa.LargeBinary(length=12), nullable=True),
+        sa.Column("key_fp", sa.String(length=16), nullable=False),
+        sa.Column("expires_at", sa.DateTime(), nullable=True),
+        sa.Column("last_refresh_at", sa.DateTime(), nullable=True),
+        sa.Column("refresh_failures", sa.Integer(), nullable=False),
+        sa.Column("reauth_told_at", sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["integration_id"], ["integrations.id"], name=op.f("fk_oauth_clients_integration_id_integrations")
+        ),
+        sa.PrimaryKeyConstraint("integration_id", name=op.f("pk_oauth_clients")),
+    )
+    op.create_table(
         "route_decisions",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("burst_id", sa.Integer(), nullable=True),
@@ -548,6 +595,7 @@ def downgrade() -> None:
         batch_op.drop_index("ix_route_decisions_at")
 
     op.drop_table("route_decisions")
+    op.drop_table("oauth_clients")
     with op.batch_alter_table("inbound_updates", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_inbound_updates_burst_id"))
         batch_op.drop_index("ix_inbound_updates_bot_status_update_id")
@@ -596,6 +644,14 @@ def downgrade() -> None:
 
     op.drop_table("message_links")
     op.drop_table("kv_state")
+    with op.batch_alter_table("integrations", schema=None) as batch_op:
+        batch_op.drop_index(
+            "uq_integrations_slug_active",
+            sqlite_where=sa.text("removed_at IS NULL"),
+            postgresql_where=sa.text("removed_at IS NULL"),
+        )
+
+    op.drop_table("integrations")
     with op.batch_alter_table("health_events", schema=None) as batch_op:
         batch_op.drop_index("ix_health_events_bot_at")
 

@@ -698,6 +698,107 @@ TTS_REASON_NO_FFMPEG = Msg("ffmpeg o'rnatilmagan")
 TTS_REASON_ENCODE = Msg("ovozni Telegram formatiga o'girib bo'lmadi")
 TTS_REASON_SUMMARY = Msg("ovoz uchun qisqa matnni tayyorlab bo'lmadi")
 
+# --- integrations ---
+# UC-08, SPEC §3.2.10. Integrations belong to Yordamchi (its registry and vault), never to a Claude account.
+INTEGRATION_ADDED = Msg("«{name}» ulandi ({bots}). Vositalar: {tools}.")
+INTEGRATION_TOOL = Msg("{tool}")
+INTEGRATION_TOOL_READ_ONLY = Msg("{tool} (faqat o'qish)")
+INTEGRATION_NO_TOOLS = Msg("vosita yo'q")
+INTEGRATION_RECONNECTED = Msg("«{name}» qayta ulandi. Vositalar: {tools}.")
+API_KEY_ADDED = Msg("«{name}» API kaliti saqlandi ({bots}): {url}. Botlar uni faqat o'qish uchun ishlatadi.")
+INTEGRATION_LIST_HEAD = Msg("Integratsiyalar:")
+INTEGRATION_LIST_ITEM = Msg("• {name} — {kind}, {bots}: {status} (tekshirildi: {checked})")
+INTEGRATION_LIST_EMPTY = Msg("Hozircha integratsiya yo'q. «X'ga ulan: <manzil>» deb yozing.")
+INTEGRATION_NEVER_CHECKED = Msg("hali yo'q")
+INTEGRATION_KINDS: Final[Mapping[str, Msg]] = MappingProxyType({"mcp_http": Msg("MCP"), "api_http": Msg("API kalit")})
+INTEGRATION_STATUSES: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "ok": Msg("ishlayapti"),
+        "auth_failed": Msg("kalit rad etilgan"),
+        "unreachable": Msg("javob bermayapti"),
+        "needs_reauth": Msg("qayta kirish kerak"),
+        "disabled": Msg("o'chirilgan"),
+    }
+)
+INTEGRATION_BOTS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {"dev": Msg("dev bot"), "personal": Msg("shaxsiy bot"), "both": Msg("ikkala bot")}
+)
+INTEGRATION_REMOVED = Msg(
+    "«{name}» o'chirildi: keyingi sessiyalarda bo'lmaydi. 30 kun ichida «{name}'ni qaytar» desangiz, tiklayman."
+)
+INTEGRATION_RESTORED = Msg("«{name}» qaytarildi: keyingi sessiyalarda yana bor.")
+INTEGRATION_RENAMED = Msg("«{old}» endi «{name}» deb ataladi.")
+INTEGRATION_ASSIGNED = Msg("«{name}» endi: {bots}.")
+INTEGRATION_CHECKED = Msg("«{name}»: {status}. Vositalar: {tools}.")
+# The OAuth paste-back flow from the phone (R-43): a localhost redirect cannot open on the phone, so he pastes it.
+OAUTH_LINK = Msg(
+    "«{name}» uchun kirish kerak. Havolani oching, ruxsat bering:\n{url}\n\n"
+    "So'ng ochilmay qolgan sahifa manzilini (http://localhost:{port}/…) shu yerga yuboring. "
+    "{minutes} daqiqa kutaman."
+)
+OAUTH_STILL_WORKING = Msg("«{name}»: kod qabul qilindi, tokenni olyapman — natijani alohida yozaman.")
+OAUTH_REAUTH = Msg(
+    "«{name}»ga kirish muddati tugadi va yangilab bo'lmadi. Qayta ulash uchun «{name}'ga qayta ulan» deb yozing — "
+    "kirish havolasini yuboraman."
+)
+# `IntegrationFailed(name, reason, fix)`: the reason and the fix are picked by a snake_case code.
+INTEGRATION_REASONS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "unreachable": Msg("server javob bermayapti"),
+        "timed_out": Msg("server vaqtida javob bermadi"),
+        "auth_failed": Msg("kalit yoki token rad etildi"),
+        "rate_limited": Msg("server so'rovlar limitini yopdi (429)"),
+        "oauth_failed": Msg("OAuth kirishi yakunlanmadi"),
+        "oauth_client_metadata_needed": Msg("server Client ID Metadata Document talab qiladi"),
+        "oauth_reauth_required": Msg("kirish muddati tugagan"),
+        "oauth_paste_timed_out": Msg("sahifa manzili vaqtida kelmadi"),
+        "protocol": Msg("server MCP tilida javob bermadi"),
+        "secret_unreadable": Msg("saqlangan kalitni ochib bo'lmadi"),
+        "internal": Msg("ichki xato"),
+    }
+)
+INTEGRATION_FIXES: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "unreachable": Msg("Manzilni tekshiring yoki server ishga tushgach qayta yozing."),
+        "timed_out": Msg("Birozdan so'ng qayta urinib ko'ring."),
+        "auth_failed": Msg("Yangi kalit yuboring: «X'ga ulan: <manzil> <kalit>»."),
+        "rate_limited": Msg("Bir necha daqiqadan so'ng qayta urinib ko'ring."),
+        "oauth_failed": Msg("«X'ga qayta ulan» deb yozing — yangi havola yuboraman."),
+        "oauth_client_metadata_needed": Msg(
+            "integrations.oauth_client_metadata_url sozlamasiga statik HTTPS JSON manzilini kiriting."
+        ),
+        "oauth_reauth_required": Msg("«X'ga qayta ulan» deb yozing — yangi havola yuboraman."),
+        "oauth_paste_timed_out": Msg("«X'ga qayta ulan» deb yozing — yangi havola yuboraman."),
+        "protocol": Msg("Bu MCP server manzili ekanini tekshiring (odatda …/mcp bilan tugaydi)."),
+        "secret_unreadable": Msg("Kalitni qayta yuboring."),
+        "internal": Msg("Qayta urinib ko'ring; takrorlansa jurnalga qarayman."),
+    }
+)
+ERR_INTEGRATION_FAILED = Msg("«{name}» ulanmadi: {reason}. {fix}")
+ERR_INTEGRATION_NOT_FOUND = Msg(
+    "«{name}» degan integratsiya yo'q. «integratsiyalar» deb yozsangiz, ro'yxatini beraman."
+)
+ERR_INTEGRATION_EXISTS = Msg("«{name}» allaqachon ulangan va ishlayapti.")
+ERR_INTEGRATION_NAME_INVALID = Msg(
+    "«{name}» nomidan integratsiya nomi chiqmadi: lotin harfi bilan boshlansin, 2–31 belgi bo'lsin."
+)
+ERR_INTEGRATION_URL_INVALID = Msg(
+    "Manzil https:// bilan boshlanishi kerak (http faqat localhost uchun) va ichida login/parol bo'lmasin."
+)
+ERR_INTEGRATION_ASSIGN_REFUSED = Msg("Shaxsiy bot integratsiyani faqat o'zi uchun qo'sha oladi.")
+ERR_OAUTH_REQUIRED = Msg("{provider} OAuth kirishini talab qiladi.")
+ERR_OAUTH_REAUTH_REQUIRED = Msg("{provider}: kirish muddati tugagan. Qayta ulaning.")
+ERR_OAUTH_CLIENT_METADATA_NEEDED = Msg(
+    "{provider} Client ID Metadata Document talab qiladi: integrations.oauth_client_metadata_url sozlamasini kiriting."
+)
+ERR_OAUTH_PASTE_TIMED_OUT = Msg(
+    "«{name}»: {minutes} daqiqada sahifa manzili kelmadi. «{name}'ga qayta ulan» deb yozing — yangi havola yuboraman."
+)
+ERR_OAUTH_NOT_PENDING = Msg("Hozir hech qaysi integratsiya kirish manzilini kutmayapti. Avval «X'ga ulan» deb yozing.")
+ERR_OAUTH_CALLBACK_INVALID = Msg(
+    "Yuborilgan manzilda kirish kodi yo'q. Ruxsat bergach ochilgan sahifa manzilini to'liq yuboring."
+)
+
 
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(

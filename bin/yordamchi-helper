@@ -1,0 +1,5 @@
+#!/bin/sh
+# Yordamchi MCP headersHelper (SPEC §3.2.10 step 6): prints one server's auth headers, fetched from the dev bot over
+# the control socket. No secret is ever on the claude command line; no answer means no headers (exit 1).
+[ -n "$YORDAMCHI_PY" ] || { echo "yordamchi-helper: no headers (python_unknown)" >&2; exit 1; }
+exec "$YORDAMCHI_PY" -I -m yordamchi.bots.cli.helper "$@"

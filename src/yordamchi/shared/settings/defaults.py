@@ -1380,6 +1380,37 @@ TTS_EDGE_MALE_VOICE = Setting(
     doc="Edge TTS voice when voice.gender is male (tts.edge_voice is the female one).",
 )
 
+# --- integrations ---
+# SPEC §3.2.10 step 5 names these inline: refresh when `expires_at - now < 10 min`, a loop every 2 min, and two
+# refused refreshes mark the integration `needs_reauth` (one `S.OAUTH_REAUTH` until fixed).
+INTEGRATIONS_REFRESH_EVERY_S = Setting(
+    "integrations.refresh_every_s",
+    float,
+    120.0,
+    check=Range(30, 3600),
+    group=Group.SCHEDULES,
+    bots=BOTH,
+    doc="How often the owning bot looks for OAuth tokens that are about to expire.",
+)
+INTEGRATIONS_REFRESH_LEAD_MIN = Setting(
+    "integrations.refresh_lead_min",
+    int,
+    10,
+    check=Range(1, 60),
+    group=Group.TIMEOUTS,
+    bots=BOTH,
+    doc="An OAuth token is refreshed once it expires within this many minutes.",
+)
+INTEGRATIONS_REFRESH_FAILURES_MAX = Setting(
+    "integrations.refresh_failures_max",
+    int,
+    2,
+    check=Range(1, 10),
+    group=Group.LIMITS,
+    bots=BOTH,
+    doc="Refused refreshes in a row before the owner is asked to sign in again.",
+)
+
 
 # Every Setting bound above, by key (Registry rejects a duplicate key).
 REGISTRY: Final = Registry.from_namespace(globals())

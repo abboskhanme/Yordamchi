@@ -58,6 +58,7 @@ from yordamchi.personal.artefacts.domain import VideoLimits
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.ports.agent import ToolCall
 from yordamchi.ports.git import Commit, GitStatus
+from yordamchi.ports.mcp import McpTool
 from yordamchi.ports.remote_shell import RemoteResult
 from yordamchi.ports.speech import SpeechAudio, Transcript
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
@@ -1312,3 +1313,34 @@ def make_speech_audio(
 def make_synthesizers(clock: FakeClock | None = None) -> dict[str, FakeSynthesizer]:
     """One scripted fake per TTS provider, keyed as `SharedDeps.synthesizers` expects."""
     return {provider: FakeSynthesizer(provider=provider, clock=clock) for provider in TTS_PROVIDERS}
+
+
+# --- integrations ---
+INTEGRATION_URL: Final = "https://hr.bonvi.example.uz/mcp"
+INTEGRATION_OAUTH_URL: Final = "https://lc.wunderkind.example.uz/mcp"
+INTEGRATION_TOKEN: Final = "bonvi-hr-token-" + "Q7v9Lr2Tz8Wn4Kp6"
+
+
+def make_mcp_tools() -> list[McpTool]:
+    """One read-only and one write tool, as the owner's HR server exposes them."""
+    return [
+        McpTool("employees_list", "List employees", read_only=True),
+        McpTool("salary_set", "Change a salary", read_only=False),
+    ]
+
+
+async def vault_secret(deps: SharedDeps, kind: str, value: str, *, update_id: int = 900) -> SecretRef:
+    """A key the owner pasted, as intake vaults it before any feature sees the message (SPEC §3.2.1 step 3)."""
+    origin = make_owner_origin(deps.bot, update_id=update_id)
+    async with deps.db.uow() as s:
+        (ref,) = await vault_service.add_secrets(
+            s, deps.keystore, origin=origin, secrets=[NewSecret(kind=kind, value=value)], at=deps.clock.now()
+        )
+    return ref
+
+
+def outbox_text(row: OutboxMessage) -> str:
+    assert isinstance(row.payload_json, dict)
+    text = row.payload_json.get("text")
+    assert isinstance(text, str)
+    return text

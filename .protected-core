@@ -15,3 +15,7 @@ githooks/**
 src/yordamchi/bots/cli/shim.py
 src/yordamchi/bots/cli/githook.py
 src/yordamchi/core/control.py
+# T50: the MCP headersHelper and the integrations feature (token sealing, the socket `headers` answer).
+bin/yordamchi-helper
+src/yordamchi/bots/cli/helper.py
+src/yordamchi/shared/integrations/**

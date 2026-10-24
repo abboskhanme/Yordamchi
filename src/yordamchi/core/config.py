@@ -26,6 +26,8 @@ LOG_DIR_VAR: Final = "YORDAMCHI_LOG_DIR"
 # Passed into executor sessions (SPEC §5.3) for the shims and git hooks; the gate forbids the agent to touch them.
 SOCK_VAR: Final = "YORDAMCHI_SOCK"
 SESSION_TOKEN_VAR: Final = "YORDAMCHI_SESSION_TOKEN"  # noqa: S105  # a variable name, not a token
+# Set by Claude Code for a `headersHelper` (code.claude.com/docs/en/mcp): which server the helper is asked about.
+MCP_SERVER_NAME_VAR: Final = "CLAUDE_CODE_MCP_SERVER_NAME"
 
 DEV_KEYS: Final = ("DEV_BOT_TOKEN", "OWNER_ID", "DEV_GROUP_ID")
 PERSONAL_KEYS: Final = ("PERSONAL_BOT_TOKEN", "OWNER_ID", "PERSONAL_GROUP_ID")
@@ -196,6 +198,12 @@ def load_cli_config(environ: Mapping[str, str] | None = None) -> CliConfig:
         session_token=env.get(SESSION_TOKEN_VAR, ""),
         search_path=env.get("PATH", ""),
     )
+
+
+def load_mcp_server_name(environ: Mapping[str, str] | None = None) -> str:
+    """The MCP server a `headersHelper` run is for (T50); empty when unset, and the helper then refuses."""
+    env = os.environ if environ is None else environ
+    return env.get(MCP_SERVER_NAME_VAR, "")
 
 
 def load_personal_config(environ: Mapping[str, str] | None = None, *, home: Path | None = None) -> PersonalConfig:
