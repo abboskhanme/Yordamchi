@@ -1147,7 +1147,7 @@ P2–P4 follow the same pattern: features run in parallel, then wiring last.
 | Key | dev / personal | supervisor |
 |---|---|---|
 | `ProgramArguments` | `DATA/releases/current/.venv/bin/python -I -m yordamchi.bots.<bot>.app` | `DATA/supervisor/current/.venv/bin/python -I -m yordamchi_supervisor` |
-| `EnvironmentVariables` | `YORDAMCHI_ENV_FILE`, `PATH=DATA/releases/current/shims:~/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, `LANG=en_US.UTF-8`, `PYTHONUNBUFFERED=1` | `YORDAMCHI_DATA`, the same PATH without shims |
+| `EnvironmentVariables` | `YORDAMCHI_ENV_FILE`, `PATH=DATA/releases/current/shims:~/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, `LANG=en_US.UTF-8`, `PYTHONUNBUFFERED=1` | `YORDAMCHI_DATA_DIR`, the same PATH without shims |
 | `ProcessType` | `Interactive` (STACK §4.6) | `Standard` |
 | `RunAtLoad` / `KeepAlive` | `true` / `true` (deliberate stops use `launchctl bootout`) | `true` / `true` |
 | `ThrottleInterval` / `ExitTimeOut` | `10` / `20` | `10` / `10` |

@@ -18,3 +18,24 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Optional error codes: `stt_audio_unreadable` (ffmpeg failure) and `stt_model_unavailable` (404 or missing model). Both map to `ProviderUnavailable` today.
 - [ ] `pyproject.toml` C5: confine `httpx` to `yordamchi.adapters.gemini`. It comes in transitively through google-genai.
 - [ ] T34 `app.py`: build `GeminiTranscriber(api_key=<vault reader google_api_key>)` and `OpenRouterTranscriber(api_key=<vault reader openrouter_api_key>, ffmpeg=paths.bin / "ffmpeg")`, and call `aclose()` on both at shutdown.
+
+## From T08 (inbox, audit, vault, cost)
+- [ ] Optional setting `timeouts.ack_s` (float 2.5, Range(0.5, 10), TIMEOUTS, BOTH): add it to SPEC §4.3, to `SPEC_KEYS` in `test_registry` and to the inbox defaults block, then replace `inbox.domain.ACK_TIMEOUT_S` with it.
+- [ ] T14: OwnerOnly mints the `OwnerOrigin`. The handler builds an `IncomingUpdate` (`domain.kind_for_text`) and awaits only `inbox.service.accept_update(deps, origin, update)`. The poller calls `get_poll_offset`, and `advance_poll_offset(deps, ids)` after each batch.
+- [ ] T15: move the calls in `inbox.service._acknowledge` into priority-0 outbox rows inside `_record`'s transaction, and add typing dedupe and repeat (4 s, up to 60 s). **Known gap until then:** a crash after commit and before the ack leaves the key message undeleted.
+- [ ] T16: consume `list_received_updates` and `mark_updates_attached(s, …)`, and add `ForeignKey("bursts.id")` to `inbound_updates.burst_id`.
+- [ ] T34:
+  - `FileKeystore(paths.master_key)`.
+  - `vault.service.publish_secrets(deps)` at startup. `VaultKeyMissing` or `VaultKeyInsecure` → degraded mode, shown in `holat?`. Republish periodically.
+  - The retention scheduler calls `{inbox,audit,vault,cost}.service.apply_retention(deps)`.
+- [ ] T18: read `secret-hashes.json` as `{"sha256": [sorted hex]}`.
+- [ ] T19 / P2: read keys with `vault.service.open_secret(deps, name)`. A newer key of the same kind arrives as `<kind>_2`; the consumer decides whether to retire the old one.
+- [ ] T28: the installer writes `master.key` as base64(32 random bytes) plus a newline, mode 0600, in a 0700 directory (the same format as `tests.factories.write_master_key`).
+- [ ] T42 / core: `core.log.configure` must pin the `aiosqlite` and `sqlalchemy.engine` loggers to ≥ INFO. At DEBUG, aiosqlite logs SQL params, i.e. message content.
+
+## From T23 (supervisor)
+- [ ] T28 plist: `EnvironmentVariables` uses `YORDAMCHI_DATA_DIR` (SPEC §9.1 is fixed). The installer builds the supervisor venv and runs `python -I -m yordamchi_supervisor`. The supervisor plist sets `ExitTimeOut` 10.
+- [ ] T28 `docs/DEPLOY.md`: restore steps (`backups.py` docstring, `test_backups.py::Restore`), where the logs are, the supervisor heartbeat.
+- [ ] T28 check script: `run/supervisor.heartbeat.json` is fresh; `dev.env` is 0600.
+- [ ] **T32 must ship the bot heartbeat writer** (`run/<bot>.heartbeat.json`, written atomically, with `started_at`) before T43. Otherwise the watchdog restarts the dev bot every ~2 min.
+- [ ] Optional: a low-disk alert in the supervisor, as a backstop for when the dev bot is down.
