@@ -242,3 +242,11 @@ question. Correct any line and it changes.
 - [2026-10-24] Assistant rotation → "soft" reasons (20 asks, context > 50k tokens, effort change) keep the warm client answering until the spare is ready; "hard" reasons (higher settings version, changed prompt or schema, broken client) retire it before the ask; a never-asked spare counts as fresh → asks stay warm (live: routing median 1.36 s, report 1.07 s).
 - [2026-10-24] Assistant concurrency and retries → serialised per kind (the wait counts against the timeout); one retry on the spare only when the client died before streaming → no side effects, no tools.
 - [2026-10-24] Warm-process budget → routing live + spare, report live only, settings cold (setting `assistant.warm_clients`) → 6 idle `claude` processes would cost ~1–2.5 GB on a Mac already at pressure level 2.
+
+## Access edge (T14, merged 2026-10-24)
+- [2026-10-24] Rule order → leave any foreign group, supergroup or channel (whoever wrote, the owner too); then drop non-owners, kinds the bots never act on, and the owner outside this bot's chats; admit only message, edit or membership updates from the owner in an own chat → SPEC §3.2.1, D12.
+- [2026-10-24] Callbacks and inline queries → always dropped, the owner's too → there are no buttons (D8).
+- [2026-10-24] Policy read per update from the settings snapshot; strangers cause no DB writes (log ids only); a leave writes one `access_dropped` audit row → changes apply at once, and strangers cannot fill the DB.
+- [2026-10-24] Personal bot chats → the owner's DM plus `access.personal_group_id` when non-zero → SPEC §2.2.
+- [2026-10-24] Polling constants (25 s long poll, 1→30 s backoff with jitter [0.8, 1], 429 waits ≥ `retry_after`) are code, not settings; after a failure, short `timeout=0` probes with a 10 s budget → the watchdog depends on them; resume ≤ 40 s even with hung connections (NFR-REL-03).
+- [2026-10-24] `guarded()` → never raises (re-raises cancellation); the owner notice has a 5 s bound and goes to the bot's home chat if no chat is known; incident id = 8 hex chars → one bad update or job can't stop the bot.

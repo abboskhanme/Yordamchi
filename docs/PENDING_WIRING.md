@@ -21,7 +21,7 @@ after the tasks writing the same files have merged. Remove an item once it is do
 
 ## From T08 (inbox, audit, vault, cost)
 - [ ] Optional setting `timeouts.ack_s` (float 2.5, Range(0.5, 10), TIMEOUTS, BOTH): add it to SPEC §4.3, to `SPEC_KEYS` in `test_registry` and to the inbox defaults block, then replace `inbox.domain.ACK_TIMEOUT_S` with it.
-- [ ] T14: OwnerOnly mints the `OwnerOrigin`. The handler builds an `IncomingUpdate` (`domain.kind_for_text`) and awaits only `inbox.service.accept_update(deps, origin, update)`. The poller calls `get_poll_offset`, and `advance_poll_offset(deps, ids)` after each batch.
+- [x] T14 done: OwnerOnly mints `OwnerOrigin`; the poller handles offsets. Remaining part → see T34 under "From T14".
 - [ ] T15: move the calls in `inbox.service._acknowledge` into priority-0 outbox rows inside `_record`'s transaction, and add typing dedupe and repeat (4 s, up to 60 s). **Known gap until then:** a crash after commit and before the ack leaves the key message undeleted.
 - [ ] T16: consume `list_received_updates` and `mark_updates_attached(s, …)`, and add `ForeignKey("bursts.id")` to `inbound_updates.burst_id`.
 - [ ] T34:
@@ -123,3 +123,16 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] P3 personal `qa` kind:
   - options: WebSearch/WebFetch + SDK servers, `--restricted`, the allowlist hook, `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION`;
   - pool per conversation.
+
+## From T14 (access + bots/common.py)
+- [ ] T34 `bots/<bot>/app.py`:
+  - `dp = common.build_dispatcher(deps, telegram.router)`, with `dp["deps"] = deps`;
+  - run the poller: `aio.forever("poller", lambda: common.run_polling(deps, dp, messenger.bot, heartbeat=<T32 writer>))`;
+  - handlers take `origin: OwnerOrigin`, build `IncomingUpdate`, and await only `inbox.service.accept_update`;
+  - every job runs as `await common.guarded(deps, work(), job="…")`.
+- [ ] T34: the aiogram Message → `IncomingUpdate` translation (attachments, caption, `media_group_id`, `reply_to`) lives in each `bots/<bot>/telegram.py`, because `common.py` is locked.
+- [ ] T32: the heartbeat writer is the `heartbeat` hook (`PollTick(at, updates)`). Still to add: a polling pause mode (heartbeat at least every 30 s while paused) for self-update probation (P2).
+- [ ] T15 (optional): send the `guarded()` owner notice as a priority-0 outbox row.
+- [ ] T28 check script and QOLLANMA:
+  - `DEV_GROUP_ID` must be a `-100…` **supergroup** id. A basic group that Telegram later upgrades changes its id, and the bot would then leave it as foreign.
+  - The owner must not post as an **anonymous admin**: messages then come from `GroupAnonymousBot` and are dropped.
