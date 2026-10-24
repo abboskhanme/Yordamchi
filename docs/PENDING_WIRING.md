@@ -103,3 +103,23 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Optional settings `schedule.projects_scan_s` (120) and `timeouts.git_s` (10) in SPEC §4.3 and `SPEC_KEYS`, replacing the domain constants.
 - [ ] T20: content and fuzzy routing only over `Project.routable`; exact names via `find_project` / `domain.find_projects`; use `ProjectAmbiguous` / `ProjectNotFound`.
 - [ ] **T17b (orchestrator decision, fail closed):** platform Git integrations deploy without a workflow file. If a project has `vercel.json`, `.vercel/project.json`, `netlify.toml`, `render.yaml`, `railway.json`/`railway.toml` or `app.yaml` (App Engine), its default branch counts as deploying. Small change in `dev/projects/domain.py` plus tests; it can ride with T20 or T24.
+
+## From T12 (assistant pool)
+- [ ] T34 `app.py`:
+  - build `ClaudeAssistant(cli_path=default_cli_path(home), search_path=..., sessions_dir=DATA/sessions, clock=SystemClock())`;
+  - call `warm()` at startup and after a settings change;
+  - call `await assistant.close(timeout=...)` at shutdown.
+- [ ] **Memory budget (orchestrator decision 2026-10-24):** keep warm processes few, since this Mac already sits at pressure level 2.
+  - `routing`: live + spare.
+  - `report`: live only (a cold ask is 2.2 s, still within 4 s).
+  - `settings`: no warm client, cold on demand.
+  - Make this a setting `assistant.warm_clients` (dict kind → 0|1|2; defaults routing=2, report=1, settings=0) in SPEC §4.3 / DEF. The pressure guard counts these processes.
+- [ ] Callers (T20, T26, T30, T21):
+  - render `prompts/dev/<kind>_system.md` with the fixed parts only;
+  - pass `instructions` (from `turn_context.md`) and `prompt_version` on every ask;
+  - use `timeouts.<kind>_s` and `models.<kind>`.
+- [ ] Settings: add `models.routing_effort` (default `low`). One cold routing ask at default effort took 7 s.
+- [ ] Executor: switch to `adapters/claude/cli.py` (`probe`, `user_content`) to remove duplicated code (C7 keeps `assistant.py` from importing `executor.py`).
+- [ ] P3 personal `qa` kind:
+  - options: WebSearch/WebFetch + SDK servers, `--restricted`, the allowlist hook, `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION`;
+  - pool per conversation.
