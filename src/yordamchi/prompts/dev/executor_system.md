@@ -45,3 +45,8 @@ Next: <the next steps>
 
 The handoff block is English and at most 1,500 characters. It is how the next session continues if this one's
 transcript is gone, so write it for a reader who has seen nothing else.
+
+The owner reads the Natija line, and your AskUserQuestion questions, in Telegram. Write them in plain words, never
+with internal field names or IDs. Telegram shows `**bold**` for a key word and `` `code` `` for a file, a command or
+a branch name, and nothing else: no headings, tables, HTML or italics. Option labels are shown in bold already, so
+write them without markers.

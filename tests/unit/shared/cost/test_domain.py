@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from tests.factories import make_allowance, make_default_snapshot, make_usage, make_usage_total, usd
+from tests.owner_text import shown
 from yordamchi.ports.mac_host import ClaudeAccount, ClaudeManagerState
 from yordamchi.shared.cost import domain
 from yordamchi.shared.cost.domain import CapLevel, CostView, Period, ProjectTotal, Provider, SentNotice, Usage
@@ -149,11 +150,11 @@ def test_a_jump_past_100_owes_only_the_pause() -> None:
 
 def test_the_notices_say_how_much_and_what_happens_next() -> None:
     [warn] = domain.due_notices([make_allowance(cap_usd=10, spent=usd(8, 4))], set())
-    assert warn.text == (
+    assert shown(warn.text) == (
         "OpenRouter: oylik limitning 80 foizi ishlatildi ($8.04 / $10). $10 ga yetganda pullik chaqiruvlar to'xtaydi."
     )
     [reached] = domain.due_notices([make_allowance(Provider.GOOGLE, cap_usd=40, spent=usd(40, 12))], set())
-    assert reached.text.startswith("Google Gemini: oylik limit ($40) tugadi — $40.12 sarflandi. ")
+    assert shown(reached.text).startswith("Google Gemini: oylik limit ($40) tugadi — $40.12 sarflandi. ")
     assert reached.text.endswith("masalan: «Google Gemini limitini 80 dollar qil».")
 
 
@@ -213,14 +214,14 @@ def test_run_time_is_whole_minutes() -> None:
 def test_the_claude_limits_line_needs_an_active_account() -> None:
     accounts = (ClaudeAccount("owner@example.com", "ok", 42.4, None, None, None, is_active=True),)
     view = CostView(totals=(), projects=(), allowances=(), manager=ClaudeManagerState("a", True, accounts))
-    assert "Claude limiti (ClaudeManager): 5 soat 42% · 7 kun noma'lum" in domain.report_text(view).splitlines()
+    assert "Claude limiti (ClaudeManager): 5 soat 42% · 7 kun noma'lum" in shown(domain.report_text(view)).splitlines()
     idle = CostView(totals=(), projects=(), allowances=(), manager=ClaudeManagerState(None, True, ()))
-    assert not any(line.startswith("Claude limiti") for line in domain.report_text(idle).splitlines())
+    assert not any(line.startswith("Claude limiti") for line in shown(domain.report_text(idle)).splitlines())
 
 
 def test_an_empty_ledger_still_answers_with_zeros() -> None:
     view = CostView(totals=(), projects=(), allowances=(make_allowance(cap_usd=10),))
-    assert domain.report_text(view).splitlines() == [
+    assert shown(domain.report_text(view)).splitlines() == [
         "Xarajat · bugun / 7 kun / shu oy",
         "Pullik API: $0 / $0 / $0",
         "Claude obunasi (API narxida taxmin; obuna doirasida, pul to'lanmaydi): $0 / $0 / $0",
@@ -233,7 +234,7 @@ def test_the_summary_is_one_line_about_the_last_24_hours() -> None:
         Provider.ANTHROPIC_PLAN, "turn", paid=False, today=usd(4, 10), month=usd(90), turns=(3, 3, 40)
     )
     paid = make_usage_total(Provider.OPENROUTER, "stt", paid=True, today=usd(0, 42), month=usd(12, 80))
-    assert domain.summary_text([paid, plan]) == (
+    assert shown(domain.summary_text([paid, plan])) == (
         "Xarajat, so'nggi 24 soat: pullik API $0.42 (shu oy $12.80) · Claude ~$4.10 — obuna doirasida, pul "
         "to'lanmaydi · 3 ta ish"
     )

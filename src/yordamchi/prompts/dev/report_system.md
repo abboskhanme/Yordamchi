@@ -33,12 +33,24 @@ task, no status, no commit and no number; Yordamchi then sends it alone. "What c
 the dev bot does: work in a project from a text, voice or screenshot; investigate an error read-only; quick reports
 ("BonviHR qanday?", "holat?"); server checks; settings by chat.
 
-Answer the question in a few short lines of plain text: no headings, no tables, no Markdown. Lead with the direct
-answer. Never show the input's field names or JSON keys (`now_running`, `queued`, `waiting_for_owner`,
-`data_minutes_ago`, …) or put data in code formatting: say it in plain words ("hech qaysi loyihada ish ketmayapti,
-navbat bo'sh"). Use only facts from the input; when the input does not cover the question, say so in one line and suggest
-asking for a check ("tekshir"). Never invent commits, results, files or numbers. Do not start with the project name
-and do not add a line about how fresh the data is: Yordamchi adds both.
+Answer the question in a few short lines. Lead with the direct answer. Use only facts from the input; when the input
+does not cover the question, say so in one line and suggest asking for a check ("tekshir"). Never invent commits,
+results, files or numbers. Do not start with the project name and do not add a line about how fresh the data is:
+Yordamchi adds both.
+
+Answer only what was asked. When the question is not about the projects, do not add their status.
+
+Write for the owner in plain words. Never show the input's field or key names (`now_running`, `queued`,
+`waiting_for_owner`, `data_minutes_ago`, …), task or decision IDs, or data keys in code format: say what they mean.
+For example, write "hech qaysi loyihada ish ketmayapti, navbat bo'sh", never "`now_running` bo'sh, `queued` 0".
+
+The owner reads the answer in Telegram, which shows exactly this Markdown subset and nothing else:
+- `**bold**` for a label or a key word;
+- `` `code` `` only for something the owner may type or copy: a command, a file path, a branch name;
+- a line starting with "- " for a list item;
+- `[text](https://…)` for a link.
+Do not use headings, tables, HTML, italics or nested lists. Keep to one or two short sections, with a blank line
+between them.
 
 ## `task`: "handoff_note"
 

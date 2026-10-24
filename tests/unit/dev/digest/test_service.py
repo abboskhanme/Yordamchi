@@ -36,6 +36,7 @@ from tests.factories import (
 from tests.fakes.agent import Pause, ToolStep, done_result
 from tests.fakes.assistant import FakeAssistant
 from tests.fakes.clock import FakeClock
+from tests.owner_text import shown
 from yordamchi import prompts
 from yordamchi.core.errors import CallTimedOut, GitFailed, ProjectNotFound, ProviderUnavailable
 from yordamchi.core.paths import Paths
@@ -242,7 +243,7 @@ async def test_a_free_form_report_answers_within_4_s_while_the_turn_runs_and_nev
     assert answer.provider == "claude"
     assert slow.timeouts == [3.5]  # timeouts.report_s, within the 3.5 s budget
     assert answer.text is not None
-    assert answer.text.splitlines() == [
+    assert shown(answer.text).splitlines() == [
         "BonviHR · hozir: «Login sahifasini tuzat», ishlayapti, 12 daq",
         "Login ustida ishlayapti, testlar hali ishga tushmagan.",
         "Ma'lumot: 12 daqiqa oldin",
@@ -273,7 +274,7 @@ async def test_a_plain_status_question_gets_the_template_at_once_while_the_turn_
     assert executor_calls(fakes) == before
     assert fakes.assistant.requests == []
     assert answer.text is not None
-    assert answer.text.splitlines() == [
+    assert shown(answer.text).splitlines() == [
         "BonviHR · hozir: «Login sahifasini tuzat», ishlayapti, 4 daq",
         "Hali natija yo'q",
         "Git: main · origin/main bilan bir xil · toza",
@@ -296,8 +297,8 @@ async def test_a_slow_assistant_is_cut_at_the_budget_and_the_template_answers_wi
     assert fakes.clock.now() - started <= timedelta(seconds=4)
     assert answer.provider is None
     assert answer.text is not None
-    assert answer.text.splitlines()[0] == "BonviHR · hozir ish yo'q"
-    assert "Git: main · origin/main bilan bir xil · toza" in answer.text.splitlines()
+    assert shown(answer.text).splitlines()[0] == "BonviHR · hozir ish yo'q"
+    assert "Git: main · origin/main bilan bir xil · toza" in shown(answer.text).splitlines()
 
 
 async def test_an_assistant_failure_answers_with_the_template(
@@ -312,7 +313,7 @@ async def test_an_assistant_failure_answers_with_the_template(
 
     assert (answer.plan.mode, answer.provider) == (ReportMode.ASSISTANT, None)
     assert answer.text is not None
-    assert answer.text.splitlines()[-1] == "Ma'lumot: hozirgina"
+    assert shown(answer.text).splitlines()[-1] == "Ma'lumot: hozirgina"
 
 
 async def test_while_a_handoff_note_is_being_written_free_form_reports_take_the_template(
@@ -363,7 +364,7 @@ async def test_every_report_ends_with_how_fresh_its_data_is(
     answer = await service.answer_report(report_deps(dev_deps), digest_state, make_report_question("holat"))
 
     assert answer.text is not None
-    assert answer.text.splitlines()[-1] == "Ma'lumot: 3 daqiqa oldin"
+    assert shown(answer.text).splitlines()[-1] == "Ma'lumot: 3 daqiqa oldin"
     assert not answer.refreshed
 
 
@@ -385,7 +386,7 @@ async def test_a_stale_digest_is_refreshed_first_and_the_report_says_so(
     assert answer.refreshed
     assert [call[0] for call in fakes.git.calls][:2] == ["status", "log"]
     assert answer.text is not None
-    lines = answer.text.splitlines()
+    lines = shown(answer.text).splitlines()
     assert "Git: main · 1 commit push qilinmagan · toza" in lines
     assert "Bugun: 2 commit — «add report»; «fix login»" in lines
     assert lines[-1] == "Ma'lumot: eskirgan edi (45 daqiqa oldin) — hozir yangiladim"
@@ -399,7 +400,7 @@ async def test_a_first_report_collects_the_digest_and_says_so(
     answer = await service.answer_report(report_deps(dev_deps), digest_state, make_report_question("holat"))
 
     assert answer.text is not None
-    assert answer.text.splitlines()[-1] == "Ma'lumot: hozir yig'dim"
+    assert shown(answer.text).splitlines()[-1] == "Ma'lumot: hozir yig'dim"
 
 
 async def test_a_stale_digest_whose_refresh_times_out_answers_from_the_old_data_and_says_so(
@@ -414,7 +415,7 @@ async def test_a_stale_digest_whose_refresh_times_out_answers_from_the_old_data_
 
     assert not answer.refreshed
     assert answer.text is not None
-    assert answer.text.splitlines()[-1] == "Ma'lumot: 45 daqiqa oldin — yangilab bo'lmadi"
+    assert shown(answer.text).splitlines()[-1] == "Ma'lumot: 45 daqiqa oldin — yangilab bo'lmadi"
     assert (await stored(dev_deps)).checked_at == checked  # nothing was written
 
 
@@ -430,7 +431,7 @@ async def test_a_report_never_waits_for_a_refresh_already_running(
         )
 
     assert answer.text is not None
-    assert answer.text.splitlines()[-1] == "Ma'lumot: 45 daqiqa oldin — yangilab bo'lmadi"
+    assert shown(answer.text).splitlines()[-1] == "Ma'lumot: 45 daqiqa oldin — yangilab bo'lmadi"
 
 
 async def test_an_unreadable_repository_is_reported_as_such(
@@ -443,7 +444,7 @@ async def test_an_unreadable_repository_is_reported_as_such(
 
     assert digest.git.error_code == "git_failed"
     assert answer.text is not None
-    assert "Git: o'qib bo'lmadi" in answer.text.splitlines()
+    assert "Git: o'qib bo'lmadi" in shown(answer.text).splitlines()
 
 
 async def test_keys_in_commit_subjects_never_reach_the_row_or_the_owner(
@@ -520,7 +521,7 @@ async def test_a_stopped_turn_refreshes_its_project_digest_too(
     await until(refreshed, what="digest refreshed after the stop")
     answer = await service.answer_report(report_deps(dev_deps), digest_state, make_report_question("holat"))
     assert answer.text is not None
-    assert answer.text.splitlines()[:2] == [
+    assert shown(answer.text).splitlines()[:2] == [
         "BonviHR · hozir ish yo'q",
         "Oxirgi topshiriq (14:00) to'xtatilgan: «Login sahifasini tuzat»",
     ]
@@ -683,7 +684,7 @@ async def test_a_cross_project_question_is_answered_from_every_digest_at_once(
     assert fakes.git.calls == []  # fresh digests: no git, no model
     assert fakes.assistant.requests == []
     assert answer.text is not None
-    assert answer.text.splitlines() == [
+    assert shown(answer.text).splitlines() == [
         "Bugun o'zgargan loyihalar: 2 ta",
         "• BonviHR: 1 commit (oxirgisi: «fix login»)",
         "• HRMentor: 2 commit (oxirgisi: «add tests»)",
@@ -733,7 +734,7 @@ async def test_stale_digests_of_active_projects_are_refreshed_for_a_cross_projec
 
     assert answer.refreshed
     assert answer.text is not None
-    assert answer.text.splitlines()[-1] == "Ma'lumot: eskirgan edi (40 daqiqa oldin) — hozir yangiladim"
+    assert shown(answer.text).splitlines()[-1] == "Ma'lumot: eskirgan edi (40 daqiqa oldin) — hozir yangiladim"
 
 
 # --- polling git ----------------------------------------------------------------------------------------------------
@@ -816,6 +817,7 @@ async def test_server_status_is_answered_from_fresh_checks(
         dev_deps, digest_state, make_report_question("serverlar qanday?", None, intent=Intent.SERVER_STATUS)
     )
 
-    assert answer.text == (
+    assert answer.text is not None
+    assert shown(answer.text) == (
         "Serverlar: db ✗ disk 95% (12 daqiqa oldin), web ✓ (5 daqiqa oldin)\nMa'lumot: 12 daqiqa oldin"
     )

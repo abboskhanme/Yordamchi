@@ -14,6 +14,10 @@ Text is scrubbed twice (NFR-SEC-03): when the row is written, and again just bef
 learned in between is masked as well. No call can carry a keyboard: the Messenger port has no such parameter, and a
 payload holding any key its op does not allow is refused at enqueue and again before the call (D8, UC-12).
 
+Rows hold the Markdown subset (`domain.render`); a text is rendered as Telegram HTML at its call. Should Telegram
+still refuse to parse it (`MarkupRejected`), the same call goes once more with the markers stripped and no parse
+mode, and `outbox_markup_rejected` is logged. Captions always go stripped: the port takes no parse mode for them.
+
     async with deps.db.uow() as s:
         decision_id = await store.add_decision(s, …)
         await outbox.enqueue_text(s, bot=deps.bot, chat_id=group, text=S.DECISION_ASK(…), kind=Kind.DECISION,
@@ -23,6 +27,7 @@ payload holding any key its op does not allow is refused at enqueue and again be
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +35,7 @@ from typing import Final
 
 from yordamchi.core import redact
 from yordamchi.core import strings as S
-from yordamchi.core.errors import ErrorCode, ExternalError, RateLimited
+from yordamchi.core.errors import ErrorCode, ExternalError, MarkupRejected, RateLimited
 from yordamchi.core.log import get_log
 from yordamchi.core.paths import BotName
 from yordamchi.core.text import BotText
@@ -674,8 +679,32 @@ def _outgoing(stored: str | None) -> tuple[BotText, ParseMode]:
     return redact.scrubbed(rendered.text), ("HTML" if rendered.html else None)
 
 
+def _plain(stored: str | None) -> BotText:
+    """The same text with its markers stripped, for no parse mode; scrubbed before and after, as `_outgoing` is
+    (stripping can join a value that markers had split)."""
+    return redact.scrubbed(domain.plain_text(redact.scrubbed(stored or "")))
+
+
 def _caption(stored: str | None) -> BotText | None:
-    return redact.scrubbed(stored) if stored else None
+    """Captions go without a parse mode (the Messenger port has none for them), so their markers are stripped."""
+    return _plain(stored) if stored else None
+
+
+async def _with_plain_fallback[T](
+    row: Queued, stored: str | None, call: Callable[[BotText, ParseMode], Awaitable[T]]
+) -> T:
+    """`call` with the rendered text. If Telegram cannot parse its HTML, `call` once more with the plain text: the
+    refused request posted nothing, so the resend is no duplicate, and a message with no formatting beats none. Both
+    calls are one attempt, under the row's one bound; a refusal of the plain text too ends the row (`markup_rejected`).
+    """
+    text, mode = _outgoing(stored)
+    try:
+        return await call(text, mode)
+    except MarkupRejected:
+        if mode is None:
+            raise
+    log.warning("outbox_markup_rejected", outbox_id=row.id, op=row.op.value, kind=row.kind.value, chat_id=row.chat_id)
+    return await call(_plain(stored), None)
 
 
 def _id(value: int | None) -> int:
@@ -700,21 +729,28 @@ async def _call(
     if row.op in FILE_OPS:
         return _Outcome(message=await _send_file(deps, row, claimed, payload, file, timeout=timeout))
     if row.op is Op.SEND_TEXT:
-        text, mode = _outgoing(ready.text)
-        sent = await messenger.send_text(
-            chat_id,
-            text,
-            reply_to=claimed.reply_to_message_id,
-            parse_mode=mode,
-            disable_notification=claimed.disable_notification,
-            timeout=timeout,
+        sent = await _with_plain_fallback(
+            row,
+            ready.text,
+            lambda text, mode: messenger.send_text(
+                chat_id,
+                text,
+                reply_to=claimed.reply_to_message_id,
+                parse_mode=mode,
+                disable_notification=claimed.disable_notification,
+                timeout=timeout,
+            ),
         )
         return _Outcome(message=sent)
     if row.op is Op.DELETE:
         return _Outcome(deleted=await messenger.delete(chat_id, _id(ready.message_id), timeout=timeout))
     if row.op is Op.EDIT_TEXT:
-        text, mode = _outgoing(ready.text)
-        await messenger.edit_text(chat_id, _id(ready.message_id), text, parse_mode=mode, timeout=timeout)
+        message_id = _id(ready.message_id)
+        await _with_plain_fallback(
+            row,
+            ready.text,
+            lambda text, mode: messenger.edit_text(chat_id, message_id, text, parse_mode=mode, timeout=timeout),
+        )
     elif row.op is Op.REACT:
         await messenger.react(chat_id, _id(ready.message_id), payload.emoji or "", timeout=timeout)
     elif row.op is Op.MARK_READ:

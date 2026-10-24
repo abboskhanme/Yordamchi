@@ -1,15 +1,17 @@
-Sozlamalar · dev bot: 15 ta, 13 guruh; standartdan farqli — 8 ta.
-• Kirish (egasi va chatlar) — 2 ta: hammasi standart
-• Persona va ohang — 1 ta: persona.dev_tone = qisqa va iliq
-• Promptlar — 1 ta: prompt.dev_executor_extra = Testlarni ishga tushir. kalit: ••••g0Fe
-• Ovoz — 1 ta: hammasi standart
-• Modellar — 1 ta: models.routing = sonnet
-• Routing va loyihalar — 1 ta: projects.aliases = hr → BonviHR
-• Muhim qarorlar (gate) — 2 ta: gate.ask_classes = deploy, server_write, spend
-• Xabar oynalari (burst) — 1 ta: burst.after_media_s = 15 s
-• Timeout'lar — 1 ta: hammasi standart
-• Jadvallar — 1 ta: schedule.quiet_hours = 23:00-07:00
-• Limitlar (xarajat, parallel ish) — 1 ta: hammasi standart
-• Cheklovlar (matn, fayl, xotira) — 1 ta: hammasi standart
-• Serverlar — 1 ta: servers.hosts = bonvi-srv
+**Sozlamalar · dev bot:** 15 ta, 13 guruh; standartdan farqli — 8 ta.
+
+• **Kirish (egasi va chatlar)** — 2 ta: hammasi standart
+• **Persona va ohang** — 1 ta: `persona.dev_tone` = qisqa va iliq
+• **Promptlar** — 1 ta: `prompt.dev_executor_extra` = Testlarni ishga tushir. kalit: ••••g0Fe
+• **Ovoz** — 1 ta: hammasi standart
+• **Modellar** — 1 ta: `models.routing` = sonnet
+• **Routing va loyihalar** — 1 ta: `projects.aliases` = hr → BonviHR
+• **Muhim qarorlar (gate)** — 2 ta: `gate.ask_classes` = deploy, server_write, spend
+• **Xabar oynalari (burst)** — 1 ta: `burst.after_media_s` = 15 s
+• **Timeout'lar** — 1 ta: hammasi standart
+• **Jadvallar** — 1 ta: `schedule.quiet_hours` = 23:00-07:00
+• **Limitlar (xarajat, parallel ish)** — 1 ta: hammasi standart
+• **Cheklovlar (matn, fayl, xotira)** — 1 ta: hammasi standart
+• **Serverlar** — 1 ta: `servers.hosts` = bonvi-srv
+
 To'liq ro'yxat — faylda. O'zgartirish uchun «sozlama:» bilan boshlang, masalan: «sozlama: rasmdan keyin 15 soniya kut»; bekor qilish: «oldingi holatiga qaytar».

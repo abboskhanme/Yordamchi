@@ -4,8 +4,8 @@ Every message either bot sends is a row in `outbox_messages`, written before any
 write idempotent). This module decides everything about those rows; the service only reads, writes and calls:
 
 1. Text (CONVENTIONS §10, the only home): Telegram length in UTF-16 units, the 4,096 / 1,024 split at a paragraph or
-   a code fence, HTML escaping and ``` fences as `<pre>` blocks, and the `.md` file once a text needs more than
-   `outbox.max_parts` messages.
+   a code fence, the Markdown subset as Telegram HTML (and the same text with its markers stripped, for the plain
+   resend and for captions), and the `.md` file once a text needs more than `outbox.max_parts` messages.
 2. Payloads: each op has a fixed key list. Nothing else is stored or sent, so no keyboard or markup can ever reach
    Telegram (D8, UC-12).
 3. Order: per chat, messages (sends and deletes) go strictly by (priority, id); a row that is not due, or still in
@@ -22,6 +22,7 @@ write idempotent). This module decides everything about those rows; the service 
 
 import html
 import re
+from bisect import bisect_right
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta
@@ -278,6 +279,133 @@ def _segments(text: str) -> list[_Segment]:
     return segments
 
 
+# --- text: the Markdown subset -----------------------------------------------------------------------------------
+# Catalog templates and model output write the same small subset, and `render` turns it into Telegram HTML:
+#
+#   **bold** → <b>    `code` → <code>    [text](https://…) → <a href>    a "#", "##" or "###" line → a <b> line
+#   a line that starts with "- " or "* " → "• …"    ``` fences → <pre>
+#
+# An inline construct never crosses a line, and a marker without its partner stays as typed, so whatever comes in,
+# what goes out is balanced HTML. `_` is never markup, nor is a single `*` inside a line. `**` opens only after a
+# space or an opening bracket or quote, and closes only before a space or punctuation, so snake_case, `a*b`,
+# `**kwargs`, `2**10` and `src/**/*.py` go as typed. A backtick inside a word is an apostrophe (o`zgardi), never code.
+# A link is https with a dotted host. Telegram lets bold hold a link but neither hold code (Bot API "Formatting
+# options"): code inside them is plain.
+_BOLD_AFTER: Final = "([\"'«“‘"  # `**` opens after a space or one of these
+_BOLD_BEFORE: Final = ".,:;!?)]\"'»”’·…—–-"  # and closes before a space, one of these, or the end
+_INLINE: Final = re.compile(
+    r"(?<![\w`])`(?=[^`\n]*[^\s`])(?P<code>[^`\n]++)`(?![\w`])"
+    r"|\[(?=[^\[\]\n]*[^\s\[\]])(?P<label>[^\[\]\n]++)\]"
+    r"\((?P<url>https://[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::\d{1,5})?(?:[/?#][^\s()<>\"]*+)?)\)"
+    rf"|(?<![^\s{re.escape(_BOLD_AFTER)}])\*\*(?P<bold>[^\s*/](?:.*?[^\s*])??)\*\*(?![^\s{re.escape(_BOLD_BEFORE)}])"
+)
+_TITLE: Final = re.compile(r"[ \t]{0,3}#{1,3}[ \t]+(?P<title>\S.*?)(?:[ \t]+#+)?[ \t]*")
+_ITEM: Final = re.compile(r"(?P<indent>[ \t]*)[-*][ \t]+(?P<item>.*)")
+BULLET: Final = "• "
+
+
+class _Mark(StrEnum):
+    TEXT = "text"
+    CODE = "code"
+    BOLD = "bold"
+    LINK = "link"
+
+
+@dataclass(frozen=True, slots=True)
+class _Span:
+    """One piece of a line: plain text, or a construct with its content."""
+
+    mark: _Mark
+    text: str = ""  # TEXT and CODE: the characters; LINK: the URL
+    inner: tuple["_Span", ...] = ()  # BOLD and LINK: what they hold
+
+
+def _spans(text: str) -> tuple[_Span, ...]:
+    """`text` (one line, or a construct's content) cut into its constructs, leftmost first."""
+    spans: list[_Span] = []
+    position = 0
+    for match in _INLINE.finditer(text):
+        if match.start() > position:
+            spans.append(_Span(_Mark.TEXT, text[position : match.start()]))
+        if (code := match.group("code")) is not None:
+            spans.append(_Span(_Mark.CODE, code))
+        elif (label := match.group("label")) is not None:
+            spans.append(_Span(_Mark.LINK, match.group("url"), _spans(label)))
+        else:
+            spans.append(_Span(_Mark.BOLD, inner=_spans(match.group("bold"))))
+        position = match.end()
+    if position < len(text):
+        spans.append(_Span(_Mark.TEXT, text[position:]))
+    return tuple(spans)
+
+
+@dataclass(frozen=True, slots=True)
+class _Line:
+    spans: tuple[_Span, ...]
+    title: bool = False  # a `#` line: bold as a whole
+    indent: str | None = None  # a list item: the indent before its bullet
+
+    @property
+    def marked(self) -> bool:
+        return self.title or any(span.mark is not _Mark.TEXT for span in self.spans)
+
+
+def _line(text: str) -> _Line:
+    if (title := _TITLE.fullmatch(text)) is not None:
+        return _Line(_spans(title.group("title")), title=True)
+    if (item := _ITEM.fullmatch(text)) is not None:
+        return _Line(_spans(item.group("item")), indent=item.group("indent"))
+    return _Line(_spans(text))
+
+
+def _html(spans: Iterable[_Span], *, bold: bool = False, link: bool = False) -> str:
+    """Escaped text and tags; inside a bold span or a link, code is plain and bold adds no second tag."""
+    parts: list[str] = []
+    for span in spans:
+        if span.mark is _Mark.TEXT or (span.mark is _Mark.CODE and (bold or link)):
+            parts.append(escape_html(span.text))
+        elif span.mark is _Mark.CODE:
+            parts.append(f"<code>{escape_html(span.text)}</code>")
+        elif span.mark is _Mark.BOLD:
+            inner = _html(span.inner, bold=True, link=link)
+            parts.append(inner if bold else f"<b>{inner}</b>")
+        else:
+            parts.append(f'<a href="{escape_html(span.text)}">{_html(span.inner, bold=bold, link=True)}</a>')
+    return "".join(parts)
+
+
+def _plain(spans: Iterable[_Span]) -> str:
+    """What the owner reads, markers stripped; a link keeps its address after its text."""
+    parts: list[str] = []
+    for span in spans:
+        if span.mark is _Mark.BOLD:
+            parts.append(_plain(span.inner))
+        elif span.mark is _Mark.LINK:
+            parts.append(f"{_plain(span.inner)} ({span.text})")
+        else:
+            parts.append(span.text)
+    return "".join(parts)
+
+
+def _line_html(line: _Line) -> str:
+    if line.title:
+        return f"<b>{_html(line.spans, bold=True)}</b>"
+    body = _html(line.spans)
+    return body if line.indent is None else f"{line.indent}{BULLET}{body}"
+
+
+def _line_plain(line: _Line) -> str:
+    body = _plain(line.spans)
+    return body if line.indent is None else f"{line.indent}{BULLET}{body}"
+
+
+def _pre(segment: _Segment) -> str:
+    body = escape_html("\n".join(segment.lines))
+    if segment.language:
+        return f'<pre><code class="language-{segment.language}">{body}</code></pre>'
+    return f"<pre>{body}</pre>"
+
+
 @dataclass(frozen=True, slots=True)
 class Rendered:
     text: str
@@ -285,22 +413,39 @@ class Rendered:
 
 
 def render(text: str) -> Rendered:
-    """A text with ``` fences becomes HTML: everything escaped, each block a `<pre>`; anything else goes as typed.
+    """The Markdown subset as Telegram HTML: everything escaped, each construct its tag, each fence a `<pre>`.
 
-    Plain text needs no escaping, so a catalog message reaches the owner byte for byte."""
-    if FENCE not in text:
-        return Rendered(text=text, html=False)
+    A text with nothing to mark (a bullet is no tag) goes without a parse mode, as typed but for its bullets: there
+    is nothing for Telegram to refuse, and a catalog line without markup reaches the owner byte for byte."""
+    html_lines: list[str] = []
+    plain_lines: list[str] = []
+    marked = False
+    for segment in _segments(text):
+        if segment.code:
+            html_lines.append(_pre(segment))
+            marked = True
+            continue
+        for raw in segment.lines:
+            line = _line(raw)
+            marked = marked or line.marked
+            html_lines.append(_line_html(line))
+            plain_lines.append(_line_plain(line))
+    if not marked:
+        return Rendered(text="\n".join(plain_lines), html=False)
+    return Rendered(text="\n".join(html_lines), html=True)
+
+
+def plain_text(text: str) -> str:
+    """`text` as the owner would read it, with no markup: the markers stripped, a link as "text (address)", a code
+    block as its lines. The resend after Telegram refused the HTML, and every caption (they go without a parse mode).
+    Never longer than `text`, so whatever fits as Markdown fits as plain text."""
     lines: list[str] = []
     for segment in _segments(text):
-        if not segment.code:
-            lines.extend(escape_html(line) for line in segment.lines)
-            continue
-        body = escape_html("\n".join(segment.lines))
-        if segment.language:
-            lines.append(f'<pre><code class="language-{segment.language}">{body}</code></pre>')
+        if segment.code:
+            lines.extend(segment.lines)
         else:
-            lines.append(f"<pre>{body}</pre>")
-    return Rendered(text="\n".join(lines), html=True)
+            lines.extend(_line_plain(_line(raw)) for raw in segment.lines)
+    return "\n".join(lines)
 
 
 # --- text: the split ---------------------------------------------------------------------------------------------
@@ -330,6 +475,24 @@ def _hard_cut(text: str, limit: int) -> list[str]:
     return chunks
 
 
+def _words(line: str, limit: int) -> list[str]:
+    """`line` cut at its spaces, but not inside a construct that fits one part: cut in two, it would show its markers
+    as typed (each part is rendered on its own)."""
+    kept = [match.span() for match in _INLINE.finditer(line) if tg_len(match.group()) <= limit]
+    starts = [start for start, _ in kept]
+    words: list[str] = []
+    start = 0
+    index = line.find(" ")
+    while index >= 0:
+        inside = bisect_right(starts, index) - 1
+        if inside < 0 or index >= kept[inside][1]:
+            words.append(line[start:index])
+            start = index + 1
+        index = line.find(" ", index + 1)
+    words.append(line[start:])
+    return words
+
+
 def _split_plain(text: str, limit: int, *, words: bool = True) -> list[str]:
     """Lines first, then words (unless `words` is False, for code), then characters."""
     if tg_len(text) <= limit:
@@ -338,7 +501,7 @@ def _split_plain(text: str, limit: int, *, words: bool = True) -> list[str]:
         pieces = [piece for line in text.split("\n") for piece in _split_plain(line, limit, words=words)]
         return _pack(pieces, "\n", limit)
     if words and " " in text.strip():
-        pieces = [piece for word in text.split(" ") for piece in _split_plain(word, limit, words=False)]
+        pieces = [piece for word in _words(text, limit) for piece in _split_plain(word, limit, words=False)]
         return _pack(pieces, " ", limit)
     return _hard_cut(text, limit)
 
@@ -374,7 +537,12 @@ def split_text(text: str, limit: int = TEXT_LIMIT) -> tuple[str, ...]:
     """Parts of at most `limit`, cut at paragraphs and code blocks, then lines, words, characters (NFR-CAP-03).
 
     A text that fits is returned unchanged. A code block cut in two closes its fence at the end of one part and
-    reopens it, with its language, at the start of the next, so every part renders on its own."""
+    reopens it, with its language, at the start of the next, so every part renders on its own. The other constructs
+    never cross a line, and a long line is not cut inside one that fits a part, so no part holds half a construct.
+
+    The split runs on the Markdown, before `render`; each part is rendered when it is sent. Telegram counts a text
+    "after entities parsing" (markers and tags gone, `&lt;` one character), and every construct only drops
+    characters (a bullet replaces "-" one for one), so a part within `limit` is within it as Telegram counts too."""
     if limit < MIN_SPLIT_LIMIT:
         msg = f"split limit must be at least {MIN_SPLIT_LIMIT}"
         raise ValueError(msg)

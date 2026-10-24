@@ -7,6 +7,7 @@ import pytest
 
 from tests.factories import agent_question, make_part, make_turn_input, make_voice_part
 from tests.fakes.clock import DEFAULT_START
+from tests.owner_text import shown
 from yordamchi.core import strings as S
 from yordamchi.core.json_value import JsonValue
 from yordamchi.dev.questions import domain
@@ -70,27 +71,27 @@ def open_question(
 # --- the owner's message (no buttons, the project first, options numbered) ----------------------------------------
 def test_one_question_starts_with_the_project_and_numbers_its_options_with_descriptions() -> None:
     text = domain.question_text("BonviHR", DB)
-    assert text.splitlines() == [
+    assert shown(text).splitlines() == [
         "BonviHR · Savol: Qaysi bazadan foydalanamiz?",
         "1. PostgreSQL — ishonchli, production uchun",
         "2. SQLite — oddiy, bitta fayl",
-        S.AGENT_QUESTION_HINT(),
+        shown(S.AGENT_QUESTION_HINT()),
     ]
 
 
 def test_several_questions_are_numbered_with_their_headers_and_a_multi_select_says_so() -> None:
     text = domain.question_text("BonviHR", (*STACK, *EXTRAS))
-    lines = text.splitlines()
+    lines = shown(text).splitlines()
     assert lines[0] == "BonviHR · 3 ta savol:"
     assert lines[1] == "1) Baza: Qaysi bazadan foydalanamiz?"
     assert "2) Framework: Qaysi framework?" in lines
     assert "2. Django" in lines  # an option without a description has no dash
     assert S.AGENT_QUESTION_MULTI() in lines
-    assert lines[-1] == S.AGENT_QUESTIONS_HINT()
+    assert lines[-1] == shown(S.AGENT_QUESTIONS_HINT())
 
 
 def test_an_unreadable_question_still_reaches_the_owner() -> None:
-    assert domain.question_text("BonviHR", ()).splitlines()[0] == "BonviHR · Savol: (savol matni kelmadi)"
+    assert shown(domain.question_text("BonviHR", ())).splitlines()[0] == "BonviHR · Savol: (savol matni kelmadi)"
 
 
 def test_parsing_skips_malformed_entries_and_scrubs_every_text() -> None:

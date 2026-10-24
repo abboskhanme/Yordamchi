@@ -35,6 +35,7 @@ from yordamchi.core.errors import (
     CallTimedOut,
     ConfigInvalid,
     ExternalError,
+    MarkupRejected,
     ProviderUnavailable,
     RateLimited,
 )
@@ -201,7 +202,7 @@ async def test_send_text_wire_format(messenger: TelegramMessenger, session: Reco
     request = session.calls("sendMessage")[0]
     assert request.params == {
         "chat_id": DEV_GROUP,
-        "text": "Onlayn: 09:00",
+        "text": "**Onlayn:** 09:00",
         "parse_mode": "HTML",
         "disable_notification": True,
         # A deleted reply target must not fail the send.
@@ -253,7 +254,7 @@ async def test_files_are_uploaded_as_multipart_with_caption_and_duration(
     request = session.calls("sendVoice")[0]
     assert list(request.uploads.values()) == ["answer.ogg"]
     assert str(request.params["voice"]).startswith("attach://")
-    assert (request.params["caption"], request.params["duration"]) == ("Onlayn: 09:00", 4)
+    assert (request.params["caption"], request.params["duration"]) == ("**Onlayn:** 09:00", 4)
     assert sent.message_id == 1001
 
 
@@ -262,7 +263,7 @@ async def test_send_draft_streams_into_a_private_chat(messenger: TelegramMesseng
     assert session.calls("sendMessageDraft")[0].params == {
         "chat_id": 100000001,
         "draft_id": 42,
-        "text": "Onlayn: 09:00",
+        "text": "**Onlayn:** 09:00",
     }
 
 
@@ -325,7 +326,7 @@ async def test_persistent_server_errors_give_up_retryable_after_the_attempts(
 @pytest.mark.parametrize(
     ("fixture", "error_type"),
     [
-        ("cant_parse_entities", ProviderUnavailable),
+        ("cant_parse_entities", MarkupRejected),  # its own error: the outbox resends the text as plain
         ("reaction_invalid", ProviderUnavailable),
         ("chat_migrated", ProviderUnavailable),
         ("forbidden_bot_kicked", ProviderUnavailable),
@@ -341,6 +342,17 @@ async def test_client_errors_are_never_retried(
         await messenger.react(DEV_GROUP, 9, "\U0001f440", timeout=TIMEOUT)
     assert caught.value.retryable is False
     assert len(session.calls("setMessageReaction")) == 1
+
+
+async def test_html_telegram_cannot_parse_is_a_markup_rejection_and_not_retried(
+    messenger: TelegramMessenger, session: RecordingSession
+) -> None:
+    session.script("sendMessage", Answer.fixture("cant_parse_entities"))
+    with pytest.raises(MarkupRejected) as caught:
+        await messenger.send_text(DEV_GROUP, TEXT, parse_mode="HTML", timeout=TIMEOUT)
+    assert (caught.value.code.value, caught.value.retryable) == ("markup_rejected", False)
+    assert caught.value.params == {"provider": "telegram"}
+    assert len(session.calls("sendMessage")) == 1
 
 
 async def test_an_unknown_send_outcome_is_not_resent(messenger: TelegramMessenger, session: RecordingSession) -> None:

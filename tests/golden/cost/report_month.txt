@@ -1,9 +1,12 @@
-Xarajat · bugun / 7 kun / shu oy
-Pullik API: $0.42 / $3.10 / $12.90
-• Google Gemini: $0.30 / $2.00 / $9.60 · limit $40, 24% ishlatildi
-• OpenRouter: $0.12 / $1.10 / $3.30 · limit $10, 33% ishlatildi
-Nimaga: STT $0.42 / $3.10 / $12.80 · routing $0 / $0 / $0.10
-Claude obunasi (API narxida taxmin; obuna doirasida, pul to'lanmaydi): ~$4.15 / ~$28.40 / ~$97.70
-Ishlar: 3 / 21 / 64 · vaqt: 1 soat 5 daq / 9 soat 0 daq / 31 soat 12 daq
-Claude limiti (ClaudeManager): 5 soat 42% · 7 kun 13%
-Eng faol loyihalar (shu oy; Claude — taxmin): BonviHR — 23 ish, ~$40.10 · HRMentor — 12 ish, ~$20.00 · Yordamchi — 5 ish, ~$8.00 + pullik $0.10
+**Xarajat · bugun / 7 kun / shu oy**
+
+**Pullik API:** $0.42 / $3.10 / $12.90
+• **Google Gemini:** $0.30 / $2.00 / $9.60 · limit $40, 24% ishlatildi
+• **OpenRouter:** $0.12 / $1.10 / $3.30 · limit $10, 33% ishlatildi
+**Nimaga:** STT $0.42 / $3.10 / $12.80 · routing $0 / $0 / $0.10
+
+**Claude obunasi** (API narxida taxmin; obuna doirasida, pul to'lanmaydi): ~$4.15 / ~$28.40 / ~$97.70
+**Ishlar:** 3 / 21 / 64 · vaqt: 1 soat 5 daq / 9 soat 0 daq / 31 soat 12 daq
+**Claude limiti** (ClaudeManager): 5 soat 42% · 7 kun 13%
+
+**Eng faol loyihalar** (shu oy; Claude — taxmin): BonviHR — 23 ish, ~$40.10 · HRMentor — 12 ish, ~$20.00 · Yordamchi — 5 ish, ~$8.00 + pullik $0.10

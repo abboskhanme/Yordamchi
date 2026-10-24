@@ -4,6 +4,14 @@ Import it as `S`: `from yordamchi.core import strings as S`, then `S.HEALTH_ONLI
 calling it with exactly its placeholders returns `BotText`. A message about a project starts with the project name.
 Technical terms stay in English. `ERRORS` maps every `ErrorCode` to its `ERR_<CODE>` entry.
 
+Layout. The outbox renders a small Markdown subset as Telegram HTML (`shared/outbox/domain.render`): `**bold**` for a
+message's title and its labels, `` `code` `` for what the owner may type or copy, `• ` for list items. A blank line
+between sections is a `\\n` at the start of the entry that opens a section (or at the end of a title whose section is
+a run of one entry). Entries sent straight to the Messenger rather than through the outbox stay plain, since there
+nothing renders them: the startup notices, `guarded()` errors (`ERR_*`), voice notices (`STT_*`, `SPEECH_*`), and
+everything `dev/gate` posts. Parameters are not neutralised: a `**…**` pair inside a value (a commit subject, an
+agent's Natija) renders bold too. That is cosmetic only: whatever a value holds, the rendered HTML stays balanced.
+
 Block file (TASKS R2): each P1 feature adds entries only inside its own `# --- <feature> ---` block.
 """
 
@@ -98,22 +106,24 @@ ERR_VAULT_SECRET_NOT_FOUND = Msg("«{name}» degan kalit omborda yo'q.")
 # --- cost ---
 # "xarajat?" (UC-07): each amount is "bugun / 7 kun / shu oy". Paid spend is money; the Claude plan's figure is an
 # API-equivalent estimate within the subscription and is always labelled so.
-COST_HEAD = Msg("Xarajat · bugun / 7 kun / shu oy")
-COST_PAID = Msg("Pullik API: {today} / {week} / {month}")
-COST_PROVIDER = Msg("• {provider}: {today} / {week} / {month} · limit {cap}, {pct}% ishlatildi")
+COST_HEAD = Msg("**Xarajat · bugun / 7 kun / shu oy**")
+COST_PAID = Msg("\n**Pullik API:** {today} / {week} / {month}")
+COST_PROVIDER = Msg("• **{provider}:** {today} / {week} / {month} · limit {cap}, {pct}% ishlatildi")
 COST_PROVIDER_PAUSED = Msg(
-    "• {provider}: {today} / {week} / {month} · limit {cap} tugadi — pullik chaqiruvlar to'xtatilgan"
+    "• **{provider}:** {today} / {week} / {month} · limit {cap} tugadi — pullik chaqiruvlar to'xtatilgan"
 )
-COST_PROVIDER_OFF = Msg("• {provider}: {today} / {week} / {month} · limit $0 — pullik chaqiruvlar o'chirilgan")
-COST_USES = Msg("Nimaga: {uses}")
+COST_PROVIDER_OFF = Msg("• **{provider}:** {today} / {week} / {month} · limit $0 — pullik chaqiruvlar o'chirilgan")
+COST_USES = Msg("**Nimaga:** {uses}")
 COST_USE_ITEM = Msg("{use} {today} / {week} / {month}")
-COST_PLAN = Msg("Claude obunasi (API narxida taxmin; obuna doirasida, pul to'lanmaydi): {today} / {week} / {month}")
-COST_TURNS = Msg("Ishlar: {today} / {week} / {month} · vaqt: {time}")
-COST_CLAUDE_LIMITS = Msg("Claude limiti (ClaudeManager): 5 soat {five} · 7 kun {seven}")
-COST_PROJECTS = Msg("Eng faol loyihalar (shu oy; Claude — taxmin): {projects}")
+COST_PLAN = Msg(
+    "\n**Claude obunasi** (API narxida taxmin; obuna doirasida, pul to'lanmaydi): {today} / {week} / {month}"
+)
+COST_TURNS = Msg("**Ishlar:** {today} / {week} / {month} · vaqt: {time}")
+COST_CLAUDE_LIMITS = Msg("**Claude limiti** (ClaudeManager): 5 soat {five} · 7 kun {seven}")
+COST_PROJECTS = Msg("\n**Eng faol loyihalar** (shu oy; Claude — taxmin): {projects}")
 COST_PROJECT = Msg("{project} — {turns} ish, {estimate}")
 COST_PROJECT_WITH_PAID = Msg("{project} — {turns} ish, {estimate} + pullik {paid}")
-COST_BOTS = Msg("Botlar (shu oy): {bots}")
+COST_BOTS = Msg("\n**Botlar** (shu oy): {bots}")
 COST_BOT_ITEM = Msg("{bot} — pullik {paid}, Claude taxmin {estimate}")
 COST_BOT_DEV = Msg("dev")
 COST_BOT_PERSONAL = Msg("shaxsiy")
@@ -133,17 +143,17 @@ COST_PERCENT = Msg("{value}%")
 COST_UNKNOWN = Msg("noma'lum")
 # NFR-COST-02: once per provider, month and cap each. The pause names what still works and how to raise the cap.
 COST_CAP_WARNING = Msg(
-    "{provider}: oylik limitning {pct} foizi ishlatildi ({spent} / {cap}). {cap} ga yetganda pullik chaqiruvlar "
+    "**{provider}:** oylik limitning {pct} foizi ishlatildi ({spent} / {cap}). {cap} ga yetganda pullik chaqiruvlar "
     "to'xtaydi."
 )
 COST_CAP_REACHED = Msg(
-    "{provider}: oylik limit ({cap}) tugadi — {spent} sarflandi. Pullik chaqiruvlar to'xtatildi: ovozni boshqa "
+    "**{provider}:** oylik limit ({cap}) tugadi — {spent} sarflandi. Pullik chaqiruvlar to'xtatildi: ovozni boshqa "
     "provayder taniydi (u ham bo'lmasa, aytaman), ovozli javoblar Edge orqali yoki faqat matnda bo'ladi. Limitni "
     "oshirish uchun ayting, masalan: «{provider} limitini {suggested} dollar qil»."
 )
 # `schedule.cost_summary_at` (off by default): one line a day.
 COST_SUMMARY = Msg(
-    "Xarajat, so'nggi 24 soat: pullik API {paid} (shu oy {month}) · Claude {estimate} — obuna doirasida, pul "
+    "**Xarajat, so'nggi 24 soat:** pullik API {paid} (shu oy {month}) · Claude {estimate} — obuna doirasida, pul "
     "to'lanmaydi · {turns} ta ish"
 )
 # Why a voice note skipped a provider (the voice failure line names it: "Google Gemini — oylik xarajat …").
@@ -157,6 +167,9 @@ ERR_COST_CAP_REACHED = Msg(
 # The caption of a `.md` file that replaces a text longer than `outbox.max_parts` messages (NFR-CAP-03). `summary`
 # is the text's first line, so a project message still starts with the project name.
 OUTBOX_TEXT_IN_FILE = Msg("{summary} — to'liq matn ilovadagi faylda.")
+# Telegram refused a message's formatting. The outbox resends that message as plain text, so the owner reads this
+# only if a send without a parse mode is refused the same way.
+ERR_MARKUP_REJECTED = Msg("{provider} xabarning formatini qabul qilmadi (qalin matn, kod yoki havola).")
 
 # --- burst ---
 # --- projects ---
@@ -172,14 +185,14 @@ PROJECT_ARCHIVED = Msg("{project}: arxivga oldim — endi faqat aniq nomi bilan 
 PROJECT_UNARCHIVED = Msg("{project}: arxivdan chiqardim.")
 PROJECT_DESCRIBED = Msg("{project}: tavsifni yangiladim.")
 # "loyihalar" (UC-18, P1 basic): a summary line, one line per active project, then the archived and vanished ones.
-PROJECTS_SUMMARY = Msg("Loyihalar: {active} ta faol, {archived} ta arxivda.")
+PROJECTS_SUMMARY = Msg("**Loyihalar:** {active} ta faol, {archived} ta arxivda.")
 PROJECTS_NONE = Msg("{root} ichida loyiha topilmadi.")
-PROJECTS_ITEM = Msg("• {project}")
+PROJECTS_ITEM = Msg("• **{project}**")
 PROJECTS_ITEM_DESCRIPTION = Msg(" — {description}")
 PROJECTS_ITEM_ALIASES = Msg(" (yana: {aliases})")
 PROJECTS_ITEM_WORKTREE = Msg(" (worktree)")
-PROJECTS_ARCHIVED_LIST = Msg("Arxivda: {projects}")
-PROJECTS_MISSING_LIST = Msg("Papkasi topilmadi: {projects}")
+PROJECTS_ARCHIVED_LIST = Msg("\n**Arxivda:** {projects}")
+PROJECTS_MISSING_LIST = Msg("**Papkasi topilmadi:** {projects}")
 
 
 # --- gate ---
@@ -405,18 +418,18 @@ SETTINGS_GROUPS: Final[Mapping[str, Msg]] = MappingProxyType(
         "servers": Msg("Serverlar"),
     }
 )
-SETTINGS_LIST_HEAD = Msg("Sozlamalar · {bot} bot: {total} ta, {groups} guruh; standartdan farqli — {changed} ta.")
-SETTINGS_LIST_GROUP = Msg("• {group} — {count} ta: {items}")
+SETTINGS_LIST_HEAD = Msg("**Sozlamalar · {bot} bot:** {total} ta, {groups} guruh; standartdan farqli — {changed} ta.\n")
+SETTINGS_LIST_GROUP = Msg("• **{group}** — {count} ta: {items}")
 SETTINGS_LIST_DEFAULTS = Msg("hammasi standart")
-SETTINGS_LIST_ITEM = Msg("{key} = {value}")
+SETTINGS_LIST_ITEM = Msg("`{key}` = {value}")
 SETTINGS_LIST_FOOT = Msg(
-    "To'liq ro'yxat — faylda. O'zgartirish uchun «sozlama:» bilan boshlang, masalan: «sozlama: rasmdan keyin 15 "
+    "\nTo'liq ro'yxat — faylda. O'zgartirish uchun «sozlama:» bilan boshlang, masalan: «sozlama: rasmdan keyin 15 "
     "soniya kut»; bekor qilish: «oldingi holatiga qaytar»."
 )
-SETTINGS_FILE_HEAD = Msg("Sozlamalar · {bot} bot — to'liq ro'yxat ({total} ta)")
+SETTINGS_FILE_HEAD = Msg("**Sozlamalar · {bot} bot — to'liq ro'yxat ({total} ta)**")
 SETTINGS_FILE_GROUP = Msg("## {group}")
-SETTINGS_FILE_ITEM = Msg("• {key} = {value} — standart{options}")
-SETTINGS_FILE_ITEM_CHANGED = Msg("• {key} = {value} — o'zgartirilgan, standart: {default}{options}")
+SETTINGS_FILE_ITEM = Msg("• `{key}` = {value} — standart{options}")
+SETTINGS_FILE_ITEM_CHANGED = Msg("• `{key}` = {value} — o'zgartirilgan, standart: {default}{options}")
 SETTINGS_FILE_OPTIONS = Msg(" · mumkin: {options}")
 
 # --- turns ---
@@ -425,19 +438,19 @@ DELIVERY_RESENT = Msg("{project}: topshiriqni qayta yubordim.")
 DELIVERY_NOTHING_TO_RETRY = Msg("{project}: qayta yuboradigan topshiriq yo'q.")
 ERR_TURN_NOT_FOUND = Msg("#{turn_id} raqamli topshiriq topilmadi.")
 # The one live progress line per project (SPEC §6.2, UC-11): edited at most every `outbox.progress_edit_s`.
-TURN_PROGRESS = Msg("{project} · ishlayapti {minutes} daq · {steps} qadam")
+TURN_PROGRESS = Msg("**{project}** · ishlayapti {minutes} daq · {steps} qadam")
 TURN_PROGRESS_STEP = Msg("• {step}")
-TURN_PROGRESS_FINISHED = Msg("{project} · tugadi · {minutes} daq · {steps} qadam")
-TURN_PROGRESS_STOPPED = Msg("{project} · to'xtatildi · {minutes} daq · {steps} qadam")
-TURN_PROGRESS_PAUSED = Msg("{project} · to'xtab turibdi · {minutes} daq · {steps} qadam")
-TURN_PROGRESS_WAITING = Msg("{project} · javobingizni kutyapti · {minutes} daq · {steps} qadam")
+TURN_PROGRESS_FINISHED = Msg("**{project}** · tugadi · {minutes} daq · {steps} qadam")
+TURN_PROGRESS_STOPPED = Msg("**{project}** · to'xtatildi · {minutes} daq · {steps} qadam")
+TURN_PROGRESS_PAUSED = Msg("**{project}** · to'xtab turibdi · {minutes} daq · {steps} qadam")
+TURN_PROGRESS_WAITING = Msg("**{project}** · javobingizni kutyapti · {minutes} daq · {steps} qadam")
 # The final result, a new message (SPEC §6.2 golden format).
-TURN_RESULT_NATIJA = Msg("{project} · Natija: {natija}")
+TURN_RESULT_NATIJA = Msg("**{project} · Natija:** {natija}")
 TURN_RESULT_NO_NATIJA = Msg("(natija yozilmadi)")
-TURN_RESULT_FILES = Msg("Fayllar: {count} ta ({names})")
-TURN_RESULT_NO_FILES = Msg("Fayllar: o'zgarmadi")
-TURN_RESULT_TESTS = Msg("Testlar: {status}")
-TURN_RESULT_TESTS_SUMMARY = Msg("Testlar: {status} ({summary})")
+TURN_RESULT_FILES = Msg("\n**Fayllar:** {count} ta ({names})")
+TURN_RESULT_NO_FILES = Msg("\n**Fayllar:** o'zgarmadi")
+TURN_RESULT_TESTS = Msg("**Testlar:** {status}")
+TURN_RESULT_TESTS_SUMMARY = Msg("**Testlar:** {status} ({summary})")
 TESTS_WORDS: Final[Mapping[str, Msg]] = MappingProxyType(
     {
         "passed": Msg("o'tdi"),
@@ -446,14 +459,14 @@ TESTS_WORDS: Final[Mapping[str, Msg]] = MappingProxyType(
         "unknown": Msg("noma'lum"),
     }
 )
-TURN_RESULT_COMMIT_PUSHED = Msg("Commit: {sha} · push: bajarildi ({upstream})")
-TURN_RESULT_COMMIT_UNPUSHED = Msg("Commit: {sha} · push: qilinmadi")
-TURN_RESULT_NO_COMMIT = Msg("Commit: yo'q")
-TURN_RESULT_PUSH_MISSED = Msg("Commit: commit/push qilinmadi")
-TURN_RESULT_GIT_UNKNOWN = Msg("Commit: git holatini o'qib bo'lmadi")
-TURN_RESULT_TIME = Msg("Vaqt: {minutes} daq")
+TURN_RESULT_COMMIT_PUSHED = Msg("**Commit:** `{sha}` · push: bajarildi ({upstream})")
+TURN_RESULT_COMMIT_UNPUSHED = Msg("**Commit:** `{sha}` · push: qilinmadi")
+TURN_RESULT_NO_COMMIT = Msg("**Commit:** yo'q")
+TURN_RESULT_PUSH_MISSED = Msg("**Commit:** commit/push qilinmadi")
+TURN_RESULT_GIT_UNKNOWN = Msg("**Commit:** git holatini o'qib bo'lmadi")
+TURN_RESULT_TIME = Msg("**Vaqt:** {minutes} daq")
 # A turn the executor started on its own after background work (no instruction owns it).
-TURN_LATE_NOTE = Msg("{project} · qo'shimcha: {text}")
+TURN_LATE_NOTE = Msg("**{project} · qo'shimcha:** {text}")
 # The scheduler (SPEC §5.6, NFR-CAP-01): a queued turn names its place and why it waits.
 QUEUED = Msg("{project}: navbatga qo'ydim ({position}-o'rin) — {reason}.")
 QUEUE_REASONS: Final[Mapping[str, Msg]] = MappingProxyType(
@@ -505,16 +518,16 @@ WRONG_TARGET_REVERT_FAILED = Msg(
 # --- questions ---
 # An agent's question (UC-12, SPEC §3.2.2 step 3): the project first, the options numbered "1." with their
 # descriptions. No buttons: the owner answers with a number, an option, his own words or a voice note.
-AGENT_QUESTION = Msg("{project} · Savol: {question}")
-AGENT_QUESTIONS = Msg("{project} · {count} ta savol:")
-AGENT_QUESTION_ITEM = Msg("{number}) {question}")
-AGENT_QUESTION_ITEM_HEADED = Msg("{number}) {header}: {question}")
-AGENT_QUESTION_OPTION = Msg("{number}. {label}")
-AGENT_QUESTION_OPTION_DESCRIBED = Msg("{number}. {label} — {description}")
+AGENT_QUESTION = Msg("**{project} · Savol:** {question}")
+AGENT_QUESTIONS = Msg("**{project} · {count} ta savol:**")
+AGENT_QUESTION_ITEM = Msg("\n**{number})** {question}")
+AGENT_QUESTION_ITEM_HEADED = Msg("\n**{number}) {header}:** {question}")
+AGENT_QUESTION_OPTION = Msg("{number}. **{label}**")
+AGENT_QUESTION_OPTION_DESCRIBED = Msg("{number}. **{label}** — {description}")
 AGENT_QUESTION_MULTI = Msg("Bir nechtasini tanlash mumkin (masalan: 1, 3).")
 AGENT_QUESTION_NO_TEXT = Msg("(savol matni kelmadi)")
-AGENT_QUESTION_HINT = Msg("Javob: raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.")
-AGENT_QUESTIONS_HINT = Msg("Javob: har bir savolga alohida qatorda — raqam, variant nomi yoki o'z so'zingiz.")
+AGENT_QUESTION_HINT = Msg("\n**Javob:** raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.")
+AGENT_QUESTIONS_HINT = Msg("\n**Javob:** har bir savolga alohida qatorda — raqam, variant nomi yoki o'z so'zingiz.")
 # The answer went to the agent; a voice answer is echoed (UC-05).
 QUESTION_ANSWERED = Msg("→ {project}: javob «{answer}»")
 QUESTION_ANSWERED_VOICE = Msg("Ovoz: «{text}» → {project}: javob «{answer}»")
@@ -541,9 +554,9 @@ AGE_DAYS = Msg("{count} kun")
 # A question that needs a fresh look: sent within 2 s, then a read-only investigation turn answers (≤ 3 min).
 CHECKING = Msg("{project} · Tekshiryapman (~{minutes} daqiqa)")
 # One project (`report_project`): the live turn first, then what the digest holds.
-REPORT_TURN = Msg("{project} · hozir: «{title}», {state}, {minutes} daq")
-REPORT_TURN_MORE = Msg("Yana: «{title}», {state}, {minutes} daq")
-REPORT_IDLE = Msg("{project} · hozir ish yo'q")
+REPORT_TURN = Msg("**{project} · hozir:** «{title}», {state}, {minutes} daq")
+REPORT_TURN_MORE = Msg("**Yana:** «{title}», {state}, {minutes} daq")
+REPORT_IDLE = Msg("**{project}** · hozir ish yo'q")
 REPORT_TURN_STATES: Final[Mapping[str, Msg]] = MappingProxyType(
     {
         "starting": Msg("boshlanmoqda"),
@@ -555,19 +568,19 @@ REPORT_TURN_STATES: Final[Mapping[str, Msg]] = MappingProxyType(
         "paused_runaway": Msg("to'xtab turibdi"),
     }
 )
-REPORT_QUEUED = Msg("Navbatda: {count} ta topshiriq")
-REPORT_LAST_RESULT = Msg("Oxirgi natija ({time}): {natija} · Testlar: {tests}")
-REPORT_LAST_ENDED = Msg("Oxirgi topshiriq ({time}) {state}: «{title}»")
+REPORT_QUEUED = Msg("**Navbatda:** {count} ta topshiriq")
+REPORT_LAST_RESULT = Msg("\n**Oxirgi natija** ({time}): {natija} · Testlar: {tests}")
+REPORT_LAST_ENDED = Msg("\n**Oxirgi topshiriq** ({time}) {state}: «{title}»")
 REPORT_ENDED_STATES: Final[Mapping[str, Msg]] = MappingProxyType(
     {
         "failed": Msg("xato bilan tugadi"),
         "interrupted": Msg("to'xtatilgan"),
     }
 )
-REPORT_NO_RESULT = Msg("Hali natija yo'q")
-REPORT_GIT = Msg("Git: {branch} · {sync} · {tree}")
-REPORT_GIT_UNKNOWN = Msg("Git: o'qib bo'lmadi")
-REPORT_GIT_EMPTY = Msg("Git: {branch} · hali commit yo'q")
+REPORT_NO_RESULT = Msg("\nHali natija yo'q")
+REPORT_GIT = Msg("**Git:** {branch} · {sync} · {tree}")
+REPORT_GIT_UNKNOWN = Msg("**Git:** o'qib bo'lmadi")
+REPORT_GIT_EMPTY = Msg("**Git:** {branch} · hali commit yo'q")
 REPORT_GIT_DETACHED = Msg("detached HEAD")
 REPORT_GIT_EVEN = Msg("{upstream} bilan bir xil")
 REPORT_GIT_AHEAD = Msg("{count} commit push qilinmagan")
@@ -576,37 +589,39 @@ REPORT_GIT_DIVERGED = Msg("{ahead} commit oldinda, {behind} commit orqada")
 REPORT_GIT_NO_UPSTREAM = Msg("upstream yo'q")
 REPORT_GIT_CLEAN = Msg("toza")
 REPORT_GIT_DIRTY = Msg("{count} fayl commit qilinmagan")
-REPORT_TODAY = Msg("Bugun: {count} commit — {subjects}")
-REPORT_TODAY_CAPPED = Msg("Bugun: {count}+ commit — {subjects}")
-REPORT_LAST_COMMIT = Msg("Bugun commit yo'q. Oxirgisi ({time}): «{subject}»")
+REPORT_TODAY = Msg("**Bugun:** {count} commit — {subjects}")
+REPORT_TODAY_CAPPED = Msg("**Bugun:** {count}+ commit — {subjects}")
+REPORT_LAST_COMMIT = Msg("Bugun commit yo'q. **Oxirgisi** ({time}): «{subject}»")
 REPORT_NO_COMMITS = Msg("So'nggi 7 kunda commit yo'q")
-REPORT_FILES = Msg("O'zgargan fayllar: {count} ta ({names})")
-REPORT_PENDING = Msg("Javobingizni kutyapti: {questions} ta savol, {decisions} ta qaror")
+REPORT_FILES = Msg("**O'zgargan fayllar:** {count} ta ({names})")
+REPORT_PENDING = Msg("\n**Javobingizni kutyapti:** {questions} ta savol, {decisions} ta qaror")
 # Every project at once (`report_all`): "bugun qaysi loyihalarda nima o'zgardi?".
-REPORT_ALL_HEADER = Msg("Bugun o'zgargan loyihalar: {count} ta")
-REPORT_ALL_NONE = Msg("Bugun hech qaysi loyihada o'zgarish bo'lmadi")
-REPORT_ALL_LINE = Msg("• {project}: {summary}")
+REPORT_ALL_HEADER = Msg("**Bugun o'zgargan loyihalar: {count} ta**")
+REPORT_ALL_NONE = Msg("**Bugun hech qaysi loyihada o'zgarish bo'lmadi**")
+REPORT_ALL_LINE = Msg("• **{project}:** {summary}")
 REPORT_ALL_COMMITS = Msg("{count} commit (oxirgisi: «{subject}»)")
 REPORT_ALL_COMMITS_CAPPED = Msg("{count}+ commit (oxirgisi: «{subject}»)")
 REPORT_ALL_RESULT = Msg("natija: {natija}")
-REPORT_ALL_RUNNING = Msg("Hozir ishlayapti: {items}")
+REPORT_ALL_RUNNING = Msg("\n**Hozir ishlayapti:** {items}")
 REPORT_ALL_RUNNING_ITEM = Msg("{project} («{title}», {minutes} daq)")
-REPORT_ALL_QUIET = Msg("Qolgan {count} ta loyihada bugun o'zgarish yo'q")
-REPORT_ALL_PENDING = Msg("Javobingizni kutyapti: {projects}")
+REPORT_ALL_QUIET = Msg("\nQolgan {count} ta loyihada bugun o'zgarish yo'q")
+REPORT_ALL_PENDING = Msg("\n**Javobingizni kutyapti:** {projects}")
 # Server checks (T31 fills them): the latest read-only check per host.
-REPORT_SERVERS = Msg("Serverlar: {hosts}")
+REPORT_SERVERS = Msg("**Serverlar:** {hosts}")
 REPORT_SERVER_OK = Msg("{host} ✓ ({age} oldin)")
 REPORT_SERVER_FAILED = Msg("{host} ✗ {summary} ({age} oldin)")
 # --- servers ---
 # UC-15, SPEC §3.2.4: a status answer is one line per host (each starts with the host), then the freshness line.
 SERVERS_NONE = Msg("Kuzatiladigan server yo'q. Qo'shish uchun ayting, masalan: «bonvi-srv serverini kuzat».")
 SERVERS_CHECKING = Msg("Tekshiryapman (~{minutes} daqiqa): {hosts}.")
-SERVERS_HOST_OK = Msg("{host}: hammasi joyida · {details}")
-SERVERS_HOST_PROBLEMS = Msg("{host}: muammo — {issues} · {details}")
-SERVERS_HOST_UNREACHABLE = Msg("{host}: ulanib bo'lmadi — {reason}")
-SERVERS_HOST_UNCHECKED = Msg("{host}: hali tekshirilmagan")
-SERVERS_HOST_JUMP_ONLY = Msg("{host}: faqat o'tish (jump) uchun — unda buyruq ishlatmayman, tekshirmayman")
-SERVERS_HOST_REFUSED = Msg("{host}: gate hech bir tekshiruv buyrug'iga ruxsat bermadi (gate.readonly_remote_commands)")
+SERVERS_HOST_OK = Msg("**{host}:** hammasi joyida · {details}")
+SERVERS_HOST_PROBLEMS = Msg("**{host}:** muammo — {issues} · {details}")
+SERVERS_HOST_UNREACHABLE = Msg("**{host}:** ulanib bo'lmadi — {reason}")
+SERVERS_HOST_UNCHECKED = Msg("**{host}:** hali tekshirilmagan")
+SERVERS_HOST_JUMP_ONLY = Msg("**{host}:** faqat o'tish (jump) uchun — unda buyruq ishlatmayman, tekshirmayman")
+SERVERS_HOST_REFUSED = Msg(
+    "**{host}:** gate hech bir tekshiruv buyrug'iga ruxsat bermadi (gate.readonly_remote_commands)"
+)
 SERVERS_LOAD = Msg("yuklama {load}")
 SERVERS_DISK = Msg("disk {pct}% ({mount})")
 SERVERS_MEMORY = Msg("xotira {pct}%")
@@ -624,7 +639,7 @@ SERVERS_ISSUE_CONTAINER_DOWN = Msg("«{name}» konteyneri to'xtagan")
 SERVERS_ISSUE_CONTAINER_RESTARTING = Msg("«{name}» konteyneri qayta-qayta ishga tushyapti")
 SERVERS_ISSUE_CONTAINER_UNHEALTHY = Msg("«{name}» konteyneri sog'lom emas (unhealthy)")
 SERVERS_ISSUE_LOG = Msg("{path} log'ida {count} ta xato qatori")
-SERVERS_ALERT = Msg("{host} serverida muammo: {issues}.")
+SERVERS_ALERT = Msg("**{host} serverida muammo:** {issues}.")
 # Why a host did not answer, keyed by `ErrorCode` value (adapters/ssh/translate.py maps ssh failures to these).
 SERVERS_REASONS: Final[Mapping[str, Msg]] = MappingProxyType(
     {
@@ -648,9 +663,11 @@ ERR_SERVER_JUMP_ONLY = Msg(
 ERR_SERVER_NOT_WATCHED = Msg("{host} kuzatiladigan serverlar ro'yxatida yo'q. Ro'yxatda: {hosts}.")
 
 # --- health ---
-HEALTH_ONLINE = Msg("Onlayn: {time}")
-HEALTH_RESTARTED = Msg("Qayta ishga tushdim ({reason}). Uzilib qolgan ishlar: {interrupted} — davom ettiraymi?")
-HEALTH_RESTARTED_IDLE = Msg("Qayta ishga tushdim ({reason}). Uzilib qolgan ish yo'q.")
+HEALTH_ONLINE = Msg("**Onlayn:** {time}")
+HEALTH_RESTARTED = Msg(
+    "**Qayta ishga tushdim** ({reason}).\n**Uzilib qolgan ishlar:** {interrupted} — davom ettiraymi?"
+)
+HEALTH_RESTARTED_IDLE = Msg("**Qayta ishga tushdim** ({reason}).\nUzilib qolgan ish yo'q.")
 # The `reason` of a restart notice: the previous run ended without writing its clean-exit marker (SPEC §2.5 step 8).
 HEALTH_REASON_UNCLEAN = Msg("oldingi ish kutilmaganda uzildi")
 HEALTH_REASON_UNCLEAN_SINCE = Msg("oldingi ish kutilmaganda uzildi, oxirgi marta {time} da ishlagan edim")
@@ -681,44 +698,45 @@ DISK_BLOCKED = Msg(
     "Diskda atigi {free} GB qoldi ({limit} GB dan kam) — yangi kodlash ishlari navbatda turadi. Joy bo'shating."
 )
 # "holat?" (UC-06, SPEC §6.2): one line per part, built from local state only (golden: tests/golden/holat).
-HOLAT_HEAD = Msg("Holat · {bot} bot")
-HOLAT_UPTIME = Msg("Ish vaqti: {uptime} · Yordamchi {version} · SDK {sdk}")
+HOLAT_HEAD = Msg("**Holat · {bot} bot**")
+HOLAT_UPTIME = Msg("\n**Ish vaqti:** {uptime} · Yordamchi {version} · SDK {sdk}")
 HOLAT_MINUTES = Msg("{minutes} daq")
 HOLAT_HOURS = Msg("{hours} soat {minutes} daq")
 HOLAT_DAYS = Msg("{days} kun {hours} soat")
-HOLAT_CLAUDE_OK = Msg("Claude CLI {version}: login — claude.ai")
+HOLAT_CLAUDE_OK = Msg("**Claude CLI {version}:** login — claude.ai")
 HOLAT_CLAUDE_WRONG_AUTH = Msg(
-    "Claude CLI {version}: login usuli «{method}», claude.ai bo'lishi kerak — Mac'da `claude auth status` ni tekshiring"
+    "**Claude CLI {version}:** login usuli «{method}», claude.ai bo'lishi kerak — Mac'da `claude auth status` ni "
+    "tekshiring"
 )
-HOLAT_CLAUDE_LOGGED_OUT = Msg("Claude CLI {version}: login qilinmagan — Mac'da `claude` ni ochib, kiring")
-HOLAT_CLAUDE_MISSING = Msg("Claude CLI: topilmadi")
-HOLAT_CLAUDE_UNCHECKED = Msg("Claude CLI: hali tekshirilmadi")
-HOLAT_CLAUDE_FAILED = Msg("Claude CLI: tekshirib bo'lmadi ({code})")
-HOLAT_MANAGER = Msg("ClaudeManager: {email} · 5 soat: {five} · 7 kun: {seven}")
+HOLAT_CLAUDE_LOGGED_OUT = Msg("**Claude CLI {version}:** login qilinmagan — Mac'da `claude` ni ochib, kiring")
+HOLAT_CLAUDE_MISSING = Msg("**Claude CLI:** topilmadi")
+HOLAT_CLAUDE_UNCHECKED = Msg("**Claude CLI:** hali tekshirilmadi")
+HOLAT_CLAUDE_FAILED = Msg("**Claude CLI:** tekshirib bo'lmadi ({code})")
+HOLAT_MANAGER = Msg("**ClaudeManager:** {email} · 5 soat: {five} · 7 kun: {seven}")
 HOLAT_PERCENT = Msg("{value}%")
-HOLAT_MANAGER_NO_ACTIVE = Msg("ClaudeManager: faol akkaunt yo'q")
-HOLAT_MANAGER_UNREAD = Msg("ClaudeManager: holatini o'qib bo'lmadi")
+HOLAT_MANAGER_NO_ACTIVE = Msg("**ClaudeManager:** faol akkaunt yo'q")
+HOLAT_MANAGER_UNREAD = Msg("**ClaudeManager:** holatini o'qib bo'lmadi")
 HOLAT_SPEECH_UNREAD = Msg("Ovoz: kalitlar holatini o'qib bo'lmadi")
-HOLAT_RUNNING = Msg("Hozir ishlayapti: {projects}")
-HOLAT_RUNNING_NONE = Msg("Hozir ishlayapti: hech narsa")
-HOLAT_QUEUED = Msg("Navbatda: {items}")
+HOLAT_RUNNING = Msg("\n**Hozir ishlayapti:** {projects}")
+HOLAT_RUNNING_NONE = Msg("\n**Hozir ishlayapti:** hech narsa")
+HOLAT_QUEUED = Msg("**Navbatda:** {items}")
 HOLAT_QUEUED_ITEM = Msg("{project} ({position}-o'rin)")
-HOLAT_PENDING = Msg("Javob kutayotgan qarorlar: {decisions} · savollar: {questions}")
-HOLAT_WORK_UNREAD = Msg("Ishlar: o'qib bo'lmadi")
-HOLAT_MAC = Msg("Mac: xotira bosimi — {pressure} · diskda {free} bo'sh")
+HOLAT_PENDING = Msg("**Javob kutayotgan qarorlar:** {decisions} · savollar: {questions}")
+HOLAT_WORK_UNREAD = Msg("\n**Ishlar:** o'qib bo'lmadi")
+HOLAT_MAC = Msg("\n**Mac:** xotira bosimi — {pressure} · diskda {free} bo'sh")
 HOLAT_GB = Msg("{gb} GB")
 HOLAT_PRESSURE: Final[Mapping[int, Msg]] = MappingProxyType(
     {1: Msg("normal"), 2: Msg("o'rtacha"), 4: Msg("yuqori")}  # kern.memorystatus_vm_pressure_level
 )
 HOLAT_UNKNOWN = Msg("noma'lum")
-HOLAT_DEGRADED = Msg("Cheklangan imkoniyatlar: {missing} topilmadi")
-HOLAT_ERRORS = Msg("Oxirgi xatolar: {errors}")
-HOLAT_ERROR_ITEM = Msg("{code} ({time})")
-HOLAT_NO_ERRORS = Msg("Oxirgi xatolar: yo'q")
+HOLAT_DEGRADED = Msg("**Cheklangan imkoniyatlar:** {missing} topilmadi")
+HOLAT_ERRORS = Msg("**Oxirgi xatolar:** {errors}")
+HOLAT_ERROR_ITEM = Msg("`{code}` ({time})")
+HOLAT_NO_ERRORS = Msg("**Oxirgi xatolar:** yo'q")
 
 # --- wiring (bots) ---
 # SPEC §7: a later phase's intent is recognised and answered, never routed to a project as an instruction.
-NOT_YET = Msg("Bu imkoniyat hali yo'q — {phase} bosqichida qo'shiladi.")
+NOT_YET = Msg("Bu imkoniyat hali yo'q — **{phase}** bosqichida qo'shiladi.")
 # SPEC §3.2.5 step 2: "to'xta" with several turns working and no project named or replied to.
 WHICH_RUNNING = Msg("Bir nechta ish ketyapti: {projects}. Qaysi birini to'xtatay? Loyiha nomini yozing.")
 # "davom ettir", "qayta yubor" with no project named, replied to, or left over from the restart.
@@ -729,27 +747,26 @@ CHAT_HELLO = Msg("Salom! 👋 Nima qilamiz?")
 CHAT_SALAM = Msg("Va alaykum assalom! 👋 Nima qilamiz?")
 CHAT_HOW = Msg("Yaxshi, rahmat! 🙂 O'zingiz qalaysiz?")
 CHAT_THANKS = Msg("Arzimaydi! 🙂")
-# "nima qila olasan?", `/yordam`: what the dev bot does today (docs/QOLLANMA.md; P2 features are not listed). Plain
-# text until the outbox renders `**bold**` (the formatting pass): Telegram showed the asterisks as typed.
+# "nima qila olasan?", `/yordam`: what the dev bot does today (docs/QOLLANMA.md; P2 features are not listed).
 HELP = Msg(
-    "Men nimalar qila olaman:\n"
+    "**Men nimalar qila olaman**\n"
     "\n"
-    "🛠 Loyihalarda ishlash\n"
+    "**🛠 Loyihalarda ishlash**\n"
     "• Vazifani oddiy gap bilan bering — matn, ovoz yoki rasm: «BonviHR'da login sahifasini tuzat»\n"
     "• Loyihani o'zim topaman; ikkilansam, bitta savol beraman\n"
     "• Commit va push o'zim qilaman; deploy, ma'lumot o'chirish yoki pul sarfini faqat sizdan so'rab\n"
     "• To'xtatish: «to'xta»; yo'nalishni o'zgartirish: «yo'q, boshqacha qil: …»\n"
     "• «kut» — yana yuborasiz, men kutib turaman\n"
     "\n"
-    "🔎 Tekshirish va hisobot\n"
+    "**🔎 Tekshirish va hisobot**\n"
     "• «X'da nega … ishlamayapti?» yoki xato skrinshoti — faqat o'qib tekshiraman\n"
     "• «BonviHR qanday?», «bugun nima o'zgardi?» — tezkor hisobot\n"
     "• «holat?» — botning o'zi; «loyihalar» — ro'yxat; «xarajat?» — sarf\n"
     "\n"
-    "🖥 Serverlar\n"
+    "**🖥 Serverlar**\n"
     "• «bonvi-srv serverini kuzat», «serverda nima bo'lyapti?» — faqat o'qiydigan tekshiruv\n"
     "\n"
-    "⚙️ Sozlamalar\n"
+    "**⚙️ Sozlamalar**\n"
     "• «sozlamalar» — ko'rish; «sozlama: …» — o'zgartirish\n"
     "• «bu so'zni to'g'ri yoz: OrvionX» — ovozdagi atamani o'rgatish"
 )
@@ -826,8 +843,8 @@ INTEGRATION_TOOL_READ_ONLY = Msg("{tool} (faqat o'qish)")
 INTEGRATION_NO_TOOLS = Msg("vosita yo'q")
 INTEGRATION_RECONNECTED = Msg("«{name}» qayta ulandi. Vositalar: {tools}.")
 API_KEY_ADDED = Msg("«{name}» API kaliti saqlandi ({bots}): {url}. Botlar uni faqat o'qish uchun ishlatadi.")
-INTEGRATION_LIST_HEAD = Msg("Integratsiyalar:")
-INTEGRATION_LIST_ITEM = Msg("• {name} — {kind}, {bots}: {status} (tekshirildi: {checked})")
+INTEGRATION_LIST_HEAD = Msg("**Integratsiyalar:**")
+INTEGRATION_LIST_ITEM = Msg("• **{name}** — {kind}, {bots}: {status} (tekshirildi: {checked})")
 INTEGRATION_LIST_EMPTY = Msg("Hozircha integratsiya yo'q. «X'ga ulan: <manzil>» deb yozing.")
 INTEGRATION_NEVER_CHECKED = Msg("hali yo'q")
 INTEGRATION_KINDS: Final[Mapping[str, Msg]] = MappingProxyType({"mcp_http": Msg("MCP"), "api_http": Msg("API kalit")})
@@ -1028,14 +1045,14 @@ NEWPROJECT_PROJECT_CANCELLED = Msg("{project}: yangi loyiha bekor qilindi — pa
 NEWPROJECT_PLANNING = Msg("{project}: papkasi ochildi ({path}). Rejani yozyapman — ~{minutes} daqiqada yuboraman.")
 # ASSUMPTIONS 2026-10-23: a taken name continues with the first free <Name>2, and the message says so.
 NEWPROJECT_RENAMED = Msg("«{wanted}» nomi band edi — {project} deb ochdim.")
-NEWPROJECT_REPO = Msg("GitHub: {url} (private)")
+NEWPROJECT_REPO = Msg("**GitHub:** {url} (private)")
 NEWPROJECT_REPO_FAILED = Msg("GitHub repo ochilmadi: {why} Reja shu yerda yoziladi; keyingi bosqichda yana urinaman.")
 NEWPROJECT_GITHUB_LOGGED_OUT = Msg("Mac'da GitHub'ga kirilmagan — `gh auth login` qiling.")
 # SPEC §3.2.8 step 5: the summary, the docs as files, and one question.
-NEWPROJECT_PLAN_READY = Msg("{project} · Reja tayyor: {summary}")
-NEWPROJECT_PLAN_DOCS = Msg("Hujjatlar: {names}")
-NEWPROJECT_PLAN_NO_DOCS = Msg("Hujjatlar: docs/ papkasida topilmadi.")
-NEWPROJECT_PLAN_ASK = Msg("Rejani tasdiqlaysizmi? (ha / o'zgartir: … / yo'q)")
+NEWPROJECT_PLAN_READY = Msg("**{project} · Reja tayyor:** {summary}")
+NEWPROJECT_PLAN_DOCS = Msg("\n**Hujjatlar:** {names}")
+NEWPROJECT_PLAN_NO_DOCS = Msg("\n**Hujjatlar:** docs/ papkasida topilmadi.")
+NEWPROJECT_PLAN_ASK = Msg("\n**Rejani tasdiqlaysizmi?** (ha / o'zgartir: … / yo'q)")
 NEWPROJECT_DOC_CAPTION = Msg("{project} · {name}")
 NEWPROJECT_BUILDING = Msg("{project}: reja tasdiqlandi — noldan quryapman; commit va push o'zim qilaman.")
 NEWPROJECT_REVISING = Msg("{project}: rejani o'zgartiryapman.")
@@ -1083,9 +1100,9 @@ MEDIA_DOWNLOAD_FAILED = Msg("Faylni Telegram'dan yuklab bo'lmadi. Qayta yuboring
 # --- bridge ---
 # UC-36: "BonviHR qanday?" in the personal chat, read from the dev bot's digest through the read-only bridge. The
 # lines reuse the dev report's `REPORT_*` entries; every answer ends with one `FRESHNESS*` line.
-BRIDGE_PROJECT = Msg("{project} · {description}")
-BRIDGE_PROJECT_BARE = Msg("{project}")
-BRIDGE_QUEUED_PARKED = Msg("Navbatda: {queued} ta · to'xtatib qo'yilgan: {parked} ta")
+BRIDGE_PROJECT = Msg("**{project}** · {description}")
+BRIDGE_PROJECT_BARE = Msg("**{project}**")
+BRIDGE_QUEUED_PARKED = Msg("**Navbatda:** {queued} ta · to'xtatib qo'yilgan: {parked} ta")
 BRIDGE_NO_DIGEST = Msg("{project}: dev bot bu loyiha haqida hali ma'lumot yig'magan.")
 ERR_BRIDGE_UNAVAILABLE = Msg(
     "Loyihalar holatini hozir o'qib bo'lmadi: dev botning ma'lumotlari ochilmadi. Dev botning o'zidan so'rang."

@@ -23,7 +23,7 @@ from tests.factories import (
     store_secret,
 )
 from tests.fakes.agent import Pause, ToolStep
-from tests.integration.dev_bot_harness import DevBot, dev_bot, register_projects, short_paths, until
+from tests.integration.dev_bot_harness import DevBot, dev_bot, register_projects, short_paths, until, visible
 from yordamchi.core import control
 from yordamchi.core import strings as S
 from yordamchi.core.config import SESSION_TOKEN_VAR
@@ -155,7 +155,7 @@ async def test_the_scripted_conversation_runs_end_to_end_on_fakes() -> None:  # 
         [final] = bot.posted("BonviHR · Natija:")
         assert final.splitlines()[0] == "BonviHR · Natija: Login sahifasidagi xato tuzatildi."
         assert "Commit: a1b2c3d · push: bajarildi (origin/main)" in final.splitlines()
-        progress = [r for r in bot.requests("sendMessage") if "BonviHR · ishlayapti" in str(r.params.get("text"))]
+        progress = [r for r in bot.requests("sendMessage") if "BonviHR · ishlayapti" in visible(r)]
         assert len(progress) == 1  # one progress message, edited in place
         assert not bot.posted("Muhim qaror")
         assert not bot.posted("Savol:")

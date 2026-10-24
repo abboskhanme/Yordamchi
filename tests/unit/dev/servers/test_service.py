@@ -34,6 +34,7 @@ from tests.factories import (
 from tests.fakes.agent import Pause
 from tests.fakes.clock import FakeClock
 from tests.fakes.remote_shell import FakeRemoteShell
+from tests.owner_text import shown
 from yordamchi.core import aio
 from yordamchi.core import strings as S
 from yordamchi.core.errors import (
@@ -107,7 +108,8 @@ def text_of(row: OutboxMessage) -> str:
 
 
 async def texts(deps: DevDeps, kind: str) -> list[str]:
-    return [text_of(row) for row in await messages(deps) if row.kind == kind]
+    """The queued texts of `kind`, as the owner reads them (`tests/owner_text.shown`)."""
+    return [shown(text_of(row)) for row in await messages(deps) if row.kind == kind]
 
 
 def commands(shell: FakeRemoteShell, host: str = SERVER_HOST) -> list[str]:
@@ -209,7 +211,7 @@ async def test_once_the_gate_list_allows_the_units_probe_a_failed_unit_is_alerte
     assert commands(fakes.remote_shell) == SUITE
     assert commands(fakes.remote_shell)[-1] == domain.UNITS_COMMAND
     alerts = [row for row in await messages(dev_deps) if row.kind == "notice"]
-    assert [text_of(row) for row in alerts] == [
+    assert [shown(text_of(row)) for row in alerts] == [
         "bonvi-srv serverida muammo: nginx.service xizmati ishdan chiqqan (failed)."
     ]
     assert alerts[0].chat_id == DEV_GROUP_ID
@@ -283,7 +285,10 @@ async def test_a_host_that_does_not_answer_is_not_waited_on_and_says_why(dev_dep
     assert commands(fakes.remote_shell) == ["uptime"]  # the rest is skipped, not timed out one by one
     (row,) = await list_server_checks(dev_deps.db)
     assert (row.ok, row.error_code) == (False, "provider_unavailable")
-    assert domain.status_line(first.checked[0]) == "bonvi-srv: ulanib bo'lmadi — javob bermayapti (tarmoqni tekshiring)"
+    assert (
+        shown(domain.status_line(first.checked[0]))
+        == "bonvi-srv: ulanib bo'lmadi — javob bermayapti (tarmoqni tekshiring)"
+    )
     assert await texts(dev_deps, "notice") == []  # one failed check is a blip
 
     later(fakes, 30)
@@ -322,11 +327,11 @@ async def test_a_check_younger_than_the_stale_limit_answers_from_the_cache_witho
 
     assert fakes.remote_shell.calls == []
     assert answer.checked == ()
-    assert answer.reply.splitlines() == [
+    assert shown(answer.reply).splitlines() == [
         "bonvi-srv: hammasi joyida · yuklama 0.52 · disk 85% (/) · xotira 46% · 2 ta konteyner",
         "Ma'lumot: 10 daqiqa oldin",
     ]
-    assert await texts(dev_deps, "report") == [answer.reply]  # no "Tekshiryapman" for a cached answer
+    assert await texts(dev_deps, "report") == [shown(answer.reply)]  # no "Tekshiryapman" for a cached answer
 
 
 async def test_an_older_check_is_refreshed_before_answering(dev_deps: DevDeps, fakes: Fakes) -> None:
@@ -341,7 +346,7 @@ async def test_an_older_check_is_refreshed_before_answering(dev_deps: DevDeps, f
     assert answer.checked == (SERVER_HOST,)
     assert commands(fakes.remote_shell) == SUITE
     assert answer.reply.splitlines()[-1] == "Ma'lumot: hozirgina"
-    assert await texts(dev_deps, "report") == ["Tekshiryapman (~3 daqiqa): bonvi-srv.", answer.reply]
+    assert await texts(dev_deps, "report") == ["Tekshiryapman (~3 daqiqa): bonvi-srv.", shown(answer.reply)]
     rows = await list_server_checks(dev_deps.db)
     assert [summary_of(row)["trigger"] for row in rows] == ["scheduled", "on_demand"]
 
@@ -378,7 +383,7 @@ async def test_the_status_of_one_named_host_checks_only_that_host(dev_deps: DevD
 
     assert answer.checked == ("db-srv",)
     assert commands(fakes.remote_shell, SERVER_HOST) == []
-    assert answer.reply.startswith("db-srv: hammasi joyida")
+    assert shown(answer.reply).startswith("db-srv: hammasi joyida")
 
 
 # --- alerts: on a state change, once per issue ----------------------------------------------------------------------
@@ -441,7 +446,7 @@ async def test_the_jump_only_host_is_never_a_target(dev_deps: DevDeps, fakes: Fa
 
     assert commands(fakes.remote_shell, JUMP_HOST) == []
     assert {row.host for row in await list_server_checks(dev_deps.db)} == {SERVER_HOST}
-    assert answer.reply.startswith("server: faqat o'tish (jump) uchun")
+    assert shown(answer.reply).startswith("server: faqat o'tish (jump) uchun")
     statuses = await service.latest_statuses(dev_deps)
     assert [(status.host, status.jump_only, status.ok) for status in statuses] == [
         (JUMP_HOST, True, False),
@@ -586,7 +591,7 @@ async def test_latest_statuses_reads_the_cache_without_ssh(dev_deps: DevDeps, fa
     assert [issue.key for issue in statuses[0].issues] == ["disk_full:/"]
     assert statuses[0].checked_at == fakes.clock.now()
     assert statuses[1].checked_at is None
-    assert domain.status_line(statuses[1]) == "new-host: hali tekshirilmagan"
+    assert shown(domain.status_line(statuses[1])) == "new-host: hali tekshirilmagan"
 
 
 async def test_the_loop_checks_each_host_every_interval(dev_deps: DevDeps, fakes: Fakes) -> None:

@@ -1,27 +1,33 @@
 === one question, described options ===
-BonviHR · Savol: Qaysi bazadan foydalanamiz?
-1. PostgreSQL — ishonchli, production uchun
-2. SQLite — oddiy, bitta fayl
-Javob: raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.
+**BonviHR · Savol:** Qaysi bazadan foydalanamiz?
+1. **PostgreSQL** — ishonchli, production uchun
+2. **SQLite** — oddiy, bitta fayl
+
+**Javob:** raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.
 
 === several may be picked ===
-BonviHR · Savol: Qaysi sahifalarga hisobot qo'shamiz?
-1. Xodimlar
-2. Bo'limlar — jami soni bilan
-3. Ta'tillar
+**BonviHR · Savol:** Qaysi sahifalarga hisobot qo'shamiz?
+1. **Xodimlar**
+2. **Bo'limlar** — jami soni bilan
+3. **Ta'tillar**
 Bir nechtasini tanlash mumkin (masalan: 1, 3).
-Javob: raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.
+
+**Javob:** raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.
 
 === no options ===
-BonviHR · Savol: Deploy uchun qaysi domen?
-Javob: raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.
+**BonviHR · Savol:** Deploy uchun qaysi domen?
+
+**Javob:** raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.
 
 === two questions with headers ===
-BonviHR · 2 ta savol:
-1) Baza: Qaysi bazadan foydalanamiz?
-1. PostgreSQL — ishonchli, production uchun
-2. SQLite — oddiy, bitta fayl
-2) Migratsiyani hozir yozaymi?
-1. Ha
-2. Keyin — avval testlar
-Javob: har bir savolga alohida qatorda — raqam, variant nomi yoki o'z so'zingiz.
+**BonviHR · 2 ta savol:**
+
+**1) Baza:** Qaysi bazadan foydalanamiz?
+1. **PostgreSQL** — ishonchli, production uchun
+2. **SQLite** — oddiy, bitta fayl
+
+**2)** Migratsiyani hozir yozaymi?
+1. **Ha**
+2. **Keyin** — avval testlar
+
+**Javob:** har bir savolga alohida qatorda — raqam, variant nomi yoki o'z so'zingiz.

@@ -27,6 +27,7 @@ from tests.factories import (
     usd,
 )
 from tests.fakes.mac_host import FakeMacHost
+from tests.owner_text import shown
 from yordamchi.core import aio
 from yordamchi.core.paths import BotName, Paths
 from yordamchi.dev.deps import DevDeps
@@ -164,7 +165,7 @@ async def test_the_report_adds_up_both_bots_ledgers_from_local_data(
     await busy_month(dev_with_peer.db, personal_db)
     fakes.mac_host.manager_state = MANAGER
 
-    text = await service.cost_report(dev_with_peer)
+    text = shown(await service.cost_report(dev_with_peer))
 
     assert text.splitlines() == [
         "Xarajat · bugun / 7 kun / shu oy",
@@ -189,7 +190,7 @@ async def test_the_figures_match_the_ledger_sums(dev_deps: DevDeps) -> None:
         recorded = sum(row.cost_usd_micros for row in await store.list_usage_records(s) if row.is_paid_api)
     allowance = await service.allowance(dev_deps, Provider.OPENROUTER)
     assert allowance.spent_usd_micros == recorded == 2_838_333
-    assert f"Pullik API: {domain.usd_text(recorded)} / " in await service.cost_report(dev_deps)
+    assert f"Pullik API: {domain.usd_text(recorded)} / " in shown(await service.cost_report(dev_deps))
 
 
 async def test_the_report_answers_within_3_s_with_400_days_of_ledger(dev_deps: DevDeps) -> None:
@@ -203,7 +204,7 @@ async def test_the_report_answers_within_3_s_with_400_days_of_ledger(dev_deps: D
     await add_usage_rows(dev_deps.db, rows)
 
     started = time.monotonic()
-    text = await service.cost_report(dev_deps)
+    text = shown(await service.cost_report(dev_deps))
     elapsed = time.monotonic() - started
 
     assert elapsed < 3.0
@@ -219,7 +220,7 @@ class HangingMac(FakeMacHost):
 async def test_a_hanging_claude_manager_leaves_its_line_out_within_3_s(dev_deps: DevDeps) -> None:
     deps = replace(dev_deps, mac_host=HangingMac())
     started = time.monotonic()
-    text = await service.cost_report(deps)
+    text = shown(await service.cost_report(deps))
     assert time.monotonic() - started < 3.0
     assert not any(line.startswith("Claude limiti") for line in text.splitlines())
 
@@ -227,7 +228,7 @@ async def test_a_hanging_claude_manager_leaves_its_line_out_within_3_s(dev_deps:
 async def test_subscription_usage_is_labelled_and_never_counted_as_money(dev_deps: DevDeps) -> None:
     await add_usage(dev_deps.db, make_turn_usage(cost_usd_micros=usd(500)), at=NOW)  # far above every cap
 
-    text = await service.cost_report(dev_deps)
+    text = shown(await service.cost_report(dev_deps))
 
     assert "Pullik API: $0 / $0 / $0" in text.splitlines()
     assert (
@@ -264,7 +265,7 @@ async def test_the_80_pct_warning_is_sent_once(dev_deps: DevDeps) -> None:
 
     [row] = await list_replies(dev_deps.db)
     assert (row.kind, row.chat_id) == ("system", DEV_GROUP_ID)
-    assert text_of(row) == (
+    assert shown(text_of(row)) == (
         "OpenRouter: oylik limitning 80 foizi ishlatildi ($8.00 / $10). $10 ga yetganda pullik chaqiruvlar to'xtaydi."
     )
     assert (await service.allowance(dev_deps, Provider.OPENROUTER)).allowed
@@ -279,9 +280,11 @@ async def test_at_100_pct_paid_calls_pause_and_the_owner_is_told_once(dev_deps: 
     assert notice.level is CapLevel.REACHED
     assert await service.notify_caps(dev_deps) == ()
     [text] = await replies_of(dev_deps.db, "system")
-    assert text.startswith("OpenRouter: oylik limit ($10) tugadi — $10.00 sarflandi. Pullik chaqiruvlar to'xtatildi")
+    assert shown(text).startswith(
+        "OpenRouter: oylik limit ($10) tugadi — $10.00 sarflandi. Pullik chaqiruvlar to'xtatildi"
+    )
     assert (await service.allowance(dev_deps, Provider.GOOGLE)).allowed  # the other provider has its own cap
-    assert "limit $10 tugadi — pullik chaqiruvlar to'xtatilgan" in await service.cost_report(dev_deps)
+    assert "limit $10 tugadi — pullik chaqiruvlar to'xtatilgan" in shown(await service.cost_report(dev_deps))
 
 
 async def test_spend_on_the_other_bot_counts_against_the_same_cap(
@@ -380,7 +383,7 @@ async def test_the_daily_summary_goes_once_a_day_at_its_time(dev_deps: DevDeps, 
     assert await service.watch_costs(dev_deps, last_summary=sent) == sent
     assert await service.watch_costs(dev_deps) == sent  # a restart forgets `last_summary`; the outbox does not
     [summary] = await replies_of(dev_deps.db, "report")
-    assert summary == (
+    assert shown(summary) == (
         "Xarajat, so'nggi 24 soat: pullik API $0.42 (shu oy $0.42) · Claude ~$0.40 — obuna doirasida, pul "
         "to'lanmaydi · 1 ta ish"
     )

@@ -17,6 +17,7 @@ from tests.factories import (
     make_turn_input,
     make_turn_summary,
 )
+from tests.owner_text import shown
 from yordamchi.core import redact
 from yordamchi.dev.digest import domain
 from yordamchi.dev.digest.domain import (
@@ -415,7 +416,7 @@ def test_the_project_report_leads_with_the_running_turn_and_ends_before_the_fres
         decisions=1,
     )
     text = domain.project_report(state, now=NOW, timezone=TZ, scrub=scrub)
-    assert text.splitlines() == [
+    assert shown(text).splitlines() == [
         "BonviHR · hozir: «Login sahifasini tuzat», ishlayapti, 12 daq",
         "Navbatda: 1 ta topshiriq",
         "Oxirgi natija (13:20): Xato tuzatildi. · Testlar: o'tdi",
@@ -428,15 +429,15 @@ def test_the_project_report_leads_with_the_running_turn_and_ends_before_the_fres
 
 def test_an_idle_project_with_no_digest_yet_says_so() -> None:
     text = domain.project_report(ProjectState("BonviHR", None), now=NOW, timezone=TZ, scrub=scrub)
-    assert text.splitlines() == ["BonviHR · hozir ish yo'q", "Hali natija yo'q", "Git: o'qib bo'lmadi"]
+    assert shown(text).splitlines() == ["BonviHR · hozir ish yo'q", "Hali natija yo'q", "Git: o'qib bo'lmadi"]
 
 
 def test_a_failed_last_turn_and_an_old_last_commit() -> None:
     digest = make_digest(commits=(CommitLine("a1", "old fix", ago(days=2)),))
     failed = make_turn_summary(4, status=TurnStatus.FAILED, ended_at=ago(days=1), title="Deploy")
     text = domain.project_report(ProjectState("BonviHR", digest, (failed,)), now=NOW, timezone=TZ, scrub=scrub)
-    assert "Oxirgi topshiriq (22.10 14:00) xato bilan tugadi: «Deploy»" in text.splitlines()
-    assert "Bugun commit yo'q. Oxirgisi (21.10 14:00): «old fix»" in text.splitlines()
+    assert "Oxirgi topshiriq (22.10 14:00) xato bilan tugadi: «Deploy»" in shown(text).splitlines()
+    assert "Bugun commit yo'q. Oxirgisi (21.10 14:00): «old fix»" in shown(text).splitlines()
 
 
 @pytest.mark.parametrize(
@@ -454,13 +455,13 @@ def test_a_failed_last_turn_and_an_old_last_commit() -> None:
     ],
 )
 def test_the_git_line(git: GitState, line: str) -> None:
-    assert domain.git_line(git) == line
+    assert shown(domain.git_line(git)) == line
 
 
 def test_ten_commits_today_read_as_ten_or_more() -> None:
     commits = tuple(CommitLine(f"c{i}", f"step {i}", ago(minutes=10 + i)) for i in range(domain.RECENT_COMMITS_MAX))
     line = domain.commits_line(make_digest(commits=commits), now=NOW, timezone=TZ, scrub=scrub)
-    assert line == "Bugun: 10+ commit — «step 0»; «step 1»; «step 2»"
+    assert shown(line) == "Bugun: 10+ commit — «step 0»; «step 1»; «step 2»"
 
 
 def test_the_cross_project_report_lists_what_changed_today_runs_now_and_waits() -> None:
@@ -484,7 +485,7 @@ def test_the_cross_project_report_lists_what_changed_today_runs_now_and_waits() 
         make_server_check("db", at=ago(minutes=12), ok=False, summary="disk 95%"),
     ]
     text = domain.all_report([bonvi, hr, quiet], checks, now=NOW, timezone=TZ, scrub=scrub)
-    assert text.splitlines() == [
+    assert shown(text).splitlines() == [
         "Bugun o'zgargan loyihalar: 2 ta",
         "• BonviHR: 1 commit (oxirgisi: «fix login»)",
         "• HRMentor: 2 commit (oxirgisi: «add tests»); natija: Testlar qo'shildi.",
@@ -497,7 +498,7 @@ def test_the_cross_project_report_lists_what_changed_today_runs_now_and_waits() 
 
 def test_a_quiet_day_says_nothing_changed() -> None:
     quiet = ProjectState("BonviHR", make_digest(commits=()))
-    assert domain.all_report([quiet], [], now=NOW, timezone=TZ, scrub=scrub) == (
+    assert shown(domain.all_report([quiet], [], now=NOW, timezone=TZ, scrub=scrub)) == (
         "Bugun hech qaysi loyihada o'zgarish bo'lmadi"
     )
 
@@ -512,7 +513,8 @@ def test_server_checks_answer_only_while_fresh() -> None:
 def test_the_assistant_answer_follows_the_live_turn_line() -> None:
     state = ProjectState("BonviHR", make_digest(), (make_turn_summary(5, started_at=ago(minutes=3)),))
     text = domain.assistant_report(state, "  Login hali tugamagan.  ", now=NOW, scrub=scrub)
-    assert text == "BonviHR · hozir: «Login sahifasini tuzat», ishlayapti, 3 daq\nLogin hali tugamagan."
+    assert text is not None
+    assert shown(text) == "BonviHR · hozir: «Login sahifasini tuzat», ishlayapti, 3 daq\nLogin hali tugamagan."
     assert domain.assistant_report(state, "   ", now=NOW, scrub=scrub) is None
     assert domain.all_assistant_report(" Hammasi joyida. ", scrub) == "Hammasi joyida."
     assert domain.all_assistant_report("", scrub) is None

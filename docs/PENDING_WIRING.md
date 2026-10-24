@@ -401,3 +401,28 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] Routing has no `chat` intent: a general question that is not a project's ("Python'da decorator nima?") still
       goes to a report. Add the intent with eval cases at the T47 re-record (the pre-parse covers greetings,
       thanks and "nima qila olasan?" today).
+
+## From the formatting pass (2026-10-24)
+The outbox now renders a Markdown subset (`**bold**`, `` `code` ``, `#` title lines, `- `/`* ` bullets,
+`[text](https://…)`, ``` fences) as Telegram HTML, with a once-only plain resend on "can't parse entities".
+- [ ] `prompts/personal/qa_system.md` is part of the `qa` eval's replay key (`owner_text_key`: the system prompt's
+      sha256), so it was left unchanged and still tells the model nothing about formatting. At the next live
+      re-record (T47), tell it it may use exactly the subset above (no tables, no HTML, short sections), as
+      `dev/report_system.md` now does. The other personal prompts (`qa_fallback_system`, `media_video_system`) were
+      out of this pass's scope (dev prompts only).
+- [ ] `prompts/dev/routing_system.md` and `settings_system.md` were left unchanged by instruction (replay-keyed by
+      the routing, settings and injection suites). Neither writes owner-visible text, so nothing is lost.
+- [ ] `dev/gate/service._tell` (protected core) posts decision questions, `WHICH_DECISION`, the decision replies
+      and `PUSH_BLOCKED_SECRET` straight to the Messenger, with no outbox and so no rendering: those catalog entries
+      stay plain. Route them through the outbox (T15's note in `post_question`), then format `DECISION_QUESTIONS`,
+      `SETTING_WEAKEN_QUESTION` and `SELFUPDATE_CORE_QUESTION` like the rest.
+- [ ] The other direct sends stay plain for the same reason: `bots/common.guarded()` (`S.ERRORS`, `ERR_INTERNAL`),
+      `bots/dev/app.send_notice` (`STARTUP_*`), and `shared/voice/service._tell_owner` (`STT_*`, and
+      `voice.domain.speech_status`, whose `SPEECH_*` line `holat?` reuses, so holat's "Ovoz" line has no bold label).
+- [ ] Captions go with their markers stripped: `ports/messenger.py` has no `parse_mode` for `send_photo/document/
+      voice/video`. Add one (and to the adapter and `FakeMessenger`) if a caption should be formatted.
+- [ ] `personal/qa/service.py` streams drafts with `send_draft(parse_mode=None)`: a draft shows the model's markers as
+      typed until the final message replaces it. Render drafts too, or strip them (`outbox.domain.plain_text`).
+- [ ] `dev/digest/domain.assistant_report` always puts the project's live-turn line above the report model's answer,
+      even when the question was not about that project; `report_system.md` now tells the model not to add project
+      status, but this framing line is code.

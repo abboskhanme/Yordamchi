@@ -6,6 +6,7 @@ import pytest
 
 from tests.factories import make_part
 from tests.fakes.clock import DEFAULT_START
+from tests.owner_text import shown
 from yordamchi.core import strings as S
 from yordamchi.dev.gate.domain import Policy
 from yordamchi.dev.turns import domain
@@ -355,7 +356,7 @@ def test_created_files_are_the_untracked_ones_that_were_not_there_before() -> No
 def test_the_result_follows_the_golden_format() -> None:
     parsed = domain.parse_result(FINAL)
     text = domain.result_text("BonviHR", parsed, PUSHED, seconds=7 * 60, push_missed=False, scrub=str)
-    assert text.splitlines() == [
+    assert shown(text).splitlines() == [
         "BonviHR · Natija: Login sahifasidagi xato tuzatildi.",
         "Fayllar: 2 ta (login.py, test_login.py)",
         "Testlar: o'tdi (42 passed)",
@@ -367,7 +368,7 @@ def test_the_result_follows_the_golden_format() -> None:
 def test_a_result_without_changes_or_tests_says_so() -> None:
     parsed = domain.parse_result("Natija: Hech narsa o'zgarmadi.")
     text = domain.result_text("HRMentor", parsed, WorkFacts(end_head="x"), seconds=30, push_missed=False, scrub=str)
-    assert text.splitlines() == [
+    assert shown(text).splitlines() == [
         "HRMentor · Natija: Hech narsa o'zgarmadi.",
         "Fayllar: o'zgarmadi",
         "Testlar: noma'lum",
@@ -386,25 +387,25 @@ def test_many_files_are_cut_after_five_names() -> None:
         push_missed=False,
         scrub=str,
     )
-    assert "Fayllar: 8 ta (f0.py, f1.py, f2.py, f3.py, f4.py, …)" in text
+    assert "Fayllar: 8 ta (f0.py, f1.py, f2.py, f3.py, f4.py, …)" in shown(text)
 
 
 def test_a_second_missed_push_shows_commit_push_qilinmadi() -> None:
     unpushed = WorkFacts(end_head="abcdef1234", commits=("abcdef1234",), upstream="origin/main", ahead=1)
-    assert domain.commit_line(unpushed, push_missed=True) == "Commit: commit/push qilinmadi"
-    assert domain.commit_line(unpushed, push_missed=False) == "Commit: abcdef1 · push: qilinmadi"
+    assert shown(domain.commit_line(unpushed, push_missed=True)) == "Commit: commit/push qilinmadi"
+    assert shown(domain.commit_line(unpushed, push_missed=False)) == "Commit: abcdef1 · push: qilinmadi"
     assert domain.commit_line(WorkFacts(end_head=None, known=False), push_missed=False) == S.TURN_RESULT_GIT_UNKNOWN()
 
 
 def test_the_natija_passes_the_scrubber() -> None:
     parsed = domain.parse_result("Natija: kalit sk-secret")
     text = domain.result_text("X", parsed, WorkFacts(end_head="x"), seconds=0, push_missed=False, scrub=lambda _: "***")
-    assert text.splitlines()[0] == "X · Natija: ***"
+    assert shown(text).splitlines()[0] == "X · Natija: ***"
 
 
 def test_the_progress_line_shows_time_steps_and_the_three_latest_steps() -> None:
     text = domain.progress_text("BonviHR", seconds=4 * 60, steps=12, latest=["a", "b", "c", "d"])
-    assert text.splitlines() == ["BonviHR · ishlayapti 4 daq · 12 qadam", "• b", "• c", "• d"]
+    assert shown(text).splitlines() == ["BonviHR · ishlayapti 4 daq · 12 qadam", "• b", "• c", "• d"]
 
 
 def test_a_progress_step_names_its_tool_and_fits_200_characters() -> None:

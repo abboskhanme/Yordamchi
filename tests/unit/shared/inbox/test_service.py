@@ -27,6 +27,7 @@ from tests.factories import (
     send_outbox,
 )
 from tests.fakes.messenger import Request
+from tests.owner_text import read, shown
 from yordamchi.core import redact
 from yordamchi.core import strings as S
 from yordamchi.core.errors import CallTimedOut, RateLimited, VaultKeyMissing
@@ -293,7 +294,7 @@ async def test_without_a_master_key_the_update_fails_safely(dev_deps: DevDeps, f
     assert _stored_text(row) == "kalit: [kalit saqlanmadi]"
     assert GOOGLE.encode() not in db_file_bytes(paths.db_file(BotName.DEV))
     assert len(fakes.messenger.sent("delete")) == 1  # the key still leaves the chat
-    assert [request.payload["text"] for request in fakes.messenger.sent("send_text")] == [S.ERR_VAULT_KEY_MISSING()]
+    assert [read(request) for request in fakes.messenger.sent("send_text")] == [shown(S.ERR_VAULT_KEY_MISSING())]
     assert fakes.messenger.sent("chat_action") == []  # nothing is pending
 
 

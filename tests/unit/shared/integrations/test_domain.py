@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from tests.owner_text import shown
 from yordamchi.core import redact
 from yordamchi.core.errors import (
     ErrorCode,
@@ -205,7 +206,7 @@ def test_the_list_shows_kind_bots_status_and_the_last_check() -> None:
         ),
     ]
     text = domain.list_text(views, timezone="Asia/Tashkent")
-    assert text.splitlines() == [
+    assert shown(text).splitlines() == [
         "Integratsiyalar:",
         "• Bonvi HR — MCP, ikkala bot: ishlayapti (tekshirildi: 2026-10-24 14:00)",
         "• Markaz — API kalit, dev bot: javob bermayapti (tekshirildi: hali yo'q)",

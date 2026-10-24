@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Final
 
 import pytest
 
@@ -26,7 +27,7 @@ from tests.factories import (
 from tests.fakes.messenger import FakeMessenger
 from yordamchi.core import aio, redact
 from yordamchi.core import strings as S
-from yordamchi.core.errors import CallTimedOut, ProviderUnavailable, RateLimited
+from yordamchi.core.errors import CallTimedOut, MarkupRejected, ProviderUnavailable, RateLimited
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.text import BotText
 from yordamchi.dev.deps import DevDeps
@@ -219,6 +220,78 @@ async def test_code_blocks_go_as_html_and_plain_text_as_typed(dev_deps: DevDeps,
     assert by_chat[GROUP]["parse_mode"] == "HTML"
     assert by_chat[GROUP]["text"] == 'BonviHR · xato:\n<pre><code class="language-py">if a &lt; b:</code></pre>'
     assert (by_chat[PRIVATE]["parse_mode"], by_chat[PRIVATE]["text"]) == (None, "BonviHR · a < b & c")
+
+
+async def test_markup_goes_as_html_with_every_value_escaped(dev_deps: DevDeps, fakes: Fakes) -> None:
+    await _enqueue(dev_deps, "**BonviHR · Natija:** a < b & `make check`\n- tayyor")
+    await send_outbox(dev_deps)
+    [request] = fakes.messenger.sent()
+    assert request.payload["parse_mode"] == "HTML"
+    assert request.payload["text"] == "<b>BonviHR · Natija:</b> a &lt; b &amp; <code>make check</code>\n• tayyor"
+
+
+MARKED: Final = "**BonviHR · Natija:** [PR](https://github.com/x/y/pull/7) tayyor"
+STRIPPED: Final = "BonviHR · Natija: PR (https://github.com/x/y/pull/7) tayyor"
+
+
+async def test_a_text_telegram_cannot_parse_is_sent_once_more_as_plain_text(
+    dev_deps: DevDeps, fakes: Fakes, caplog: pytest.LogCaptureFixture
+) -> None:
+    fakes.messenger.fail_next("send_text", MarkupRejected(provider="telegram"))
+    [row_id] = await _enqueue(dev_deps, MARKED, reply_to=55)
+    with caplog.at_level(logging.WARNING):
+        assert await send_outbox(dev_deps) == 1
+    [request] = fakes.messenger.sent()  # the refused HTML posted nothing; the plain resend did
+    assert (request.payload["text"], request.payload["parse_mode"], request.payload["reply_to"]) == (
+        STRIPPED,
+        None,
+        55,
+    )
+    row = await _row(dev_deps, "result:turn-1:0")
+    assert (row.id, row.status, row.attempts, row.last_error_code) == (row_id, "sent", 1, None)
+    assert await service.find_message_link(dev_deps, chat_id=GROUP, message_id=101) is not None
+    [record] = [record for record in caplog.records if record.getMessage() == "outbox_markup_rejected"]
+    assert record.levelno == logging.WARNING
+
+
+async def test_the_plain_resend_happens_once_and_a_second_refusal_gives_up(dev_deps: DevDeps, fakes: Fakes) -> None:
+    fakes.messenger.fail_next("send_text", MarkupRejected(provider="telegram"))
+    fakes.messenger.fail_next("send_text", MarkupRejected(provider="telegram"))
+    await _enqueue(dev_deps, MARKED, ref="turn-1")
+    await _enqueue(dev_deps, "keyingisi", ref="turn-2")
+    await drain_outbox(dev_deps, fakes.clock, seconds=3)
+    assert _texts(fakes) == ["keyingisi"]
+    row = await _row(dev_deps, "result:turn-1:0")
+    assert (row.status, row.attempts, row.last_error_code) == ("failed", 1, "markup_rejected")
+
+
+async def test_a_plain_text_refused_as_markup_is_not_sent_again(dev_deps: DevDeps, fakes: Fakes) -> None:
+    fakes.messenger.fail_next("send_text", MarkupRejected(provider="telegram"))
+    await _enqueue(dev_deps, "oddiy matn")
+    await drain_outbox(dev_deps, fakes.clock, seconds=3)
+    assert fakes.messenger.sent() == []
+    row = await _row(dev_deps, "result:turn-1:0")
+    assert (row.status, row.last_error_code) == ("failed", "markup_rejected")
+
+
+async def test_an_edit_telegram_cannot_parse_is_made_once_more_as_plain_text(dev_deps: DevDeps, fakes: Fakes) -> None:
+    async with dev_deps.db.uow() as s:
+        await service.enqueue_edit(
+            s,
+            bot=dev_deps.bot,
+            chat_id=GROUP,
+            text=BotText("**Onlayn:** 14:05"),
+            kind=Kind.HEARTBEAT,
+            ref="heartbeat",
+            part="edit1",
+            at=dev_deps.clock.now(),
+            message_id=77,
+        )
+    fakes.messenger.fail_next("edit_text", MarkupRejected(provider="telegram"))
+    assert await send_outbox(dev_deps) == 1
+    [edit] = fakes.messenger.sent("edit_text")
+    assert (edit.payload["message_id"], edit.payload["text"], edit.payload["parse_mode"]) == (77, "Onlayn: 14:05", None)
+    assert (await _row(dev_deps, "heartbeat:heartbeat:edit1")).status == "sent"
 
 
 async def test_priority_zero_goes_first_and_chats_do_not_wait_for_each_other(dev_deps: DevDeps, fakes: Fakes) -> None:
@@ -640,6 +713,16 @@ async def test_a_file_from_another_feature_is_sent_with_its_caption(
         "timeout": FILE_TIMEOUT,
     }
     assert voice.exists()  # another feature's file is never removed by the outbox
+
+
+async def test_a_caption_goes_with_its_markers_stripped(dev_deps: DevDeps, fakes: Fakes, tmp_path: Path) -> None:
+    """The Messenger port takes no parse mode for captions: their markup would show as typed."""
+    voice = tmp_path / "answer.ogg"
+    voice.write_bytes(b"OggS")
+    await _file(dev_deps, voice, ref="answer-1", caption="**BonviHR** · `README.md` a < b")
+    await send_outbox(dev_deps)
+    [request] = fakes.messenger.sent("send_voice")
+    assert request.payload["caption"] == "BonviHR · README.md a < b"
 
 
 async def test_a_missing_file_fails_without_a_call(dev_deps: DevDeps, fakes: Fakes, tmp_path: Path) -> None:

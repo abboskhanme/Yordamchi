@@ -11,7 +11,9 @@ The data dir is short (`/tmp/yd…`): the control socket's path must fit a unix 
 """
 
 import asyncio
+import html
 import inspect
+import re
 import shutil
 import tempfile
 import time
@@ -19,6 +21,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Final
 
 from aiogram.types import Update
 
@@ -47,10 +50,22 @@ from yordamchi.bots.dev.runtime import DevApp
 from yordamchi.core.paths import BotName, Paths
 from yordamchi.dev.deps import DevDeps
 from yordamchi.persistence.uow import Database, Session
+from yordamchi.shared.outbox.domain import plain_text
 
 STEP_S = 0.25  # virtual time per step: the outbox sender's idle poll
 SETTLE_S = 0.01  # real time per step for the threads and tasks to catch up
 START_HEAD = "0000000aaaa"
+
+
+_TAG: Final = re.compile(r"<[^>]*>")
+
+
+def visible(request: WireRequest) -> str:
+    """The text Telegram shows: with `parse_mode=HTML`, its tags dropped and its entities read."""
+    text = str(request.params.get("text", ""))
+    if request.params.get("parse_mode") != "HTML":
+        return text
+    return html.unescape(_TAG.sub("", text))
 
 
 async def until(check: Callable[[], object], *, timeout: float = 5.0, what: str = "condition") -> None:
@@ -148,11 +163,13 @@ class DevBot:
         return [r for r in self.session.requests if not methods or r.api_method in methods]
 
     def texts(self) -> list[str]:
-        """Every text posted or edited into, in order."""
-        return [str(r.params.get("text", "")) for r in self.requests("sendMessage", "editMessageText")]
+        """Every text posted or edited into, in order, as the owner reads it (an HTML text without its tags)."""
+        return [visible(r) for r in self.requests("sendMessage", "editMessageText")]
 
     def posted(self, needle: str) -> list[str]:
-        return [text for text in self.texts() if needle in text]
+        """The texts that hold `needle`, read the same way (a catalog line's markers stripped)."""
+        wanted = plain_text(needle)
+        return [text for text in self.texts() if wanted in text]
 
     # --- time -----------------------------------------------------------------------------------------------------
     async def settle(self, rounds: int = 3) -> None:

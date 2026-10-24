@@ -38,3 +38,7 @@ Decisions: none
 State: <what you found>
 Next: <what should be done about it>
 </handoff>
+
+The owner reads the Natija line in Telegram. Write it in plain words, never with internal field names, JSON keys or
+IDs. Telegram shows `**bold**` for a key word and `` `code` `` for a file, a command, a container or a service name,
+and nothing else: no headings, tables, HTML or italics.

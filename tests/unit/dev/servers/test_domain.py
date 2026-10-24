@@ -18,6 +18,7 @@ from tests.factories import (
     make_default_snapshot,
 )
 from tests.fakes.clock import DEFAULT_START
+from tests.owner_text import shown
 from yordamchi.core import redact
 from yordamchi.dev.gate.domain import GateContext, GateRules, Policy
 from yordamchi.dev.servers import domain
@@ -450,29 +451,30 @@ def status(evaluation: domain.Evaluation, *, at_min: float = 0) -> HostStatus:
 
 
 def test_status_lines_start_with_the_host_and_say_what_is_wrong() -> None:
-    assert domain.status_line(status(run(healthy()))) == (
+    assert shown(domain.status_line(status(run(healthy())))) == (
         "bonvi-srv: hammasi joyida · yuklama 0.52 · disk 85% (/) · xotira 46% · 2 ta konteyner"
     )
     problems = status(run(healthy(disk=ok(ProbeKind.DISK, df_with_root_at(92)))))
-    assert domain.status_line(problems).startswith("bonvi-srv: muammo — disk / 92% to'lgan · yuklama 0.52")
+    assert shown(domain.status_line(problems)).startswith("bonvi-srv: muammo — disk / 92% to'lgan · yuklama 0.52")
     down = run([not_run(ProbeKind.UPTIME, ProbeStatus.ERROR, error_code="auth_failed")])
-    assert domain.status_line(status(down)) == "bonvi-srv: ulanib bo'lmadi — kalit yoki login rad etildi"
-    assert domain.status_line(HostStatus(JUMP_HOST, jump_only=True)).startswith("server: faqat o'tish (jump) uchun")
-    assert domain.status_line(HostStatus("new-host")) == "new-host: hali tekshirilmagan"
+    assert shown(domain.status_line(status(down))) == "bonvi-srv: ulanib bo'lmadi — kalit yoki login rad etildi"
+    jump = shown(domain.status_line(HostStatus(JUMP_HOST, jump_only=True)))
+    assert jump.startswith("server: faqat o'tish (jump) uchun")
+    assert shown(domain.status_line(HostStatus("new-host"))) == "new-host: hali tekshirilmagan"
     refused = run([not_run(ProbeKind.UPTIME, ProbeStatus.REFUSED)])
-    assert domain.status_line(status(refused)).startswith("bonvi-srv: gate hech bir tekshiruv buyrug'iga")
+    assert shown(domain.status_line(status(refused))).startswith("bonvi-srv: gate hech bir tekshiruv buyrug'iga")
 
 
 def test_the_answer_ends_with_how_old_the_data_is() -> None:
     lines = domain.status_answer([status(run(healthy()))], NOW + timedelta(minutes=12)).splitlines()
     assert lines[-1] == "Ma'lumot: 12 daqiqa oldin"
     assert domain.status_answer([status(run(healthy()))], NOW).splitlines()[-1] == "Ma'lumot: hozirgina"
-    assert domain.status_answer([HostStatus("x")], NOW) == "x: hali tekshirilmagan"
+    assert shown(domain.status_answer([HostStatus("x")], NOW)) == "x: hali tekshirilmagan"
 
 
 def test_an_alert_names_the_host_and_its_new_issues() -> None:
     issues = run(healthy(disk=ok(ProbeKind.DISK, df_with_root_at(97)))).new_issues
-    assert domain.alert_text(SERVER_HOST, issues) == "bonvi-srv serverida muammo: disk / 97% to'lgan."
+    assert shown(domain.alert_text(SERVER_HOST, issues)) == "bonvi-srv serverida muammo: disk / 97% to'lgan."
     every_kind = [Issue(kind, "s", NOW, "1") for kind in IssueKind]
     assert all(domain.issue_text(issue) for issue in every_kind)
 

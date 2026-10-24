@@ -30,7 +30,14 @@ from aiogram.exceptions import (
     TelegramUnauthorizedError,
 )
 
-from yordamchi.core.errors import AuthFailed, CallTimedOut, ExternalError, ProviderUnavailable, RateLimited
+from yordamchi.core.errors import (
+    AuthFailed,
+    CallTimedOut,
+    ExternalError,
+    MarkupRejected,
+    ProviderUnavailable,
+    RateLimited,
+)
 
 PROVIDER: Final = "telegram"
 
@@ -113,10 +120,13 @@ def _network(exc: TelegramAPIError, operation: str) -> Translated:
 
 
 def _client_error(exc: TelegramAPIError, operation: str) -> Translated:
-    """400, 403, 404: Telegram refused the request itself. Never retried; resending the same request fails again."""
+    """400, 403, 404: Telegram refused the request itself. Never retried; resending the same request fails again.
+    A text whose HTML did not parse is its own error: the outbox sends it once more as plain text."""
     reason = reason_of(exc.message)
     if reason == "file_too_big":
         return Translated(TelegramFileTooLarge(direction="in", limit_bytes=INBOUND_MAX_BYTES), reason)
+    if reason == "parse_entities_failed":
+        return Translated(MarkupRejected(provider=PROVIDER), reason)
     return _refused(reason)
 
 

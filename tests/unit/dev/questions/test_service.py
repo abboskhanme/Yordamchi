@@ -34,6 +34,7 @@ from tests.factories import (
 )
 from tests.fakes.agent import Pause, ToolStep, done_result
 from tests.fakes.clock import FakeClock
+from tests.owner_text import read, shown
 from yordamchi.core import strings as S
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import Paths
@@ -218,14 +219,12 @@ async def test_an_agent_question_reaches_the_owner_numbered_within_5_s_and_witho
     assert queued.priority == 0
     assert queued.sent_at is not None
     assert queued.sent_at - row.asked_at <= timedelta(seconds=5)
-    [sent] = [
-        request for request in fakes.messenger.sent() if str(request.payload["text"]).startswith(f"{PROJECT} · Savol")
-    ]
-    assert str(sent.payload["text"]).splitlines() == [
+    [sent] = [request for request in fakes.messenger.sent() if read(request).startswith(f"{PROJECT} · Savol")]
+    assert read(sent).splitlines() == [
         "BonviHR · Savol: Qaysi bazadan foydalanamiz?",
         "1. PostgreSQL — ishonchli, production uchun",
         "2. SQLite — oddiy, bitta fayl",
-        S.AGENT_QUESTION_HINT(),
+        shown(S.AGENT_QUESTION_HINT()),
     ]
     link = await outbox.find_message_link(
         dev_deps, chat_id=sent.chat_id, message_id=await posted_message_id(dev_deps, question_id)

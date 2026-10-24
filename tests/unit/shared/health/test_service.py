@@ -31,6 +31,7 @@ from tests.factories import (
 )
 from tests.fakes.assistant import FakeAssistant
 from tests.fakes.mac_host import GIB, FakeMacHost
+from tests.owner_text import read, shown
 from yordamchi.core import aio
 from yordamchi.core.errors import CallTimedOut, ProviderUnavailable
 from yordamchi.core.paths import Paths
@@ -338,8 +339,8 @@ async def test_an_unclean_exit_is_reported_with_the_interrupted_projects_and_the
     started = await service.report_start(dev_deps, state, interrupted=("BonviHR", "HRMentor"))
 
     expected = (
-        "Qayta ishga tushdim (oldingi ish kutilmaganda uzildi, oxirgi marta 13:58 da ishlagan edim). "
-        "Uzilib qolgan ishlar: BonviHR, HRMentor — davom ettiraymi?"
+        "**Qayta ishga tushdim** (oldingi ish kutilmaganda uzildi, oxirgi marta 13:58 da ishlagan edim).\n"
+        "**Uzilib qolgan ishlar:** BonviHR, HRMentor — davom ettiraymi?"
     )
     assert (started.clean, started.notice) == (False, expected)
     assert await system_texts(dev_deps) == [expected]
@@ -348,7 +349,7 @@ async def test_an_unclean_exit_is_reported_with_the_interrupted_projects_and_the
     assert events[0].data_json == {"version": HEALTH_VERSION, "pid": HEALTH_PID, "clean": False}
     assert events[1].data_json == {"interrupted": 2, "down_s": 120}
     await send_outbox(dev_deps)  # the sender runs every 0.25 s: the owner reads it within seconds (≤ 60 s)
-    assert [request.payload["text"] for request in fakes.messenger.sent()] == [expected]
+    assert [read(request) for request in fakes.messenger.sent()] == [shown(expected)]
 
 
 async def test_a_clean_exit_leaves_a_private_marker_and_the_next_start_says_nothing(
@@ -375,7 +376,7 @@ async def test_a_crash_after_a_clean_start_is_still_reported_next_time(
     # … `kill -9`: no marker written. The next process:
     started = await service.report_start(dev_deps, make_health_state(fakes.clock))
     assert started.clean is False
-    assert started.notice == "Qayta ishga tushdim (oldingi ish kutilmaganda uzildi). Uzilib qolgan ish yo'q."
+    assert started.notice == "**Qayta ishga tushdim** (oldingi ish kutilmaganda uzildi).\nUzilib qolgan ish yo'q."
 
 
 async def test_the_personal_bot_tells_its_restart_in_the_owner_dm(
@@ -398,7 +399,7 @@ async def test_onlayn_is_sent_pinned_once_then_edited_in_place(dev_deps: DevDeps
     assert await service.refresh_online(dev_deps) is OnlineStep.WAIT  # still queued: nothing to edit yet
     await send_outbox(dev_deps)
     [sent] = fakes.messenger.sent()
-    assert (sent.chat_id, sent.payload["text"], sent.payload["disable_notification"]) == (
+    assert (sent.chat_id, read(sent), sent.payload["disable_notification"]) == (
         DEV_GROUP_ID,
         "Onlayn: 14:00",
         True,
@@ -410,7 +411,7 @@ async def test_onlayn_is_sent_pinned_once_then_edited_in_place(dev_deps: DevDeps
     assert await service.refresh_online(dev_deps) is OnlineStep.EDIT
     await drain_outbox(dev_deps, fakes.clock, seconds=1)
     [edit] = fakes.messenger.sent("edit_text")
-    assert (edit.payload["message_id"], edit.payload["text"]) == (101, "Onlayn: 14:05")
+    assert (edit.payload["message_id"], read(edit)) == (101, "Onlayn: 14:05")
     assert await online_state(dev_deps) == OnlineMessage(generation=1, message_id=101, edits=1)
     assert len(fakes.messenger.sent()) == 1  # one message for the life of the group
 
@@ -439,7 +440,7 @@ async def test_a_deleted_onlayn_message_is_sent_and_pinned_again(dev_deps: DevDe
     await fakes.clock.advance(300)
     assert await service.refresh_online(dev_deps) is OnlineStep.SEND
     await send_outbox(dev_deps)
-    assert [request.payload["text"] for request in fakes.messenger.sent()] == ["Onlayn: 14:00", "Onlayn: 14:10"]
+    assert [read(request) for request in fakes.messenger.sent()] == ["Onlayn: 14:00", "Onlayn: 14:10"]
     assert [request.payload["message_id"] for request in fakes.messenger.sent("pin")] == [101, 102]
     await fakes.clock.advance(300)
     assert await service.refresh_online(dev_deps) is OnlineStep.EDIT
@@ -582,7 +583,7 @@ async def test_a_probe_that_fails_is_cached_for_holat_and_records_nothing(
     check = await service.check_claude(deps, state)
     assert check.error_code == "call_timed_out"
     assert await kinds(deps) == []
-    assert "Claude CLI: tekshirib bo'lmadi (call_timed_out)" in await service.show_health(deps, state)
+    assert "Claude CLI: tekshirib bo'lmadi (call_timed_out)" in shown(await service.show_health(deps, state))
 
 
 async def test_the_check_loop_runs_at_start_then_every_ten_minutes(
@@ -696,7 +697,7 @@ async def test_holat_shows_the_bot_from_local_state(dev_deps: DevDeps, fakes: Fa
 
     text = await service.show_health(dev_deps, state, work=work)
 
-    assert text.splitlines() == [
+    assert shown(text).splitlines() == [
         "Holat · dev bot",
         "Ish vaqti: 3 soat 12 daq · Yordamchi 2026.10.24-abcdef0 · SDK 0.2.173",
         "Claude CLI 2.1.309: login — claude.ai",
@@ -716,7 +717,7 @@ async def test_holat_keeps_only_the_last_three_error_codes(dev_deps: DevDeps, fa
     for code in ("a_failed", "b_failed", "c_failed", "d_failed"):
         service.note_error(dev_deps, state, code)
         await fakes.clock.advance(60)
-    lines = (await service.show_health(dev_deps, state)).splitlines()
+    lines = shown(await service.show_health(dev_deps, state)).splitlines()
     assert lines[-1] == "Oxirgi xatolar: d_failed (14:03), c_failed (14:02), b_failed (14:01)"
 
 
@@ -740,14 +741,14 @@ async def test_a_hanging_part_shows_as_unknown_and_holat_still_answers_within_3_
     elapsed = time.monotonic() - started
 
     assert elapsed < 3.0
-    assert "ClaudeManager: holatini o'qib bo'lmadi" in text
-    assert "Ishlar: o'qib bo'lmadi" in text
+    assert "ClaudeManager: holatini o'qib bo'lmadi" in shown(text)
+    assert "Ishlar: o'qib bo'lmadi" in shown(text)
 
 
 async def test_holat_on_the_personal_bot_has_no_work_lines(
     personal_deps: PersonalDeps, fakes: Fakes, state: HealthState
 ) -> None:
-    lines = (await service.show_health(personal_deps, state)).splitlines()
+    lines = shown(await service.show_health(personal_deps, state)).splitlines()
     assert lines[0] == "Holat · shaxsiy bot"
     assert "Claude CLI: hali tekshirilmadi" in lines
     assert "Ovoz: ishlaydigan kalit yo'q — ovozli xabarlarni matnga o'gira olmayman." in lines

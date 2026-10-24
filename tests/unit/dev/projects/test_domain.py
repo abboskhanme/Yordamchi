@@ -9,6 +9,7 @@ from pathlib import PurePosixPath
 import pytest
 
 from tests.factories import WORKFLOW_FIXTURES, load_workflow, make_project_record
+from tests.owner_text import shown
 from yordamchi.core import strings as S
 from yordamchi.core.errors import (
     ProjectAliasInvalid,
@@ -756,12 +757,12 @@ def test_the_listing_shows_active_projects_then_archived_and_missing() -> None:
         _view("AgentsRoom"),
     ]
     text = domain.listing(projects, root="~/Documents/Projects")
-    assert text.splitlines() == [
-        S.PROJECTS_SUMMARY(active=3, archived=1),
+    assert shown(text).splitlines() == [
+        shown(S.PROJECTS_SUMMARY(active=3, archived=1)),
         "• AgentsRoom",
         "• BonviHR — Kadrlar tizimi (yana: hr)",
         "• HRMentor-wt-agent-api (worktree)",
-        S.PROJECTS_ARCHIVED_LIST(projects="BonviCall Clone Archive"),
-        S.PROJECTS_MISSING_LIST(projects="BonviAGI"),
+        shown(S.PROJECTS_ARCHIVED_LIST(projects="BonviCall Clone Archive")),
+        shown(S.PROJECTS_MISSING_LIST(projects="BonviAGI")),
     ]
     assert domain.listing([], root="~/P") == S.PROJECTS_NONE(root="~/P")

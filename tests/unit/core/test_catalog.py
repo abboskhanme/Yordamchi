@@ -335,6 +335,8 @@ def test_entry_terms_name_real_entries_and_each_term_is_needed() -> None:
 PROJECT_PARAMS: Final = frozenset({"project", "to_project"})
 # UC-10 AC: routing names its target as "→ BonviHR"; that arrow form counts as the project first.
 ARROW: Final = "→ "
+# A title in bold ("**BonviHR · Natija:** …") is read as "BonviHR · Natija: …": the project is still first.
+BOLD: Final = "**"
 # Entries with a project that legitimately do not open with it.
 PROJECT_LATER: Final[Mapping[str, str]] = {
     "PROJECTS_ITEM": "one line of the «loyihalar» list, under its summary line",
@@ -348,7 +350,10 @@ PROJECT_LATER: Final[Mapping[str, str]] = {
 
 
 def _opens_with_project(entry: S.Msg) -> bool:
-    return any(entry.template.startswith((f"{{{param}}}", f"{ARROW}{{{param}}}")) for param in PROJECT_PARAMS)
+    return any(
+        entry.template.startswith((f"{{{param}}}", f"{ARROW}{{{param}}}", f"{BOLD}{{{param}}}"))
+        for param in PROJECT_PARAMS
+    )
 
 
 def test_every_project_message_starts_with_the_project_name() -> None:

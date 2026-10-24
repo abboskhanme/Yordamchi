@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from tests.owner_text import shown
 from yordamchi.core.paths import BotName
 from yordamchi.ports.agent import RuntimeStatus
 from yordamchi.ports.mac_host import ClaudeAccount, ClaudeManagerState
@@ -188,14 +189,14 @@ def test_the_wake_notice_names_the_gap_in_tashkent_time_and_the_batch_size() -> 
 def test_the_restart_notice_lists_each_interrupted_project_once_and_asks_to_continue() -> None:
     text = domain.restart_text(["BonviHR", "HRMentor", "BonviHR"], last_alive_at=NOW, timezone=TZ)
     assert text == (
-        "Qayta ishga tushdim (oldingi ish kutilmaganda uzildi, oxirgi marta 14:05 da ishlagan edim). "
-        "Uzilib qolgan ishlar: BonviHR, HRMentor — davom ettiraymi?"
+        "**Qayta ishga tushdim** (oldingi ish kutilmaganda uzildi, oxirgi marta 14:05 da ishlagan edim).\n"
+        "**Uzilib qolgan ishlar:** BonviHR, HRMentor — davom ettiraymi?"
     )
 
 
 def test_a_restart_with_nothing_cut_off_says_so() -> None:
     text = domain.restart_text([], last_alive_at=None, timezone=TZ)
-    assert text == "Qayta ishga tushdim (oldingi ish kutilmaganda uzildi). Uzilib qolgan ish yo'q."
+    assert text == "**Qayta ishga tushdim** (oldingi ish kutilmaganda uzildi).\nUzilib qolgan ish yo'q."
 
 
 # --- the pinned "Onlayn" message ----------------------------------------------------------------------------------
@@ -276,7 +277,7 @@ def test_the_stored_state_round_trips_and_garbage_reads_as_none() -> None:
 
 
 def test_the_online_text_is_hh_mm_in_tashkent() -> None:
-    assert domain.online_text(NOW, timezone=TZ) == "Onlayn: 14:05"
+    assert domain.online_text(NOW, timezone=TZ) == "**Onlayn:** 14:05"
 
 
 # --- the CLI smoke test -------------------------------------------------------------------------------------------
@@ -392,7 +393,7 @@ def view(**changes: object) -> HealthView:
 
 
 def test_holat_shows_every_spec_part_in_order() -> None:
-    assert domain.holat_text(view()).splitlines() == [
+    assert shown(domain.holat_text(view())).splitlines() == [
         "Holat · dev bot",
         "Ish vaqti: 3 soat 12 daq · Yordamchi 2026.10.24-abcdef0 · SDK 0.2.173",
         "Claude CLI 2.1.310: login — claude.ai",
@@ -408,7 +409,7 @@ def test_holat_shows_every_spec_part_in_order() -> None:
 
 
 def test_the_personal_bot_has_no_work_lines_and_nothing_degraded_is_not_listed() -> None:
-    lines = domain.holat_text(view(bot=BotName.PERSONAL, work=None, degraded=(), errors=())).splitlines()
+    lines = shown(domain.holat_text(view(bot=BotName.PERSONAL, work=None, degraded=(), errors=()))).splitlines()
     assert lines[0] == "Holat · shaxsiy bot"
     assert not any(
         line.startswith(("Hozir ishlayapti", "Navbatda", "Javob kutayotgan", "Cheklangan")) for line in lines
@@ -417,8 +418,10 @@ def test_the_personal_bot_has_no_work_lines_and_nothing_degraded_is_not_listed()
 
 
 def test_parts_that_could_not_be_read_say_so() -> None:
-    lines = domain.holat_text(
-        view(manager=UNREAD, work=UNREAD, pressure_level=UNREAD, free_disk_bytes=UNREAD, speech_providers=UNREAD)
+    lines = shown(
+        domain.holat_text(
+            view(manager=UNREAD, work=UNREAD, pressure_level=UNREAD, free_disk_bytes=UNREAD, speech_providers=UNREAD)
+        )
     ).splitlines()
     assert "ClaudeManager: holatini o'qib bo'lmadi" in lines
     assert "Ishlar: o'qib bo'lmadi" in lines
@@ -427,7 +430,7 @@ def test_parts_that_could_not_be_read_say_so() -> None:
 
 
 def test_an_idle_dev_bot_shows_nothing_running_and_no_queue() -> None:
-    lines = domain.holat_text(view(work=WorkStatus())).splitlines()
+    lines = shown(domain.holat_text(view(work=WorkStatus()))).splitlines()
     assert "Hozir ishlayapti: hech narsa" in lines
     assert not any(line.startswith("Navbatda") for line in lines)
 
@@ -440,35 +443,35 @@ def test_an_idle_dev_bot_shows_nothing_running_and_no_queue() -> None:
         (ClaudeCheck(at=NOW, installed=False), "Claude CLI: topilmadi"),
         (
             ClaudeCheck(at=NOW, installed=True, version="2.1.310", logged_in=False),
-            "Claude CLI 2.1.310: login qilinmagan — Mac'da `claude` ni ochib, kiring",
+            "Claude CLI 2.1.310: login qilinmagan — Mac'da claude ni ochib, kiring",  # code shows unquoted
         ),
         (
             ClaudeCheck(at=NOW, installed=True, version="2.1.310", logged_in=True, auth_method="api_key"),
             (
-                "Claude CLI 2.1.310: login usuli «api_key», claude.ai bo'lishi kerak — Mac'da `claude auth status` "
+                "Claude CLI 2.1.310: login usuli «api_key», claude.ai bo'lishi kerak — Mac'da claude auth status "
                 "ni tekshiring"
             ),
         ),
     ],
 )
 def test_the_claude_line_says_what_is_wrong_with_the_login(check: ClaudeCheck | None, line: str) -> None:
-    assert domain.holat_text(view(claude=check)).splitlines()[2] == line
+    assert shown(domain.holat_text(view(claude=check))).splitlines()[2] == line
 
 
 def test_claude_manager_without_an_active_account_or_with_unknown_usage() -> None:
     idle = ClaudeManagerState(active_id=None, auto_switch=False, accounts=(account("a@example.com", active=False),))
-    assert domain.holat_text(view(manager=idle)).splitlines()[3] == "ClaudeManager: faol akkaunt yo'q"
+    assert shown(domain.holat_text(view(manager=idle))).splitlines()[3] == "ClaudeManager: faol akkaunt yo'q"
     unknown = ClaudeManagerState(
         active_id="a", auto_switch=False, accounts=(account("a@example.com", active=True, five=None, seven=None),)
     )
-    assert domain.holat_text(view(manager=unknown)).splitlines()[3] == (
+    assert shown(domain.holat_text(view(manager=unknown))).splitlines()[3] == (
         "ClaudeManager: a@example.com · 5 soat: noma'lum · 7 kun: noma'lum"
     )
-    assert domain.holat_text(view(manager=None)).splitlines()[3] == "ClaudeManager: holatini o'qib bo'lmadi"
+    assert shown(domain.holat_text(view(manager=None))).splitlines()[3] == "ClaudeManager: holatini o'qib bo'lmadi"
 
 
 def test_no_speech_key_is_said_plainly() -> None:
-    lines = domain.holat_text(view(speech_providers=())).splitlines()
+    lines = shown(domain.holat_text(view(speech_providers=()))).splitlines()
     assert "Ovoz: ishlaydigan kalit yo'q — ovozli xabarlarni matnga o'gira olmayman." in lines
 
 

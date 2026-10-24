@@ -40,6 +40,7 @@ class ErrorCode(StrEnum):
     COST_CAP_REACHED = "cost_cap_reached"
     # --- access ---
     # --- outbox ---
+    MARKUP_REJECTED = "markup_rejected"
     # --- burst ---
     # --- projects ---
     GIT_FAILED = "git_failed"  # adapters/git (T17): a local git command failed
@@ -287,6 +288,14 @@ class CostCapReached(DomainError):
 
 # --- access ---
 # --- outbox ---
+class MarkupRejected(ExternalError):
+    """Telegram refused a text's formatting ("can't parse entities"): the request posted nothing. Not retryable as
+    it is; the outbox sends the same text once more without a parse mode (`shared/outbox/service.py`)."""
+
+    def __init__(self, *, provider: str) -> None:
+        super().__init__(ErrorCode.MARKUP_REJECTED, retryable=False, provider=provider)
+
+
 # --- burst ---
 # --- projects ---
 class GitFailed(ExternalError):

@@ -16,6 +16,7 @@ import pytest
 
 from tests.factories import make_allowance, make_usage_total, usd
 from tests.goldens import check_golden
+from tests.owner_text import shown
 from yordamchi.core.paths import BotName
 from yordamchi.ports.mac_host import ClaudeAccount, ClaudeManagerState
 from yordamchi.shared.cost import domain
@@ -107,7 +108,7 @@ def test_a_paused_provider_and_both_bots_match_the_golden_file(pytestconfig: pyt
 
 
 def test_the_golden_month_keeps_paid_spend_and_the_plan_estimate_apart() -> None:
-    lines = domain.report_text(month_view()).splitlines()
+    lines = shown(domain.report_text(month_view())).splitlines()
     paid = next(line for line in lines if line.startswith("Pullik API:"))
     plan = next(line for line in lines if line.startswith("Claude obunasi"))
     assert paid == "Pullik API: $0.42 / $3.10 / $12.90"  # Google STT + routing + OpenRouter STT; no Claude

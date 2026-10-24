@@ -30,6 +30,7 @@ from tests.factories import (
     make_owner_origin,
 )
 from tests.fakes.clock import FakeClock
+from tests.owner_text import shown
 from yordamchi import prompts
 from yordamchi.core import strings as S
 from yordamchi.core.errors import ProviderUnavailable, SettingInvalid, SettingPersonalOnly, YordamchiError
@@ -491,9 +492,11 @@ async def test_the_list_covers_every_group_with_the_stored_values_within_3_s(dev
         value = snap.values[case.setting.key]
         assert S.SETTINGS_GROUPS[case.setting.group.value]() in listing.summary
         summary_value = domain.show_value(case.setting, value, limit=domain.SUMMARY_VALUE_CHARS)
-        assert f"{case.setting.key} = {summary_value}" in listing.summary
-        assert f"• {case.setting.key} = {domain.show_value(case.setting, value)} — o'zgartirilgan" in listing.full
-    assert all(f"• {key} = " in listing.full for key in snap.values)
+        assert f"{case.setting.key} = {summary_value}" in shown(listing.summary)
+        assert f"• {case.setting.key} = {domain.show_value(case.setting, value)} — o'zgartirilgan" in shown(
+            listing.full
+        )
+    assert all(f"• {key} = " in shown(listing.full) for key in snap.values)
 
 
 async def test_the_list_masks_secrets(dev_deps: DevDeps) -> None:
@@ -504,7 +507,7 @@ async def test_the_list_masks_secrets(dev_deps: DevDeps) -> None:
     listing = await service.list_settings(dev_deps)
     assert secret not in listing.summary
     assert secret not in listing.full
-    assert "prompt.dev_executor_extra = kalit: ••••" in listing.full
+    assert "prompt.dev_executor_extra = kalit: ••••" in shown(listing.full)
 
 
 async def test_show_settings_sends_the_summary_then_the_full_list_as_a_file(dev_deps: DevDeps) -> None:

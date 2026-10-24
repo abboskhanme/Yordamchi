@@ -2,12 +2,16 @@
 keys (no keyboard ever), per-chat order, rate limits, coalescing, typing, failure decisions and retention, on virtual
 time (SPEC §2.7, §3.2.1, §4.6; NFR-REL-06, NFR-CAP-02/03, UC-11, UC-12)."""
 
+import re
 from dataclasses import replace
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from tests.fakes.clock import FakeClock
+from tests.goldens import GOLDEN
+from tests.owner_text import html_problems
 from yordamchi.core.errors import AuthFailed, CallTimedOut, ProviderUnavailable, RateLimited
 from yordamchi.core.json_value import JsonValue
 from yordamchi.shared.outbox import domain
@@ -96,6 +100,106 @@ def test_an_unclosed_fence_runs_to_the_end_and_a_strange_language_is_dropped() -
     assert rendered.text == "<pre>x &gt; 1</pre>"
 
 
+# --- the Markdown subset -------------------------------------------------------------------------------------------
+def _html(text: str) -> str:
+    """`text` as it goes out, checked to be HTML Telegram parses."""
+    rendered = domain.render(text)
+    assert rendered.html, text
+    assert html_problems(rendered.text) == [], rendered.text
+    return rendered.text
+
+
+@pytest.mark.parametrize(
+    ("text", "html"),
+    [
+        ("**BonviHR · Natija:** tayyor", "<b>BonviHR · Natija:</b> tayyor"),
+        ("Mac'da `claude auth status` ni tekshiring", "Mac'da <code>claude auth status</code> ni tekshiring"),
+        ("# Hisobot", "<b>Hisobot</b>"),
+        ("## Hisobot ##", "<b>Hisobot</b>"),
+        ("### **Hisobot** `x`", "<b>Hisobot x</b>"),  # a title is bold already; code cannot sit inside bold
+        ("**a** va\n- birinchi\n* ikkinchi\n  - ichki", "<b>a</b> va\n• birinchi\n• ikkinchi\n  • ichki"),
+        ("[hujjat](https://example.com/a?b=1&c=2)", '<a href="https://example.com/a?b=1&amp;c=2">hujjat</a>'),
+        ("[**PR**](https://github.com/x/y/pull/7)", '<a href="https://github.com/x/y/pull/7"><b>PR</b></a>'),
+        ("**bu [havola](https://a.uz) muhim**", '<b>bu <a href="https://a.uz">havola</a> muhim</b>'),
+        ("**`make check` o'tdi**", "<b>make check o'tdi</b>"),
+        ("«**x**» (**y**), **z**: ok.", "«<b>x</b>» (<b>y</b>), <b>z</b>: ok."),
+    ],
+)
+def test_each_construct_becomes_its_telegram_tag(text: str, html: str) -> None:
+    assert _html(text) == html
+
+
+def test_everything_else_is_escaped_including_a_lt_in_a_parameter() -> None:
+    # A catalog line with markup, filled with a value holding "<", "&" and a tag of its own.
+    text = "**BonviHR · Natija:** a < b && <b>c</b> > d"
+    assert _html(text) == "<b>BonviHR · Natija:</b> a &lt; b &amp;&amp; &lt;b&gt;c&lt;/b&gt; &gt; d"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "snake_case, __init__.py, _private va a_b_c",
+        "a*b*c, *args, **kwargs, 2**10, x ** 2, f(**a, **b)",
+        "src/**/*.py va tests/**/*.py",
+        "**/*.md, docs/**",
+        "~/Library/Application Support/Yordamchi/releases/current",
+        "Natija: o`zgardi va bo`ldi (apostrof o'rnida backtick)",
+        "#17 ha, #hashtag, #### to'rt, -5 daraja, --force",
+        "[http](http://example.com), [ichki](https://localhost), [bo'sh]()",
+        "** **, `` ``, ` `, **",
+        "**ochiq qolgan, `ochiq qolgan, [ochiq qolgan](https://a.uz",
+        "**BonviHR**ga, `foo`ni",  # a closing marker glued to a suffix is no closer
+    ],
+)
+def test_text_that_only_looks_like_markup_goes_as_typed(text: str) -> None:
+    assert domain.render(text) == domain.Rendered(text=text, html=False)
+    assert domain.plain_text(text) == text
+
+
+def test_an_unmatched_marker_stays_literal_beside_a_matched_one() -> None:
+    assert _html("**qalin** va **yarim, `kod` va `yarim") == "<b>qalin</b> va **yarim, <code>kod</code> va `yarim"
+    assert _html("**a** **b** c**") == "<b>a</b> <b>b</b> c**"
+
+
+def test_a_span_never_crosses_a_line() -> None:
+    assert domain.render("**bir\nikki**").html is False
+    assert domain.render("`bir\nikki`").html is False
+    assert domain.render("[bir\nikki](https://a.uz)").html is False
+
+
+def test_bullets_alone_need_no_parse_mode() -> None:
+    assert domain.render("- bir\n* ikki\n• uch") == domain.Rendered(text="• bir\n• ikki\n• uch", html=False)
+
+
+def test_a_fence_and_bold_render_together() -> None:
+    text = "**BonviHR · xato:**\n```python\nif a < b and **c**:\n    pass\n```\n- **Tuzatdim** `a.py`"
+    assert _html(text) == (
+        "<b>BonviHR · xato:</b>\n"
+        '<pre><code class="language-python">if a &lt; b and **c**:\n    pass</code></pre>\n'
+        "• <b>Tuzatdim</b> <code>a.py</code>"
+    )
+
+
+def test_plain_text_strips_the_markers_and_keeps_what_is_read() -> None:
+    text = "# Hisobot\n**Git:** `main` · [PR](https://github.com/x/y/pull/7)\n- bir\n```sh\nmake check\n```"
+    assert domain.plain_text(text) == "Hisobot\nGit: main · PR (https://github.com/x/y/pull/7)\n• bir\nmake check"
+    assert domain.tg_len(domain.plain_text(text)) <= domain.tg_len(text)
+
+
+@pytest.mark.parametrize(
+    "path", sorted(path for path in GOLDEN.rglob("*.txt")), ids=lambda path: str(path.relative_to(GOLDEN))
+)
+def test_every_golden_message_renders_to_html_telegram_parses(path: Path) -> None:
+    """What the catalog sends, family by family (tests/golden): every case, once rendered, parses."""
+    body = path.read_text(encoding="utf-8")
+    cases = re.split(r"^=== .+ ===\n", body, flags=re.MULTILINE)
+    texts = [case.rstrip("\n") for case in cases if case.strip()]
+    assert texts
+    for text in texts:
+        rendered = domain.render(text)
+        assert not rendered.html or html_problems(rendered.text) == [], text
+
+
 # --- the split -----------------------------------------------------------------------------------------------------
 def test_a_text_that_fits_is_one_part_unchanged() -> None:
     text = "BonviHR · Natija: login tuzatildi.\n\n\nFayllar: 2 ta"
@@ -137,6 +241,45 @@ def test_a_long_code_block_reopens_its_fence_in_every_part() -> None:
         assert part.endswith("\n```")
         assert domain.render(part).text.startswith('<pre><code class="language-python">')
     assert [line for part in parts for line in part.split("\n")[1:-1]] == lines
+
+
+def test_every_part_of_a_long_marked_text_renders_on_its_own() -> None:
+    paragraphs = [
+        f"## {index}-bo'lim\n**Holat:** `make check` o'tdi, [PR](https://github.com/x/y/pull/{index})\n"
+        + "\n".join(f"- **{item}-band** " + "so'z " * 20 for item in range(6))
+        + f"\n```python\nif a < b:\n    print({index})\n```"
+        for index in range(12)
+    ]
+    text = "\n\n".join(paragraphs)
+    parts = domain.split_text(text, limit=900)
+    assert len(parts) > 1
+    for part in parts:
+        assert domain.tg_len(part) <= 900
+        rendered = domain.render(part)
+        assert rendered.html
+        assert html_problems(rendered.text) == [], part
+        assert "**" not in domain.plain_text(part)  # no construct was cut, so no marker shows as typed
+
+
+def test_a_long_line_is_not_cut_inside_a_construct_that_fits() -> None:
+    line = " ".join(f"so'z **ikki so'zli {index}** va `make check {index}` keyin" for index in range(80))
+    parts = domain.split_text(line, limit=300)
+    assert len(parts) > 1
+    for part in parts:
+        assert domain.tg_len(part) <= 300
+        assert html_problems(domain.render(part).text) == [], part
+        assert "**" not in domain.plain_text(part)
+        assert "`" not in domain.plain_text(part)
+    assert " ".join(parts) == line
+
+
+def test_the_limit_is_judged_on_what_telegram_counts_not_on_the_html() -> None:
+    """Telegram counts a text after entities parsing: `&lt;` is one character and tags are none."""
+    text = "**Natija:** " + "a<b&c " * 600
+    rendered = domain.render(text)
+    assert domain.tg_len(rendered.text) > domain.TEXT_LIMIT  # the HTML is far longer than a message …
+    assert domain.tg_len(domain.plain_text(text)) <= domain.TEXT_LIMIT  # … what Telegram counts is not
+    assert domain.split_text(text) == (text,)  # so it stays one message
 
 
 def test_a_giant_word_is_cut_by_characters() -> None:

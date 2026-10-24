@@ -1,8 +1,8 @@
 === «integratsiyalar» ===
-Bu imkoniyat hali yo'q — P2 bosqichida qo'shiladi.
+Bu imkoniyat hali yo'q — **P2** bosqichida qo'shiladi.
 
 === «yangi loyiha: kutubxona uchun bot» ===
-Bu imkoniyat hali yo'q — P2 bosqichida qo'shiladi.
+Bu imkoniyat hali yo'q — **P2** bosqichida qo'shiladi.
 
 === «o'zingga yangi buyruq qo'sh» ===
-Bu imkoniyat hali yo'q — P2 bosqichida qo'shiladi.
+Bu imkoniyat hali yo'q — **P2** bosqichida qo'shiladi.

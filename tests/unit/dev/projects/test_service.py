@@ -18,6 +18,7 @@ from tests.factories import (
     make_project_folder,
     projects_root_of,
 )
+from tests.owner_text import shown
 from yordamchi.core import strings as S
 from yordamchi.core.errors import (
     CallTimedOut,
@@ -445,10 +446,10 @@ async def test_loyihalar_lists_the_registry(dev_deps: DevDeps, root: Path) -> No
     make_project_folder(root, "BonviHR", readme="Kadrlar tizimi, FastAPI va React.\n")
     make_project_folder(root, "BonviCall Clone Archive")
     await service.sync_projects(dev_deps)
-    assert (await service.show_projects(dev_deps)).splitlines() == [
-        S.PROJECTS_SUMMARY(active=1, archived=1),
+    assert shown(await service.show_projects(dev_deps)).splitlines() == [
+        shown(S.PROJECTS_SUMMARY(active=1, archived=1)),
         "• BonviHR — Kadrlar tizimi, FastAPI va React.",
-        S.PROJECTS_ARCHIVED_LIST(projects="BonviCall Clone Archive"),
+        shown(S.PROJECTS_ARCHIVED_LIST(projects="BonviCall Clone Archive")),
     ]
 
 

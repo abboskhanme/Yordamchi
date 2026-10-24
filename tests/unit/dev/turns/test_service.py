@@ -36,6 +36,7 @@ from tests.factories import (
 )
 from tests.fakes.agent import FakeAgentRuntime, Pause, ToolStep, done_result
 from tests.fakes.mac_host import GIB, FakeMacHost
+from tests.owner_text import shown
 from yordamchi.core import strings as S
 from yordamchi.core.errors import CallTimedOut, GitFailed, ProjectNotFound, TurnNotFound
 from yordamchi.core.paths import Paths
@@ -226,7 +227,7 @@ async def test_a_turn_runs_and_ends_with_the_golden_result_committed_and_pushed_
     assert "decision" not in kinds
     assert "question" not in kinds
     results = await texts(dev_deps, "result")
-    assert [text.splitlines() for text in results] == [
+    assert [shown(text).splitlines() for text in results] == [
         [
             "BonviHR · Natija: Login sahifasidagi xato tuzatildi.",
             "Fayllar: 2 ta (login.py, test_login.py)",
@@ -263,7 +264,7 @@ async def test_every_project_message_starts_with_the_project_name(
     fakes.agents.script_turn(ToolStep("Read", {"file_path": "README.md"}), result())
     turn_id = await start(dev_deps, state)
     await finish(dev_deps, fakes, turn_id)
-    assert all(text.startswith(PROJECT) for text in await texts(dev_deps))
+    assert all(shown(text).startswith(PROJECT) for text in await texts(dev_deps))  # as the owner reads it
 
 
 async def test_progress_is_one_message_per_turn_edited_at_most_every_five_seconds(
@@ -281,7 +282,7 @@ async def test_progress_is_one_message_per_turn_edited_at_most_every_five_second
     sends = [message for message in progress if message.op == "send_text"]
     assert len(sends) == 1
     assert sends[0].dedupe_key == "progress:1:0"
-    assert text_of(sends[0]).startswith("BonviHR · ishlayapti 0 daq · 4 qadam")
+    assert shown(text_of(sends[0])).startswith("BonviHR · ishlayapti 0 daq · 4 qadam")
     assert "• Bash: step 3" in text_of(sends[0])
     edits = [message for message in progress if message.op == "edit_text" and message.status == "pending"]
     assert len(edits) <= 1  # older pending edits are superseded (coalesced)
@@ -975,7 +976,7 @@ async def test_unpushed_work_gets_one_nudge_and_a_second_miss_shows_in_the_resul
     row = await finish(dev_deps, fakes, turn_id)
     assert row.pushed is False
     result_text = (await texts(dev_deps, "result"))[0]
-    assert "Commit: commit/push qilinmadi" in result_text
+    assert "Commit: commit/push qilinmadi" in shown(result_text)
     assert [item.mode for item in await deliveries(dev_deps, turn_id)] == ["new_turn", "nudge"]
 
 

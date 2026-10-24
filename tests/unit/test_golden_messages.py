@@ -47,6 +47,7 @@ from tests.factories import (
 from tests.fakes.clock import FakeClock
 from tests.fakes.security import FakeSecurity
 from tests.goldens import Case, check_cases
+from tests.owner_text import html_problems
 from yordamchi.bots.dev import app, intents
 from yordamchi.core import keychain, proc, redact
 from yordamchi.core import strings as S
@@ -72,7 +73,7 @@ from yordamchi.ports.mac_host import ClaudeAccount, ClaudeManagerState
 from yordamchi.shared.health import domain as health
 from yordamchi.shared.health.domain import GIB, UNREAD, ClaudeCheck, ErrorNote, Gap, HealthView, QueuedWork, WorkStatus
 from yordamchi.shared.inbox.domain import UpdateKind
-from yordamchi.shared.outbox.domain import TEXT_LIMIT, tg_len
+from yordamchi.shared.outbox.domain import TEXT_LIMIT, plain_text, render, tg_len
 from yordamchi.shared.settings import defaults
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -92,14 +93,22 @@ def ago(**delta: float) -> datetime:
 
 
 def golden(config: pytest.Config, name: str, cases: Sequence[Case], *, project: str | None = None) -> None:
-    """Every case fits one Telegram message as it is (no split, no cut); a project family's every case starts with
-    the project's name (CONVENTIONS §10). Then the file comparison."""
+    """Every case fits one Telegram message as it is (no split, no cut) and renders to HTML Telegram parses; what the
+    owner reads of a project family's every case starts with the project's name (CONVENTIONS §10). Then the file
+    comparison. The files hold the text as queued (the Markdown subset); `outbox.domain.render` makes it HTML."""
     too_long = [title for title, text in cases if tg_len(text) > TEXT_LIMIT]
     assert too_long == [], f"longer than one Telegram message: {too_long}"
+    unparsable = {title: problems for title, text in cases if (problems := _sent_problems(text))}
+    assert unparsable == {}, "Telegram would refuse these"
     if project is not None:
-        unnamed = [title for title, text in cases if not text.startswith(project)]
+        unnamed = [title for title, text in cases if not plain_text(text).startswith(project)]
         assert unnamed == [], f"does not start with {project}: {unnamed}"
     check_cases(config, name, cases)
+
+
+def _sent_problems(text: str) -> list[str]:
+    rendered = render(text)
+    return html_problems(rendered.text) if rendered.html else []
 
 
 # --- progress line (UC-11, SPEC §6.2) -------------------------------------------------------------------------------

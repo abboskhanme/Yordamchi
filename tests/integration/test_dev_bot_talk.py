@@ -17,7 +17,7 @@ import pytest
 
 from tests.factories import make_default_snapshot, make_owner_origin
 from tests.fakes.agent import Pause, ToolStep, done_result
-from tests.integration.dev_bot_harness import DevBot, dev_bot, register_projects
+from tests.integration.dev_bot_harness import DevBot, dev_bot, register_projects, visible
 from yordamchi.core import strings as S
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName
@@ -25,6 +25,7 @@ from yordamchi.dev.turns import store as turns_store
 from yordamchi.dev.turns.domain import TurnStatus
 from yordamchi.persistence.uow import Session
 from yordamchi.shared.outbox import service as outbox_service
+from yordamchi.shared.outbox.domain import plain_text
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 
@@ -170,7 +171,8 @@ async def test_xarajat_answers_the_cost_report_within_three_seconds() -> None:
         took = await bot.within(6, lambda: bool(bot.posted(S.COST_HEAD())), what="the cost report")
         assert took <= quiet + 3.0
         assert not bot.posted(S.NOT_YET(phase="P2"))
-        [report] = [r for r in bot.requests("sendMessage") if S.COST_HEAD() in str(r.params.get("text"))]
+        head = plain_text(S.COST_HEAD())  # as the owner reads it
+        [report] = [r for r in bot.requests("sendMessage") if head in visible(r)]
         assert str(5000 + xarajat) in str(report.params.get("reply_parameters"))  # an answer to the question
 
 

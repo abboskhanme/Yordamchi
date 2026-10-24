@@ -26,6 +26,7 @@ from tests.factories import (
     outbox_text,
     vault_secret,
 )
+from tests.owner_text import shown
 from yordamchi.adapters.claude import options
 from yordamchi.core import aio, redact
 from yordamchi.core import strings as S
@@ -149,7 +150,7 @@ async def test_the_list_by_chat_shows_status_and_last_check(
 
     listing = await service.show_integrations(dev_deps)
 
-    assert listing.splitlines()[1] == "• Bonvi HR — MCP, dev bot: ishlayapti (tekshirildi: 2026-10-23 14:00)"
+    assert shown(listing).splitlines()[1] == "• Bonvi HR — MCP, dev bot: ishlayapti (tekshirildi: 2026-10-23 14:00)"
     assert INTEGRATION_TOKEN not in listing
 
 
@@ -382,7 +383,7 @@ async def test_an_api_key_is_stored_with_its_url_and_purpose_and_listed(dev_deps
         key.id,
         "Toshkent ob-havosi",
     )
-    assert "• Ob-havo — API kalit, dev bot" in await service.show_integrations(dev_deps)
+    assert "• Ob-havo — API kalit, dev bot" in shown(await service.show_integrations(dev_deps))
     assert await service.mcp_config_for(dev_deps, BotName.DEV, "coding") == {}  # not an MCP server
     with pytest.raises(IntegrationExists):
         await service.add_api_key(

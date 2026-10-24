@@ -83,7 +83,7 @@ def test_a_catalog_entry_refuses_missing_or_unused_params() -> None:
         S.HEALTH_ONLINE()
     with pytest.raises(ValueError, match="unused"):
         S.HEALTH_ONLINE(time="09:00", extra="x")
-    assert S.HEALTH_ONLINE(time="09:00") == "Onlayn: 09:00"
+    assert S.HEALTH_ONLINE(time="09:00") == "**Onlayn:** 09:00"
     assert S.WAKE_GAP(from_="01:10", to="07:45", n=3) == "Mac uxlagan edi 01:10–07:45, 3 ta xabar qayta ishlanmoqda"
 
 
