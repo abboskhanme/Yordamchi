@@ -259,6 +259,7 @@ def build(boot: Boot, clock: Clock) -> "DevApp":
     from yordamchi.adapters.claude.options import default_cli_path
     from yordamchi.adapters.gemini.stt import GeminiTranscriber
     from yordamchi.adapters.git.cli import GitCli
+    from yordamchi.adapters.github.cli import GhCli
     from yordamchi.adapters.keystore.file import FileKeystore
     from yordamchi.adapters.macos.host import MacOsHost
     from yordamchi.adapters.mcp.client import McpHttpClient
@@ -266,7 +267,6 @@ def build(boot: Boot, clock: Clock) -> "DevApp":
     from yordamchi.adapters.ssh.shell import OpenSshRemoteShell
     from yordamchi.adapters.telegram.messenger import TelegramMessenger
     from yordamchi.bots.dev import runtime
-    from yordamchi.bots.dev.unavailable import GitHubNotYet
     from yordamchi.dev.deps import DevDeps
     from yordamchi.ports.speech import Transcriber
     from yordamchi.shared.settings import defaults
@@ -295,7 +295,7 @@ def build(boot: Boot, clock: Clock) -> "DevApp":
         mcp=McpHttpClient(),  # its callers are the P2 integration intents (T58), which answer S.NOT_YET now
         agents=ClaudeAgentRuntime(cli_path=cli, search_path=boot.search_path, githooks_dir=paths.githooks),
         git=GitCli(boot.search_path),
-        github=GitHubNotYet(),
+        github=GhCli(boot.search_path),
         remote_shell=OpenSshRemoteShell(ssh=SSH_BINARY, path=boot.ssh_path),
     )
     ffmpeg = paths.bin / "ffmpeg"
