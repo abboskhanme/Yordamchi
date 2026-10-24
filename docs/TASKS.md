@@ -6,7 +6,7 @@ Source: `docs/SPEC.md` (approved 2026-10-23). `plan-manager` · 2026-10-23. Path
 scratch repo). (2) Orchestrator: start spikes T03–T06 now (no deps), and T07 once T01 lands. Tell the T01 agent that its
 done criterion includes the pre-carved shared-file blocks and every §4.3 P1 default (rule R2).
 
-**Status:** done 0 · in progress 2 (T01, T02) · blocked on owner 3 (T38, T39, T43) · todo: the rest.
+**Status:** done 2 (T01, T02) · in progress 8 (T03–T09, T13) · blocked on owner 3 (T38, T39, T43) · todo: the rest.
 
 **Critical path (P1):** T01 → T02 → T08 → T17 → T20 → T24 → {T29 T30 T31 T32} → T34 → T36 → T42 → T43 → T44 → T47.
 Joins it: T03 → T10 → T24 (spikes gate the executor) and T07 → T18 → T24 (gate). Day-one owner items on it:
@@ -116,27 +116,27 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T03 | S1 `priority:"next"` merge + S2 `interrupt()` kills Bash ≤ 2 s | build-integration | — | yes | `tests/live/test_spike_s1_next.py`, `test_spike_s2_interrupt.py` | — | UC-02 (steer), UC-03 (shell killed) | decision recorded for T10/T24 | todo |
-| T04 | S3 subagent PreToolUse + `AskUserQuestion` reach `can_use_tool` under bypass | build-integration | — | yes | `tests/live/test_spike_s3_hooks.py` | — | NFR-SEC-06, UC-12 | decision recorded for T11/T29 | todo |
-| T05 | S4 `UserPromptSubmit` `additionalContext` on a resumed session | build-integration | — | yes | `tests/live/test_spike_s4_resume.py` | — | UC-09 (persona on warm/resumed) | decision recorded for T12/T24 | todo |
-| T06 | S5 `--restricted` with WebSearch/WebFetch/SDK MCP + S6 SDK sessions in `~/.claude/sessions/` | build-integration | — | yes | `tests/live/test_spike_s5_restricted.py`, `test_spike_s6_sessions.py` | — | NFR-SEC-08 (P3 input), UC-16 (P2 input) | decisions recorded for P3 T77 / P2 T54 | todo |
-| T07 | U5a gate domain: §5.7 classifier, approval binding, grants, READ_ONLY policy | build-backend | T01 | yes | `dev/gate/domain.py`, `tests/unit/dev/gate/test_domain.py` | — | UC-13, NFR-SEC-06, NFR-SEC-11 (commit/push/branch/private repo free), UC-15 (investigation write denied) | every class and exemption has a case; pure (C6, A1) | todo |
+| T03 | S1 `priority:"next"` merge + S2 `interrupt()` kills Bash ≤ 2 s | build-integration | — | yes | `tests/live/test_spike_s1_next.py`, `test_spike_s2_interrupt.py` | — | UC-02 (steer), UC-03 (shell killed) | decision recorded for T10/T24 | in progress (2026-10-24) |
+| T04 | S3 subagent PreToolUse + `AskUserQuestion` reach `can_use_tool` under bypass | build-integration | — | yes | `tests/live/test_spike_s3_hooks.py` | — | NFR-SEC-06, UC-12 | decision recorded for T11/T29 | in progress (2026-10-24) |
+| T05 | S4 `UserPromptSubmit` `additionalContext` on a resumed session | build-integration | — | yes | `tests/live/test_spike_s4_resume.py` | — | UC-09 (persona on warm/resumed) | decision recorded for T12/T24 | in progress (2026-10-24) |
+| T06 | S5 `--restricted` with WebSearch/WebFetch/SDK MCP + S6 SDK sessions in `~/.claude/sessions/` | build-integration | — | yes | `tests/live/test_spike_s5_restricted.py`, `test_spike_s6_sessions.py` | — | NFR-SEC-08 (P3 input), UC-16 (P2 input) | decisions recorded for P3 T77 / P2 T54 | in progress (2026-10-24) |
+| T07 | U5a gate domain: §5.7 classifier, approval binding, grants, READ_ONLY policy | build-backend | T01 | yes | `dev/gate/domain.py`, `tests/unit/dev/gate/test_domain.py` | — | UC-13, NFR-SEC-06, NFR-SEC-11 (commit/push/branch/private repo free), UC-15 (investigation write denied) | every class and exemption has a case; pure (C6, A1) | in progress (2026-10-24) |
 
 ## Phase 3 — Foundations [sequential; the reference feature]
 
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T08 | `shared/inbox` **reference implementation** (built first), then `shared/audit`, `shared/vault` + `adapters/keystore/file.py`, `shared/cost` (record only) | build-backend | T02 | no | `shared/{inbox,audit,vault,cost}/{domain,service,store,models}.py`, `adapters/keystore/file.py` | STR ERR DEF FAC MIG | UC-04 (extract before persist, delete ≤ 5 s, masked reply, ciphertext only, `sk-ant-oat` refused), NFR-SEC-02, NFR-SEC-03 (masking set, `secret-hashes.json`), NFR-SEC-10, NFR-REL-05 (inbound idempotency), SPD ack ≤ 1 s | inbox shape signed off by qa-review as the copy-from template **before Phase 5 starts** | todo |
+| T08 | `shared/inbox` **reference implementation** (built first), then `shared/audit`, `shared/vault` + `adapters/keystore/file.py`, `shared/cost` (record only) | build-backend | T02 | no | `shared/{inbox,audit,vault,cost}/{domain,service,store,models}.py`, `adapters/keystore/file.py` | STR ERR DEF FAC MIG | UC-04 (extract before persist, delete ≤ 5 s, masked reply, ciphertext only, `sk-ant-oat` refused), NFR-SEC-02, NFR-SEC-03 (masking set, `secret-hashes.json`), NFR-SEC-10, NFR-REL-05 (inbound idempotency), SPD ack ≤ 1 s | inbox shape signed off by qa-review as the copy-from template **before Phase 5 starts** | in progress (2026-10-24) |
 
 ## Phase 4 — Adapters [parallel, max 5; no shared files; runs alongside Phase 3]
 
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T09 | U3a Telegram adapter (`TelegramMessenger`) | build-integration | T02 | yes | `adapters/telegram/*.py`, `tests/integration/test_telegram.py`, `tests/contract/test_messenger.py`, `tests/fixtures/telegram/` (albums, voice, `my_chat_member`) | — | UC-12 (any `reply_markup` fails the recording session), NFR-CAP-02 (`retry_after`), NFR-CAP-04 (20 MB in, 50 MB out) | contract green on fake + recorded payloads | todo |
+| T09 | U3a Telegram adapter (`TelegramMessenger`) | build-integration | T02 | yes | `adapters/telegram/*.py`, `tests/integration/test_telegram.py`, `tests/contract/test_messenger.py`, `tests/fixtures/telegram/` (albums, voice, `my_chat_member`) | — | UC-12 (any `reply_markup` fails the recording session), NFR-CAP-02 (`retry_after`), NFR-CAP-04 (20 MB in, 50 MB out) | contract green on fake + recorded payloads | in progress (2026-10-24) |
 | T10 | U4a Claude executor (`ClaudeAgentRuntime`, §5.1/§5.3) | build-integration | T02, T03 | yes | `adapters/claude/executor.py`, `tests/integration/test_claude_executor.py`, `tests/contract/test_agent_runtime.py`, `tests/fixtures/claude/` | — | UC-03 (interrupt + pgkill per S2), UC-02 (steer per S1), UC-11 (`UsageLimited`), NFR-SEC-04/05/07 (`cli_path`, clean env, connectors off), NFR-REL-08 (probe) | all §5.1 events mapped from recorded streams; micro-USD | todo |
 | T11 | U4c guard hook bridge (PreToolUse + `can_use_tool` → `SessionSpec.guard`) | build-integration | T02, T04 | yes | `adapters/claude/guard.py`, `tests/integration/test_claude_guard.py` | — | NFR-SEC-06, UC-13 (error/timeout → deny), UC-12 (question capture per S3), UC-03 (deny-all while stopping) | fail-closed tests incl. `gate.hook_timeout_s` | todo |
 | T12 | U4b assistant pool (warm `routing`/`report`/`settings` clients + hot spare, rotation) | build-integration | T02, T05 | yes | `adapters/claude/assistant.py`, `tests/integration/test_claude_assistant.py`, `tests/contract/test_assistant.py` | — | NFR-SPD-02, UC-09 (prompt version → next ask per S4), UC-10/UC-15 timeouts | rotation after 20 asks / settings version | todo |
-| T13 | U6c STT adapters (Gemini direct, OpenRouter chat path) | build-integration | T02 | yes | `adapters/gemini/stt.py`, `adapters/openrouter/stt.py`, `tests/integration/test_{gemini,openrouter}.py`, `tests/contract/test_transcriber.py`, `tests/fixtures/{gemini,openrouter}/` | — | UC-05 (hints, vocabulary, parallel segments), §3.2.11 key validation (429/402/timeout mapping) | both pass the same contract | todo |
+| T13 | U6c STT adapters (Gemini direct, OpenRouter chat path) | build-integration | T02 | yes | `adapters/gemini/stt.py`, `adapters/openrouter/stt.py`, `tests/integration/test_{gemini,openrouter}.py`, `tests/contract/test_transcriber.py`, `tests/fixtures/{gemini,openrouter}/` | — | UC-05 (hints, vocabulary, parallel segments), §3.2.11 key validation (429/402/timeout mapping) | both pass the same contract | in progress (2026-10-24) |
 
 ## Phase 5 — Features A [parallel, max 5; block files only, via MT]
 
