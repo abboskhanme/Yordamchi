@@ -1,5 +1,9 @@
 """Migrations (CONVENTIONS §8; TASKS migration plan): one head, expand-only, `upgrade head` + `alembic check` on empty
-`dev.db` and `personal.db`. T40 adds the previous-release fixture DB."""
+`dev.db` and `personal.db`, and `0001` only creates.
+
+The rest of `tests/migrations/` (T40): foreign keys (`test_foreign_keys`), the previous-release DB
+(`test_previous_release`, `p1_release.py`), the expand-only guard (`test_expand_only`), retention (`test_retention`),
+SQLite connections (`test_sqlite`) and the template for the next revision (`test_revision_template`)."""
 
 import ast
 import stat
@@ -10,6 +14,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from tests.migrations import revision_rules
 from yordamchi.core.paths import BotName
 from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
@@ -18,6 +23,7 @@ from yordamchi.persistence.schema import schema_is_current
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "migrations"
 EXPAND_ONLY_FORBIDDEN = {"drop_table", "drop_column", "drop_index", "drop_constraint", "alter_column", "execute"}
+INITIAL = "0001"
 
 
 def _config(db_path: Path) -> Config:
@@ -41,6 +47,51 @@ def test_upgrades_are_expand_only(revision: Path) -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     }
     assert used & EXPAND_ONLY_FORBIDDEN == set()
+
+
+def _initial_source() -> str:
+    script = ScriptDirectory(str(MIGRATIONS)).get_revision(INITIAL)
+    assert script is not None
+    assert script.down_revision is None  # the root of the one chain
+    return Path(script.path).read_text(encoding="utf-8")
+
+
+def test_0001_only_creates_tables_and_indexes() -> None:
+    """MT step 2.3 as a test: the generated `0001` holds `create_table` / `create_index` only (no drop, no alter)."""
+    assert revision_rules.create_only_violations(_initial_source()) == []
+
+
+def test_0001_creates_every_model_table_once() -> None:
+    created = [
+        str(ast.literal_eval(found.call.args[0]))
+        for found in revision_rules.op_calls(revision_rules.upgrade_function(ast.parse(_initial_source())))
+        if found.method == "create_table"
+    ]
+    assert sorted(created) == sorted(import_all_models().tables)
+
+
+@pytest.mark.parametrize(
+    ("snippet", "found"),
+    [
+        ('op.drop_table("turns")', "drop_table() is not create_table/create_index"),
+        ('op.alter_column("turns", "title", nullable=True)', "alter_column() is not create_table/create_index"),
+        ('op.execute("DELETE FROM turns")', "execute() is not create_table/create_index"),
+        (
+            'with op.batch_alter_table("turns", schema=None) as batch_op:\n        batch_op.drop_index("ix_x")',
+            "drop_index() is not create_table/create_index",
+        ),
+        (
+            (
+                'with op.batch_alter_table("turns", recreate="always") as batch_op:\n'
+                '        batch_op.create_index("ix", ["a"])'
+            ),
+            "batch_alter_table(recreate=…) shapes or forces a table rebuild",
+        ),
+    ],
+)
+def test_the_create_only_rule_catches_a_spurious_autogenerate_line(snippet: str, found: str) -> None:
+    source = f"def upgrade() -> None:\n    {snippet}\n"
+    assert any(found in problem for problem in revision_rules.create_only_violations(source))
 
 
 @pytest.mark.parametrize("bot", list(BotName), ids=str)
