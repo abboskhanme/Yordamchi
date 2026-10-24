@@ -6,7 +6,7 @@ Source: `docs/SPEC.md` (approved 2026-10-23). `plan-manager` · 2026-10-23. Path
 scratch repo). (2) Orchestrator: start spikes T03–T06 now (no deps), and T07 once T01 lands. Tell the T01 agent that its
 done criterion includes the pre-carved shared-file blocks and every §4.3 P1 default (rule R2).
 
-**Status:** done 16 (T01–T11, T13, T16, T17, T22, T23) · in progress 4 (T12, T14, T15, T18) · blocked on owner 3 (T38, T39, T43) · todo: the rest.
+**Status:** done 16 (T01–T11, T13, T16, T17, T22, T23) · in progress 5 (T12, T14, T15, T18, T20) · blocked on owner 3 (T38, T39, T43) · todo: the rest.
 
 **Critical path (P1):** T01 → T02 → T08 → T17 → T20 → T24 → {T29 T30 T31 T32} → T34 → T36 → T42 → T43 → T44 → T47.
 Joins it: T03 → T10 → T24 (spikes gate the executor) and T07 → T18 → T24 (gate). Day-one owner items on it:
@@ -153,7 +153,7 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | T19 | U6b `shared/voice` STT service + §3.2.11 key detection/provider choice | build-backend | T08, T13, T16 | yes | `shared/voice/*` (`transcripts`) | STR ERR DEF FAC MIG | UC-05 (5 s, mixed language, chat-added term next note), §3.2.11 | burst HOLD ↔ transcript wired with fakes | todo |
-| T20 | U7b `dev/routing` (§3.2.6 signals, LLM route, clarification, wrong target) | build-backend | T08, T17 | yes | `dev/routing/*` (`route_decisions`, `clarifications`), `prompts/dev/routing_system.md` | STR ERR DEF FAC MIG | UC-10 (one question naming candidates, first reply names project, ≤ 4 s, wrong-target), UC-02 (unrelated not merged) | replay fixtures for LLM path | todo |
+| T20 | U7b `dev/routing` (§3.2.6 signals, LLM route, clarification, wrong target) | build-backend | T08, T17 | yes | `dev/routing/*` (`route_decisions`, `clarifications`), `prompts/dev/routing_system.md` | STR ERR DEF FAC MIG | UC-10 (one question naming candidates, first reply names project, ≤ 4 s, wrong-target), UC-02 (unrelated not merged) | replay fixtures for LLM path | in progress (2026-10-24; includes T17b) |
 | T21 | `shared/settings` service (change/revert/list, weakening, NL interpretation) | build-backend | T14, T18 | yes | `shared/settings/{domain,service,store,models}.py` (`setting_versions`), `prompts/dev/settings_system.md` | STR ERR DEF FAC MIG | UC-09 (P1 groups: next message, survives restart, list ≤ 3 s, revert, weakening → one decision, out-of-range refused, `OwnerOrigin` required, PERSONAL key on dev refused), NFR-OPS-03 | every P1 group has a service test | todo |
 | T22 | `adapters/ssh` + `adapters/macos` (pressure, disk, ClaudeManager `state.json`, process scan per S6) | build-backend | T02 | yes | `adapters/ssh/*.py`, `adapters/macos/host.py`, `tests/integration/test_{ssh,macos}.py` | — | UC-15 (read-only checks), NFR-CAP-01/05, UC-06 (ClaudeManager in `holat?`) | contract green on fixtures | **DONE** 2026-10-24 (MT, 873 tests) |
 | T23 | U10a supervisor: watchdog, `caffeinate`, backups, log trim | ship-devops | T01 | yes | `supervisor/` (own `pyproject.toml`, `dependencies=[]`, own `strings.py`, `tests/`) | — | NFR-REL-01 (dead, stale > 120 s, crash loop ≥ 3/10 min, 1 alert/30 min), NFR-REL-02, NFR-CAP-05, §9.2 backups + `integrity_check` | `unittest` green under pinned 3.12.15; A6 | **DONE** 2026-10-24 (MT, supervisor 86 tests) |
