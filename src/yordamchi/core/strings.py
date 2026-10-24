@@ -419,6 +419,29 @@ WRONG_TARGET_REVERT_FAILED = Msg(
 )
 
 # --- questions ---
+# An agent's question (UC-12, SPEC §3.2.2 step 3): the project first, the options numbered "1." with their
+# descriptions. No buttons: the owner answers with a number, an option, his own words or a voice note.
+AGENT_QUESTION = Msg("{project} · Savol: {question}")
+AGENT_QUESTIONS = Msg("{project} · {count} ta savol:")
+AGENT_QUESTION_ITEM = Msg("{number}) {question}")
+AGENT_QUESTION_ITEM_HEADED = Msg("{number}) {header}: {question}")
+AGENT_QUESTION_OPTION = Msg("{number}. {label}")
+AGENT_QUESTION_OPTION_DESCRIBED = Msg("{number}. {label} — {description}")
+AGENT_QUESTION_MULTI = Msg("Bir nechtasini tanlash mumkin (masalan: 1, 3).")
+AGENT_QUESTION_NO_TEXT = Msg("(savol matni kelmadi)")
+AGENT_QUESTION_HINT = Msg("Javob: raqam, variant nomi yoki o'z so'zingiz — matn yoki ovoz.")
+AGENT_QUESTIONS_HINT = Msg("Javob: har bir savolga alohida qatorda — raqam, variant nomi yoki o'z so'zingiz.")
+# The answer went to the agent; a voice answer is echoed (UC-05).
+QUESTION_ANSWERED = Msg("→ {project}: javob «{answer}»")
+QUESTION_ANSWERED_VOICE = Msg("Ovoz: «{text}» → {project}: javob «{answer}»")
+QUESTION_ANSWERED_AS_MESSAGE = Msg("(agent javobni kutib turmagan edi — xabar qilib yubordim)")
+QUESTION_OUT_OF_RANGE = Msg("{project}: 1 dan {count} gacha raqam yozing yoki javobni so'z bilan yozing.")
+QUESTION_NOT_OPEN = Msg("{project}: bu savol endi ochiq emas — javobni hech qayerga yubormadim.")
+# A number or an option that fits questions of several projects (UC-12 F): one short question naming them; a name,
+# "birinchisi" or a number answers it (routing's clarification reads the reply).
+QUESTION_WHICH_TWO = Msg("«{answer}» — {first} savoligami yoki {second} savoligami?")
+QUESTION_WHICH_MANY = Msg("«{answer}» — qaysi loyiha savoliga: {projects}? Loyiha nomini yozing.")
+
 # --- digest ---
 # The fast report path (UC-15, SPEC §3.2.4): answered from the project digest, never from a session. Every report ends
 # with one freshness line; a stale digest is refreshed first, and the line says so.

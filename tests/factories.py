@@ -7,7 +7,7 @@ Block file (TASKS R2): each P1 feature adds its builders only inside its own `# 
 
 import base64
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from functools import partial
@@ -38,6 +38,9 @@ from yordamchi.dev.gate.domain import Policy
 from yordamchi.dev.gate.models import Decision
 from yordamchi.dev.gate.service import GateScope
 from yordamchi.dev.projects.domain import Project, ProjectPrefs, is_archive_name, project_view
+from yordamchi.dev.questions import domain as questions_domain
+from yordamchi.dev.questions import store as questions_store
+from yordamchi.dev.questions.domain import QuestionStatus
 from yordamchi.dev.routing.domain import Activity, ActivityKind, Intent
 from yordamchi.dev.turns import store as turns_store
 from yordamchi.dev.turns.domain import DeliveryMode, DeliverySource, TurnKind, TurnRequest, TurnStatus, TurnSummary
@@ -1025,6 +1028,46 @@ def write_transcript(home: Path, session_id: str, *, folder: str = "-Users-owner
 
 
 # --- questions ---
+DEFAULT_OPTIONS: Final = (("PostgreSQL", "ishonchli, production uchun"), ("SQLite", "oddiy, bitta fayl"))
+
+
+def agent_question(
+    text: str = "Qaysi bazadan foydalanamiz?",
+    options: Sequence[tuple[str, str]] = DEFAULT_OPTIONS,
+    *,
+    header: str = "Baza",
+    multi_select: bool = False,
+) -> dict[str, JsonValue]:
+    """One `AskUserQuestion` question as the agent sends it (an item of `QuestionAsked.questions`)."""
+    choices: list[JsonValue] = [{"label": label, "description": description} for label, description in options]
+    return {"question": text, "header": header, "options": choices, "multiSelect": multi_select}
+
+
+async def make_question(
+    s: Session,
+    *,
+    turn_id: int,
+    project: str = "BonviHR",
+    tool_use_id: str = "toolu_q1",
+    questions: Sequence[Mapping[str, JsonValue]] | None = None,
+    at: datetime = DEFAULT_START,
+    status: QuestionStatus = QuestionStatus.OPEN,
+) -> int:
+    """A `questions` row as `open_question` writes it, without its message (inside the caller's unit of work)."""
+    asked = questions_domain.parse_questions(questions or (agent_question(),), str)
+    row_id = await questions_store.add_question(
+        s,
+        project_id=project,
+        turn_id=turn_id,
+        tool_use_id=tool_use_id,
+        questions=questions_domain.questions_json(asked),
+        status=status.value,
+        asked_at=at,
+    )
+    assert row_id is not None
+    return row_id
+
+
 # --- digest ---
 def make_digest_state(turns: TurnsState | None = None) -> DigestState:
     """The dev bot's digest state, as `bots/dev/app.py` builds it next to its `TurnsState`."""

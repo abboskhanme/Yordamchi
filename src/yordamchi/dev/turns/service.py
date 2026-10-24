@@ -32,7 +32,7 @@ import os
 import re
 import secrets
 from collections import defaultdict
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Collection, Coroutine, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
@@ -2390,6 +2390,18 @@ async def list_recent_turns(deps: DevDeps, project_id: str, *, limit: int) -> tu
     async with deps.db.read() as s:
         rows = await store.list_project_turns(s, project_id, limit=limit)
     return tuple(_summary(row) for row in rows)
+
+
+async def turn_statuses(deps: DevDeps, turn_ids: Collection[int]) -> dict[int, TurnStatus]:
+    """The status of each of these turns still stored; a missing id is a turn that is gone. For `dev/questions`
+    (T29): a question whose turn ended can take no answer any more."""
+    found: dict[int, TurnStatus] = {}
+    async with deps.db.read() as s:
+        for turn_id in sorted(set(turn_ids)):  # the few turns with an open question
+            row = await store.get_turn(s, turn_id)
+            if row is not None:
+                found[turn_id] = TurnStatus(row.status)
+    return found
 
 
 # --- retention (SPEC §4.2) ------------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 12:20:31.663165
+Create Date: 2026-10-24 13:08:37.284613
 """
 
 from collections.abc import Sequence
@@ -470,6 +470,26 @@ def upgrade() -> None:
         batch_op.create_index("ix_deliveries_status", ["status"], unique=False)
 
     op.create_table(
+        "questions",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("project_id", sa.String(length=64), nullable=False),
+        sa.Column("turn_id", sa.Integer(), nullable=False),
+        sa.Column("tool_use_id", sa.String(length=96), nullable=False),
+        sa.Column("questions_json", sa.Text(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("answer_json", sa.Text(), nullable=True),
+        sa.Column("answer_mode", sa.String(length=16), nullable=True),
+        sa.Column("asked_at", sa.DateTime(), nullable=False),
+        sa.Column("answered_at", sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], name=op.f("fk_questions_project_id_projects")),
+        sa.ForeignKeyConstraint(["turn_id"], ["turns.id"], name=op.f("fk_questions_turn_id_turns"), ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_questions")),
+        sa.UniqueConstraint("turn_id", "tool_use_id", name=op.f("uq_questions_turn_id_tool_use_id")),
+    )
+    with op.batch_alter_table("questions", schema=None) as batch_op:
+        batch_op.create_index("ix_questions_status", ["status"], unique=False)
+
+    op.create_table(
         "turn_progress",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("turn_id", sa.Integer(), nullable=False),
@@ -494,6 +514,10 @@ def downgrade() -> None:
         batch_op.drop_index("ix_turn_progress_turn_id_at")
 
     op.drop_table("turn_progress")
+    with op.batch_alter_table("questions", schema=None) as batch_op:
+        batch_op.drop_index("ix_questions_status")
+
+    op.drop_table("questions")
     with op.batch_alter_table("deliveries", schema=None) as batch_op:
         batch_op.drop_index("ix_deliveries_status")
         batch_op.drop_index(batch_op.f("ix_deliveries_burst_id"))
