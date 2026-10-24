@@ -1,0 +1,20 @@
+    1     0 Wed Sep 23 12:04:15 2026     /sbin/launchd
+ 7000     1 Sat Oct 24 05:00:00 2026     /Users/owner/Library/Application Support/Yordamchi/releases/current/.venv/bin/python -I -m yordamchi.bots.dev.app
+ 7001  7000 Sat Oct 24 05:01:00 2026     /Users/owner/.local/bin/claude --output-format stream-json --verbose --resume=aaaaaaaa-0000-4000-8000-000000007001 --input-format stream-json
+ 7002  7001 Sat Oct 24 05:02:00 2026     /bin/zsh -c source /Users/owner/.claude/shell-snapshots/snapshot-zsh-1-abcdef.sh 2>/dev/null || true && eval 'claude --resume aaaaaaaa-0000-4000-8000-000000007003' < /dev/null
+ 7003  7002 Sat Oct 24 05:02:01 2026     claude --resume aaaaaaaa-0000-4000-8000-000000007003
+ 8000     1 Fri Oct 23 03:00:00 2026     /Users/owner/.local/bin/claude --output-format stream-json --verbose --session-id=bbbbbbbb-0000-4000-8000-000000008000 --input-format stream-json
+ 8099  8098 Sat Oct 24 05:59:58 2026     -zsh
+ 8100  8099 Sat Oct 24 06:00:00 2026     claude --resume aaaaaaaa-0000-4000-8000-000000007001
+ 8200  8199 Sat Oct 24 06:10:00 2026     claude -r CCCCCCCC-0000-4000-8000-000000008200
+ 8300  8299 Sat Oct 24 06:20:00 2026     claude --session-id=dddddddd-0000-4000-8000-000000008300 --model opus
+ 8400  8399 Sat Oct 24 06:30:00 2026     /bin/zsh -l
+ 8500  8499 Sat Oct 24 06:40:00 2026     claude
+ 8600  8599 Sat Oct 24 06:50:00 2026     claude
+ 8700  8699 Sat Oct 24 07:00:00 2026     claude --continue
+ 8800  8799 Sat Oct 24 07:10:00 2026     /usr/bin/python3 /Users/owner/bin/claude --resume eeeeeeee-0000-4000-8000-000000008800
+ 8900  8899 Sat Oct  3 07:20:00 2026     /Applications/Claude Manager.app/Contents/MacOS/claude-manager --resume ffffffff-0000-4000-8000-000000008900
+ 9000  8999 Sat Oct 24 07:30:00 2026     claude --resume not-a-session-uuid
+ 9100  9099 Sat Oct 24 07:40:00 2026     /Users/owner/.local/bin/claude --output-format stream-json --input-format stream-json
+ 9300  9299 Sat Oct 24 07:50:00 2026     <defunct>
+this line is not ps output

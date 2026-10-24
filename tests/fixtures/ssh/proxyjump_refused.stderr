@@ -1,0 +1,2 @@
+ssh: connect to host jump.example.net port 22: Connection refused
+Connection closed by UNKNOWN port 65535

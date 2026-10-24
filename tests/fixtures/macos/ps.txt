@@ -1,0 +1,25 @@
+    1     0 Wed Sep 23 12:04:15 2026     /sbin/launchd
+  326     1 Wed Sep 23 12:04:45 2026     /usr/libexec/logd
+  328     1 Wed Sep 23 12:04:45 2026     /usr/libexec/UserEventAgent (System)
+31619     1 Sun Sep 27 04:34:14 2026     /System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal
+48102     1 Sat Oct 17 08:10:23 2026     /Applications/Claude Manager.app/Contents/MacOS/claude-manager
+54116     1 Fri Oct 23 18:44:38 2026     /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --no-startup-window
+54152 54116 Fri Oct 23 18:44:44 2026     /Users/owner/.local/bin/claude --chrome-native-host
+71830 34055 Sat Oct 24 04:26:58 2026     /bin/zsh -c source /Users/owner/.claude/shell-snapshots/snapshot-zsh-1792768851338-abcdef.sh 2>/dev/null || true && eval 'python -I capture.py' < /dev/null
+71831 71830 Sat Oct 24 04:26:58 2026     /Users/owner/Documents/Projects/Yordamchi/.venv/bin/python -I capture.py
+72118 71831 Sat Oct 24 04:27:31 2026     /Users/owner/.local/bin/claude --output-format stream-json --verbose --system-prompt  --tools Bash --disallowedTools SendMessage,ListAgents --model haiku --permission-prompt-tool stdio --permission-mode bypassPermissions --session-id=4eaf5c3b-7a6d-4f8b-8d43-000000072118 --setting-sources= --input-format stream-json
+34048 31619 Fri Oct 23 14:59:31 2026     login -pfl owner /bin/bash -c exec -la zsh /bin/zsh
+34049 34048 Fri Oct 23 14:59:31 2026     -zsh
+34055 34049 Fri Oct 23 14:59:35 2026     claude
+94722 31619 Mon Oct 19 04:05:06 2026     login -pfl owner /bin/bash -c exec -la zsh /bin/zsh
+94724 94722 Mon Oct 19 04:05:06 2026     -zsh
+94734 94724 Mon Oct 19 04:05:10 2026     claude
+31483 31619 Thu Oct 22 04:41:37 2026     login -pfl owner /bin/bash -c exec -la zsh /bin/zsh
+31484 31483 Thu Oct 22 04:41:37 2026     -zsh
+31496 31484 Thu Oct 22 04:41:39 2026     claude
+32792 31619 Thu Oct 22 04:45:41 2026     login -pfl owner /bin/bash -c exec -la zsh /bin/zsh
+32794 32792 Thu Oct 22 04:45:41 2026     -zsh
+32804 32794 Thu Oct 22 04:45:42 2026     claude
+90359 31619 Wed Oct  7 12:29:09 2026     login -pf owner
+90360 90359 Wed Oct  7 12:29:09 2026     -zsh
+90938 90360 Wed Oct  7 12:54:31 2026     claude
