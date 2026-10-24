@@ -260,3 +260,20 @@ question. Correct any line and it changes.
 - [2026-10-24] Formatting → plain text unless it contains ``` fences (then escaped HTML with `<pre>`); captions always plain; lengths in UTF-16 units; more than `max_parts` parts → one `.md` document (scrubbed, 0600, deleted after the send) → Telegram limits.
 - [2026-10-24] Keyboard guard → each op has a fixed list of payload keys, checked at enqueue and before the call; a stored row carrying `reply_markup` fails `payload_invalid` → D8 enforced at the last line.
 - [2026-10-24] Progress → one post per turn, then edits at most every `outbox.progress_edit_s`; older pending edits are superseded → UC-11.
+
+## Gate service (T18), voice (T19), installer (T28), merged 2026-10-24
+- [2026-10-24] Gate facts → `remote_urls` (credential-free URL per remote; the default push remote comes from `status.upstream`, else `origin`) and `dirty_before_turn`; new reasons `DISCARD_CHANGES` (fs_destroy, asked only when dirty or unknown) and `PUSH_TO_SERVER` (server_write) → T07 follow-ups.
+- [2026-10-24] Gate texts → deny text to the agent in English (`prompts/dev/gate_*.md`); owner questions in Uzbek (`S.DECISION_QUESTIONS[class]`: project, #id, command, where, consequence) → CONVENTIONS §3.
+- [2026-10-24] Audit → routine allows without findings aren't audited; denies, allows with findings, questions, answers, grants and expiries are; the owner's instruction text is never stored → useful trail, no content.
+- [2026-10-24] pre-push hook → blocks when the hash file is missing or corrupt, or when a finding is reported (even with the bot down); a clean push passes with the bot down; it scans every pushed commit (`--no-renames --diff-filter=d`), so a secret added and later deleted is still caught; the agent can't disable it via env → NFR-SEC-02/10.
+- [2026-10-24] `ToolCall` carries the hook's `cwd` → relative paths after `cd` are judged correctly.
+- [2026-10-24] The gate's fact reader never opens files in DATA, `~/.config/yordamchi` or `~/.claude`, nor non-regular files (FIFOs) → no side-channel reads.
+- [2026-10-24] Project hooks under the bot's `core.hooksPath` → pass-through wrappers (T18b) → otherwise husky/pre-commit hooks would silently not run in bot sessions.
+- [2026-10-24] Voice provider fallback → also on `rate_limited` and `not_installed`; not on `call_timed_out` (the 5 s budget is spent) → UC-05.
+- [2026-10-24] Voice keys → the newest active vault secret of each kind is used; a key that validates retires older keys of its kind; a rejected key is removed; quota or no-answer outcomes keep every key → the owner never has to clean up keys.
+- [2026-10-24] Transcripts → keyed `UNIQUE(bot, update_id)`; a `done` row is reused after a restart (no second paid call); an empty transcript counts as failure (`stt_no_speech`) and is still metered.
+- [2026-10-24] Vocabulary → owner terms newest first, then project names and aliases, case-insensitive dedupe, ≤ 1,000 terms.
+- [2026-10-24] Installer → release = commit date + sha7 (idempotent); a real install needs the typed word `install` or `--yes`; `--home` works only with `--dry-run`; tokens are read hidden, ids visibly; DBs are backed up before migrating; `current` switches only after the migrations pass; on failure the old release comes back; uv `--link-mode clone` → safe, repeatable installs.
+- [2026-10-24] Personal plist → staged in `DATA/launchd/`, not `~/Library/LaunchAgents`, until P3 → anything in LaunchAgents loads at login.
+- [2026-10-24] Supervisor `ProcessType` = Standard (SPEC §9.1); the bots use Interactive → the supervisor needs no foreground priority.
+- [2026-10-24] Check script → red on: `can_join_groups` true, a non-empty command menu, AC sleep ≠ 0, the owner posting as an anonymous admin; free disk and FileVault are info only.

@@ -30,13 +30,13 @@ after the tasks writing the same files have merged. Remove an item once it is do
   - The retention scheduler calls `{inbox,audit,vault,cost}.service.apply_retention(deps)`.
 - [ ] T18: read `secret-hashes.json` as `{"sha256": [sorted hex]}`.
 - [ ] T19 / P2: read keys with `vault.service.open_secret(deps, name)`. A newer key of the same kind arrives as `<kind>_2`; the consumer decides whether to retire the old one.
-- [ ] T28: the installer writes `master.key` as base64(32 random bytes) plus a newline, mode 0600, in a 0700 directory (the same format as `tests.factories.write_master_key`).
+- [x] T28: the installer writes `master.key` as base64(32 random bytes) plus a newline, mode 0600, in a 0700 directory (the same format as `tests.factories.write_master_key`).
 - [ ] T42 / core: `core.log.configure` must pin the `aiosqlite` and `sqlalchemy.engine` loggers to ≥ INFO. At DEBUG, aiosqlite logs SQL params, i.e. message content.
 
 ## From T23 (supervisor)
-- [ ] T28 plist: `EnvironmentVariables` uses `YORDAMCHI_DATA_DIR` (SPEC §9.1 is fixed). The installer builds the supervisor venv and runs `python -I -m yordamchi_supervisor`. The supervisor plist sets `ExitTimeOut` 10.
-- [ ] T28 `docs/DEPLOY.md`: restore steps (`backups.py` docstring, `test_backups.py::Restore`), where the logs are, the supervisor heartbeat.
-- [ ] T28 check script: `run/supervisor.heartbeat.json` is fresh; `dev.env` is 0600.
+- [x] T28 plist: `EnvironmentVariables` uses `YORDAMCHI_DATA_DIR` (SPEC §9.1 is fixed). The installer builds the supervisor venv and runs `python -I -m yordamchi_supervisor`. The supervisor plist sets `ExitTimeOut` 10.
+- [x] T28 `docs/DEPLOY.md`: restore steps (`backups.py` docstring, `test_backups.py::Restore`), where the logs are, the supervisor heartbeat.
+- [x] T28 check script: `run/supervisor.heartbeat.json` is fresh; `dev.env` is 0600.
 - [ ] **T32 must ship the bot heartbeat writer** (`run/<bot>.heartbeat.json`, written atomically, with `started_at`) before T43. Otherwise the watchdog restarts the dev bot every ~2 min.
 - [ ] Optional: a low-disk alert in the supervisor, as a backstop for when the dev bot is down.
 
@@ -157,3 +157,47 @@ after the tasks writing the same files have merged. Remove an item once it is do
     - `enqueue_edit(message_id=…)`.
 - [ ] FKs (`ON DELETE SET NULL`) on `outbox_messages.project_id` / `turn_id` and on `message_links.project_id` / `turn_id` / `question_id` / `decision_id`, once those tables exist.
 - [ ] Optional T09: a `parse_entities_failed` code, so HTML that Telegram refuses is resent as plain text.
+
+## From T18 (gate service, shims, githooks)
+- [ ] T24:
+  - per session, `SessionSpec.guard = gate.service.make_guard(deps, lambda: GateScope(project_id, project_root, session_key=agent_sessions.id, policy, turn_id, dirty_before_turn=<git status at turn start>, protected_pids=<bot pid>, mcp lists))`;
+  - deliver `DecisionAnswer.delivery` to the turn (`next` or `new_turn`);
+  - keep the token → scope map.
+- [ ] T34:
+  - control socket: `control.method_of(line) in control.GATE_METHODS` → `control.dispatch(line, handlers=GateHandlers(...))`, which calls `service.check_shim` and `service.report_secret_block`;
+  - run `post_unasked_decisions` and `vault.publish_secrets` at startup and periodically. **Without the hash file, every push is blocked.**
+  - retention calls `gate.service.apply_retention`;
+  - routing calls `answer_decision` to bind replies.
+- [ ] Outbox: move `post_question` / `_tell` into priority-0 outbox rows in the same uow, and move reply binding to `message_links`.
+- [ ] T29: pass open questions into `DecisionReply.open_questions`, and use `service.pending_items`.
+- [ ] SPEC docs:
+  - §4.3: add `gate.shim_grant_window_s`;
+  - §3.1.1: `secret_blocked {cwd, file, line, rule, session_token} → {ok, enforce}`;
+  - shim invocation: `-m yordamchi.bots.cli.shim <shims dir> <tool>`.
+- [ ] **T18b (orchestrator decisions, P1):**
+  - (1) `githooks/` gets pass-through wrappers for pre-commit, commit-msg, prepare-commit-msg, post-commit, post-checkout, post-merge and pre-rebase. Each one runs the project's own hook (its repo-local `core.hooksPath`, e.g. husky, or `.git/hooks/<name>`), so the project's hooks still run in bot sessions.
+  - (2) `stash drop/clear` asks when `git stash list` holds entries from before the turn, even with a clean tree.
+  - (3) the shim allows read-only `git-upload-pack` (fetch or pull from a server remote).
+
+## From T19 (voice)
+- [ ] T34:
+  - the burst `notify` starts `voice.service.transcribe_parts(deps, events.transcribe, wake=…, notify=…, named=…)` via `aio.spawn`; dev passes `named=(partial(projects.service.list_projects, deps),)`, personal passes `()`;
+  - adapters get `api_key=partial(voice.service.read_speech_key, deps, "google"|"openrouter")`, so build deps first and bind late;
+  - when `accept_update` returns speech-key secrets, run `voice.service.configure_speech_keys(...)` as a follow-up job;
+  - retention calls `voice.service.apply_retention`;
+  - add an intent row for "bu so'zni to'g'ri yoz: …" → `add_owner_term`.
+- [ ] Burst: carry `chat_id` on parts in `events.transcribe`.
+- [ ] Outbox: send the voice notices as outbox rows in the same uow.
+- [ ] SPEC/CONVENTIONS docs:
+  - the `transcribe(mode=, fallback_model=)` and `validate_key` signatures;
+  - `stt.openrouter_fallback_model` in §4.3;
+  - `transcripts (bot, update_id)` in §4.2.
+- [ ] Later: P3 TTS key validation; T51 caps (ask before OpenRouter becomes a paid provider); P2 integration names in the vocabulary; P3 cross-bot speech keys; splitting long notes at silences.
+
+## From T28 (installer, plists, check)
+- [ ] **Blocks T43:** pin the ffmpeg + ffprobe 9.0.2 arm64 download URLs and SHA-256 in STACK §5 and `FFMPEG_PINS` in `scripts/install.py`. Until then use `--skip-ffmpeg`.
+- [ ] `python -m yordamchi.check`: add the shim `src/yordamchi/check.py` (`from yordamchi.bots.cli.check import main; raise SystemExit(main())`) or a console script.
+- [ ] `pyproject.toml`: the per-file ignore `"scripts/**" = ["TID251", "S603", "E402"]`, and add `scripts` to the mypy files list.
+- [ ] T57: reuse the release naming and these `uv sync` flags: `--frozen --no-dev --no-editable --compile-bytecode --link-mode clone --python 3.12.15`.
+- [ ] Before T43: T32 and T34 merged (otherwise the dev plist crash-loops), and both tokens rotated (`--env-only --rotate-tokens`, DEPLOY.md §6).
+- [ ] The SPEC §9.3 "ClaudeManager is running" check needs its process name.
