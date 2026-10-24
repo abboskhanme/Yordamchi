@@ -15,7 +15,7 @@ recording session.
 
 import pytest
 
-from tests.factories import make_default_snapshot
+from tests.factories import make_default_snapshot, make_owner_origin
 from tests.fakes.agent import Pause, ToolStep, done_result
 from tests.integration.dev_bot_harness import DevBot, dev_bot, register_projects
 from yordamchi.core import strings as S
@@ -230,7 +230,7 @@ async def test_a_settings_change_keeps_typing_up_while_the_settings_assistant_th
         assert min(typing_requests(bot)) < first_index(bot, "Sozlama o'zgardi")
 
 
-async def test_a_coding_instruction_shows_the_reaction_then_the_progress_line_and_no_repeated_typing() -> None:
+async def test_a_coding_instruction_is_acked_by_its_route_line_then_the_progress_line_and_no_repeated_typing() -> None:
     async with dev_bot() as bot:
         await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT)
         await started(bot)
@@ -241,9 +241,61 @@ async def test_a_coding_instruction_shows_the_reaction_then_the_progress_line_an
         await bot.advance(2)
         await bot.fakes.agents.release(bot.fakes.agents.sends[-1][0])  # the work goes on: no typing comes back
         await bot.advance(30)
-        assert reactions_on(bot, instruction), "the seen reaction is the ack"
+        # owner, 2026-10-24: 👀 on every message looked odd; `ui.seen_reaction` is empty, "→ BonviHR" is the ack
+        assert reactions_on(bot, instruction) == []
+        assert bot.posted("→ BonviHR")
         assert len(typing_requests(bot)) <= 1  # at most the one hint at intake, never repeated
         assert all(index < first_index(bot, "→ BonviHR") for index in typing_requests(bot))
+
+
+async def test_the_seen_reaction_comes_back_when_the_owner_sets_one() -> None:
+    async with dev_bot() as bot:
+        await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT)
+        await started(bot)
+        owner = make_owner_origin(update_id=90)
+        await settings.record_version(bot.deps, owner, defaults.UI_SEEN_REACTION, "\U0001f440", reason="change")
+        bot.fakes.agents.script_turn(Pause())
+        instruction = await bot.say("BonviHR'da login sahifasini tuzat")
+        await bot.within(20, lambda: bool(reactions_on(bot, instruction)), what="the seen reaction")
+        [reaction] = reactions_on(bot, instruction)
+        assert "\U0001f440" in reaction
+
+
+# --- small talk (owner, 2026-10-24: "Qandeysan?" got a report) -----------------------------------------------------
+async def test_how_are_you_gets_an_answer_not_a_report_and_asks_no_model() -> None:
+    async with dev_bot() as bot:
+        await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT)
+        await started(bot)
+        await bot.say("Qandeysan?")
+        took = await bot.within(5, lambda: bool(bot.posted(S.CHAT_HOW())), what="the answer")
+        assert took <= DEFAULTS[defaults.BURST_AFTER_TEXT_S] + 1.0
+        assert bot.posted(S.CHAT_IDLE())
+        assert bot.fakes.assistant.requests == []  # neither routing nor a report was asked
+        assert not bot.posted("Bugun o'zgargan")
+
+
+async def test_a_greeting_says_what_is_working() -> None:
+    async with dev_bot() as bot:
+        await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT)
+        await started(bot)
+        bot.fakes.agents.script_turn(Pause())
+        await bot.say("BonviHR'da login sahifasini tuzat")
+        await bot.within(20, lambda: bool(bot.fakes.agents.sends), what="the turn")
+        await bot.say("Salom")
+        working = S.CHAT_WORKING(projects=PROJECT)
+        await bot.within(5, lambda: bool(bot.posted(working)), what="the greeting")
+        assert bot.posted(S.CHAT_HELLO())
+        assert await running(bot, PROJECT)  # a greeting is never an instruction for the running turn
+
+
+async def test_what_can_you_do_lists_the_bot_s_abilities() -> None:
+    async with dev_bot() as bot:
+        await started(bot)
+        await bot.say("Nimalar qilolasan?")
+        await bot.within(5, lambda: bool(bot.posted("Loyihalarda ishlash")), what="the help text")
+        await bot.say("rahmat")
+        await bot.within(5, lambda: bool(bot.posted(S.CHAT_THANKS())), what="you're welcome")
+        assert bot.fakes.assistant.requests == []
 
 
 async def test_typing_for_work_switched_on_shows_typing_while_the_turn_works() -> None:

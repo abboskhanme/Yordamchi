@@ -47,6 +47,24 @@ from yordamchi.bots.dev.intents import EARLY, NOT_BUILT, Command, Intent, comman
             "o’zingni qisqaroq tut",  # a curly apostrophe, as a phone keyboard types it
             Command(Intent.CHANGE_SETTING, argument="o'zingni qisqaroq tut", implicit=True),
         ),
+        # small talk (owner, 2026-10-24: "Qandeysan?" got a report): answered as such, the owner's spelling too
+        ("Qandeysan?", Command(Intent.GREETING, argument="how")),
+        ("qandaysiz", Command(Intent.GREETING, argument="how")),
+        ("Salom, qandaysan?", Command(Intent.GREETING, argument="how")),
+        ("yaxshimisiz", Command(Intent.GREETING, argument="how")),
+        ("как дела?", Command(Intent.GREETING, argument="how")),
+        ("Salom!", Command(Intent.GREETING, argument="hello")),
+        ("hi", Command(Intent.GREETING, argument="hello")),
+        ("Assalomu alaykum", Command(Intent.GREETING, argument="salam")),
+        ("Rahmat!", Command(Intent.THANKS)),
+        ("katta rahmat 🙏", Command(Intent.THANKS)),
+        ("spasibo", Command(Intent.THANKS)),
+        ("Nimalar qilolasan?", Command(Intent.HELP)),
+        ("nima qila olasiz", Command(Intent.HELP)),
+        ("qanday yordam bera olasan?", Command(Intent.HELP)),
+        ("yordam", Command(Intent.HELP)),
+        ("/yordam", Command(Intent.HELP)),
+        ("/help", Command(Intent.HELP)),
         # projects (UC-18)
         ("loyihalar", Command(Intent.LIST_PROJECTS)),
         ("/loyihalar", Command(Intent.LIST_PROJECTS)),
@@ -100,6 +118,10 @@ def test_each_phrase_names_its_intent(text: str, expected: Command) -> None:
         "rasmdan keyin 15 soniya kut",  # no cue: routing's `change_setting` intent decides it
         "xatoni o'zing top va tuzat",  # "do it yourself" is an instruction
         "holatni tekshir va testlarni ishga tushir",
+        "Salom, BonviHR'da login xatosini tuzat",  # a greeting in front of work is work
+        "rahmat, endi testlarni ham yoz",
+        "yordam ber: BonviHR testlari yiqilyapti",
+        "BonviHR qanday?",  # a report question: routing's fast path
         "/start",
         "ha",
         "2",
@@ -116,6 +138,7 @@ def test_only_commands_that_can_never_be_an_answer_come_before_binding() -> None
     assert {Intent.SHOW_HEALTH, Intent.SHOW_SETTINGS, Intent.LIST_PROJECTS} <= EARLY
     assert Intent.CONTINUE_TURN not in EARLY  # "davom ettir" may answer an agent's question
     assert Intent.CHANGE_SETTING not in EARLY
+    assert {Intent.GREETING, Intent.THANKS, Intent.HELP} <= EARLY  # "rahmat" never answers an agent's question
 
 
 def test_every_later_phase_intent_is_answered_not_yet() -> None:

@@ -146,7 +146,7 @@ async def test_lone_photo_proceeds_after_window(dev_deps: DevDeps, fakes: Fakes)
     assert (_ids(item), item.close_reason, item.is_media_only) == ([1], CloseReason.QUIET, True)
     await send_outbox(dev_deps)  # acks are durable outbox rows since T15; one sender pass delivers them
     assert fakes.messenger.sent("send_text") == []  # it proceeds; nothing asks the owner anything
-    assert {request.method for request in fakes.messenger.requests} == {"react", "chat_action"}
+    assert {request.method for request in fakes.messenger.requests} == {"chat_action"}  # no "seen" reaction by default
 
 
 async def test_a_complete_question_adds_at_most_1_5_s(dev_deps: DevDeps, fakes: Fakes) -> None:
@@ -250,8 +250,8 @@ async def test_kut_with_nothing_assembling_holds_for_the_next_burst_and_closes_n
     assert not await _send(dev_deps, _text(1, "kut"))  # no interrupt: nothing closes, nothing is stopped
     [row] = await _bursts(dev_deps)
     assert row.status == BurstStatus.HOLDING
-    seen, held = defaults.UI_SEEN_REACTION.default, defaults.UI_HOLD_REACTION.default
-    assert await _reactions(dev_deps) == [(5001, seen), (5001, held)]  # "seen", then "I am waiting"
+    held = defaults.UI_HOLD_REACTION.default
+    assert await _reactions(dev_deps) == [(5001, held)]  # "I am waiting" (no "seen" reaction by default)
     assert not await _wait(dev_deps, fakes, 90)  # the photo is still being picked
     await _send(dev_deps, make_media_update(2))
     await _send(dev_deps, _text(3, "shu xatoni tuzat"))

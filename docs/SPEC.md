@@ -266,7 +266,8 @@ same-user processes; the gate's forbidden rules keep the executor away from the 
      a Claude login token (`sk-ant-oat…`) is replaced by `[rad etildi]` and never stored;
    - store only the redacted payload;
    - enqueue priority 0: delete the owner message plus the masked confirmation (if secrets were found);
-     reaction `ui.seen_reaction = "\U0001F440"`; `sendChatAction(typing)` (deduped per chat for 4 s, repeated
+     reaction `ui.seen_reaction` (default empty = none: the owner found 👀 on every message odd, 2026-10-24;
+     "→ X" and typing are the ack); `sendChatAction(typing)` (deduped per chat for 4 s, repeated
      every 4 s while work for this chat is pending ≤ 60 s).
 4. `burst.service.on_part`: attaches to the chat's open burst, or opens one, and recomputes `closes_at` with
    `burst.domain.window()` (§4.4).
@@ -736,7 +737,7 @@ touches a row in a non-terminal state.
   | VOICE | `voice.enabled` (dev false, personal true), `voice.name` ("Kore"), `voice.style` ("tabiiy o'zbek talaffuzi, iliq, aniq"), `voice.gender` ("female"), `voice.language_code` ("uz-UZ"), `voice.max_words` (70), `voice.max_s` (35) |
   | SPEECH | `speech.stt_provider`, `speech.tts_provider`, `speech.video_provider` ("auto"), `stt.google_model`, `stt.openrouter_model`, `tts.google_model`, `tts.openrouter_model` ("google/gemini-3.8-flash-tts"), `tts.edge_voice`, `stt.mode` ("smart"), `stt.split_over_s` (20) |
   | LANGUAGE | `lang.reply` ("uz"), `stt.languages` (["uz-UZ","ru-RU","en-US"]), `stt.extra_terms` ([]) |
-  | MODELS | `models.routing` ("haiku"), `models.report` ("sonnet") + `models.report_effort` ("low"), `models.settings` ("sonnet"), `models.qa` ("sonnet") + `models.qa_effort` ("medium"), `models.coding` ("opus") + `models.coding_effort` ("xhigh"), `models.investigation` ("opus"), `models.fallback_text` ("gemini-3.8-flash"). Check `OneOf(haiku, sonnet, opus, fable, best)`; `weakens=to_values({fable, best})` (usage credits = money, UC-13 #3) |
+  | MODELS | `models.routing` ("haiku"), `models.report` ("haiku"; sonnet missed the 3.5 s budget live) + `models.report_effort` ("low"), `models.settings` ("sonnet"), `models.qa` ("sonnet") + `models.qa_effort` ("medium"), `models.coding` ("opus") + `models.coding_effort` ("xhigh"), `models.investigation` ("opus"), `models.fallback_text` ("gemini-3.8-flash"). Check `OneOf(haiku, sonnet, opus, fable, best)`; `weakens=to_values({fable, best})` (usage credits = money, UC-13 #3) |
   | ROUTING / PROJECTS | `routing.min_confidence` (0.75), `routing.min_margin` (0.2), `routing.context_window_min` (15), `projects.root` ("~/Documents/Projects"), `projects.aliases` ({}), `projects.descriptions` ({}), `projects.archived` ([]), `projects.unarchived` ([]), `projects.excluded` ([]; never registered, listed, routed or opened), `executor.default` ("claude"), `executor.per_project` ({}) |
   | DECISIONS | `gate.ask_classes` (all 12 classes, §5.7; `removes_items`), `gate.secret_scan_enabled` (true; `disables`), `gate.approval_ttl_min` (120; `increases`), `gate.hook_timeout_s` (15), `gate.readonly_remote_commands` (§5.7; `weakens=always` on add), `gate.jump_only_hosts` (["server"]; `removes_items`), `gate.git_hosts` (["github.com"]), `gate.http_write_allow_hosts` ([]; `weakens=always` on add), `gate.temp_roots` (["/tmp", "/private/tmp", "/private/var/folders"]) |
   | BURST | `burst.after_complete_text_s` (1.2), `burst.after_text_s` (2.0), `burst.after_media_s` (10.0), `burst.album_gap_s` (1.5), `burst.after_voice_s` (2.0), `burst.hold_max_s` (120), `burst.max_total_s` (30), `burst.merge_min_confidence` (0.85) |
@@ -1038,6 +1039,7 @@ never called; the check script asserts the command list is empty.
 | `report_project` / `report_all` | "HRMentor qanday?", "bugun nima o'zgardi?" | `/hisobot [X]` | dev | 15 | P1 |
 | `server_status` / `investigate` | "bonvi server qanday?" / "X'dagi xatoni tekshir"; a lone error screenshot | — | dev | 15, 02 | P1 |
 | `show_health` | "holat?" | `/holat` | both | 06 | P1 |
+| `greeting` / `thanks` / `help` | "salom", "qandaysan?" / "rahmat" / "nima qila olasan?" (a whole message of these words only; answered from the catalog, no model) | `/yordam`, `/help` | dev | — | P1 |
 | `show_settings` / `change_setting` / `revert_setting` | "sozlamalaring qanday?" / "javoblaring qisqaroq bo'lsin" / "oldingi holatiga qaytar" | `/sozlamalar` | both | 09, 34 | P1 |
 | `add_term` | "bu so'zni to'g'ri yoz: Wunderkind" | — | both | 05 | P1 |
 | `alias_project` / `archive_project` / `describe_project` | "BonviHR'ni 'hr' deb ham tani" / "X'ni arxivla" / "X tavsifi: …" | — | dev | 18, 09 | P1 |

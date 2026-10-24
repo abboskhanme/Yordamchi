@@ -584,9 +584,9 @@ async def test_a_number_the_model_wrote_as_text_still_applies(dev_deps: DevDeps,
 async def test_an_ambiguous_request_gets_one_clarifying_question_and_changes_nothing(
     dev_deps: DevDeps, fakes: Fakes
 ) -> None:
-    answer = answer_of("clarify", ("models.report", "haiku"), ("timeouts.report_s", 2))
-    outcome = await say(dev_deps, fakes, "tezroq javob ber", answer)
-    options = "1) models.report: sonnet → haiku; 2) timeouts.report_s: 3.5 s → 2 s"
+    answer = answer_of("clarify", ("models.report", "sonnet"), ("timeouts.report_s", 2))
+    outcome = await say(dev_deps, fakes, "yaxshiroq javob ber", answer)
+    options = "1) models.report: haiku → sonnet; 2) timeouts.report_s: 3.5 s → 2 s"
     assert (outcome.kind, outcome.reply) == (OutcomeKind.CLARIFY, S.SETTINGS_CLARIFY(options=options))
     assert [text_of(row) for row in await list_replies(dev_deps.db)] == [outcome.reply]
     assert (await service.snapshot(dev_deps)).version == 0

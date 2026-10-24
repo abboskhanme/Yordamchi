@@ -723,6 +723,39 @@ NOT_YET = Msg("Bu imkoniyat hali yo'q — {phase} bosqichida qo'shiladi.")
 WHICH_RUNNING = Msg("Bir nechta ish ketyapti: {projects}. Qaysi birini to'xtatay? Loyiha nomini yozing.")
 # "davom ettir", "qayta yubor" with no project named, replied to, or left over from the restart.
 WHICH_PROJECT_NAME = Msg("Qaysi loyiha? Loyiha nomini yozing yoki uning xabariga javob qiling.")
+# Small talk (owner, 2026-10-24: "qandaysan?" must get a reply, not a report). `opening` is one of the three below,
+# `state` CHAT_WORKING or CHAT_IDLE.
+CHAT_GREETING = Msg("{opening} {state}\n\n{hint}")
+CHAT_HELLO = Msg("Salom! 👋")
+CHAT_SALAM = Msg("Va alaykum assalom! 👋")
+CHAT_HOW = Msg("Yaxshi, rahmat! 🙂")
+CHAT_WORKING = Msg("Hozir ish ketyapti: {projects}.")
+CHAT_IDLE = Msg("Hozir hech qaysi loyihada ish ketmayapti — vazifaga tayyorman.")
+CHAT_HINT = Msg("Vazifa bering yoki «nima qila olasan?» deb so'rang.")
+CHAT_THANKS = Msg("Arzimaydi! 🙂")
+# "nima qila olasan?", `/yordam`: what the dev bot does today (docs/QOLLANMA.md; P2 features are not listed).
+HELP = Msg(
+    "**Men nimalar qila olaman**\n"
+    "\n"
+    "**Loyihalarda ishlash**\n"
+    "• Vazifani oddiy gap bilan bering — matn, ovoz yoki rasm: «BonviHR'da login sahifasini tuzat»\n"
+    "• Loyihani o'zim topaman; ikkilansam, bitta savol beraman\n"
+    "• Commit va push o'zim qilaman; deploy, ma'lumot o'chirish yoki pul sarfini faqat sizdan so'rab\n"
+    "• To'xtatish: «to'xta»; yo'nalishni o'zgartirish: «yo'q, boshqacha qil: …»\n"
+    "• «kut» — yana yuborasiz, men kutib turaman\n"
+    "\n"
+    "**Tekshirish va hisobot**\n"
+    "• «X'da nega … ishlamayapti?» yoki xato skrinshoti — faqat o'qib tekshiraman\n"
+    "• «BonviHR qanday?», «bugun nima o'zgardi?» — tezkor hisobot\n"
+    "• «holat?» — botning o'zi; «loyihalar» — ro'yxat; «xarajat?» — sarf\n"
+    "\n"
+    "**Serverlar**\n"
+    "• «bonvi-srv serverini kuzat», «serverda nima bo'lyapti?» — faqat o'qiydigan tekshiruv\n"
+    "\n"
+    "**Sozlamalar**\n"
+    "• «sozlamalar» — ko'rish; «sozlama: …» — o'zgartirish\n"
+    "• «bu so'zni to'g'ri yoz: OrvionX» — ovozdagi atamani o'rgatish"
+)
 
 # --- web ---
 # adapters/web failures (UC-32 F). `site` is the link's host name.

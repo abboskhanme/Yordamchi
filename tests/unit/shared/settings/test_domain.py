@@ -309,14 +309,14 @@ def test_clarify_options_drop_what_this_bot_cannot_apply() -> None:
         REGISTRY,
         DEV_NOW,
         [
-            domain.Proposal("models.report", "haiku"),
+            domain.Proposal("models.report", "sonnet"),
             domain.Proposal("timeouts.report_s", 99),  # out of range
             domain.Proposal("persona.personal", "x"),  # the personal bot's
             domain.Proposal("models.routing", "haiku"),  # already so
             domain.Proposal("timeouts.report_s", 2),
         ],
     )
-    assert options == ("1) models.report: sonnet → haiku", "2) timeouts.report_s: 3.5 s → 2 s")
+    assert options == ("1) models.report: haiku → sonnet", "2) timeouts.report_s: 3.5 s → 2 s")
 
 
 def test_the_schema_offers_every_intent() -> None:

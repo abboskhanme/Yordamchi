@@ -107,11 +107,11 @@ SCHEDULE_RETENTION_AT = Setting(
 UI_SEEN_REACTION = Setting(
     "ui.seen_reaction",
     str,
-    "\U0001f440",
+    "",  # owner, 2026-10-24: 👀 on every message looked odd; "typing…" and the "→ X" line already show it was seen
     check=MaxLen(8),
     group=Group.PERSONA,
     bots=BOTH,
-    doc="Reaction put on each owner message as the 'seen' ack (SPEC §3.2.1).",
+    doc="Reaction put on each owner message as the 'seen' ack (SPEC §3.2.1); empty: none.",
 )
 UI_HOLD_REACTION = Setting(
     "ui.hold_reaction",
@@ -972,7 +972,8 @@ SCHEDULE_DIGEST_IDLE_POLL_MIN = Setting(
     bots=DEV,
     doc="Git poll for the other projects.",
 )
-MODELS_REPORT = _claude_model("models.report", "sonnet", bots=DEV, doc="Model of the warm report assistant.")
+# haiku: warm asks measured 1.7–4.6 s for both models on 2026-10-24, and sonnet answered nothing within 3.5 s live.
+MODELS_REPORT = _claude_model("models.report", "haiku", bots=DEV, doc="Model of the warm report assistant.")
 MODELS_REPORT_EFFORT = _effort("models.report_effort", "low", bots=DEV, doc="Effort of the report assistant.")
 TIMEOUTS_REPORT_S = Setting(
     "timeouts.report_s",

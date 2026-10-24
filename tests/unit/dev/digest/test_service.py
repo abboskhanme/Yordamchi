@@ -226,7 +226,7 @@ async def test_a_free_form_report_answers_within_4_s_while_the_turn_runs_and_nev
     await service.refresh_digest(dev_deps, digest_state, PROJECT)
     later(fakes, minutes=12)
     before = executor_calls(fakes)
-    slow = SlowAssistant(fakes.clock, latency_s=2.2)  # a warm sonnet ask (T12 measured 1–3 s)
+    slow = SlowAssistant(fakes.clock, latency_s=2.2)  # a warm ask (T12 measured 1–3 s; haiku 1.7–4.6 s, 2026-10-24)
     slow.reply_with("report", "Login ustida ishlayapti, testlar hali ishga tushmagan.")
     question = make_report_question("BonviHR'da login qachon tugaydi?")
 
@@ -248,7 +248,7 @@ async def test_a_free_form_report_answers_within_4_s_while_the_turn_runs_and_nev
         "Ma'lumot: 12 daqiqa oldin",
     ]
     request = slow.requests[0]
-    assert (request.kind, request.model, request.effort) == ("report", "sonnet", "low")
+    assert (request.kind, request.model, request.effort) == ("report", "haiku", "low")
     assert request.system_prompt == prompts.render("dev/report_system")
     assert request.instructions.startswith("Current instructions from the owner:")
     assert json.loads(request.prompt)["projects"][0]["now_running"][0]["state"] == "running"

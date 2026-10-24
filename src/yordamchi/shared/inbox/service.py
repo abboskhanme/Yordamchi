@@ -131,7 +131,7 @@ async def _enqueue_ack(
         )
     if plan.typing:
         await outbox.request_typing(s, bot=bot, chat_id=chat_id, ref=ref, at=at)
-    if plan.react and plan.message_id is not None:
+    if plan.react and plan.message_id is not None and reaction:  # `ui.seen_reaction` empty: no reaction
         await outbox.enqueue_reaction(
             s, bot=bot, chat_id=chat_id, message_id=plan.message_id, emoji=reaction, ref=ref, at=at
         )

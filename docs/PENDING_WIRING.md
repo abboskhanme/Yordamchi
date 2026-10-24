@@ -396,3 +396,8 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] `setMessageReaction` failed (`provider_unavailable`, reason `other`) on 5 of the 6 queued parts. Two were
       service messages; find out why the texts failed (old message? reaction list of the group?) and log the
       Telegram description.
+- [ ] A report timeout retires the warm report client, so the next ask starts cold and is likelier to time out
+      again. Keep the client and let the late answer be dropped (T44).
+- [ ] Routing has no `chat` intent: a general question that is not a project's ("Python'da decorator nima?") still
+      goes to a report. Add the intent with eval cases at the T47 re-record (the pre-parse covers greetings,
+      thanks and "nima qila olasan?" today).

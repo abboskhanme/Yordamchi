@@ -97,10 +97,9 @@ async def test_a_text_update_is_stored_received_and_acknowledged(dev_deps: DevDe
         "attachment": None,
         "secret_ids": [],
     }
-    assert sorted(_calls(fakes), key=lambda call: call[0]) == [
-        ("chat_action", {"action": ChatAction.TYPING, "timeout": ACK_TIMEOUT}),
-        ("react", {"message_id": update.message_id, "emoji": SEEN, "timeout": ACK_TIMEOUT}),
-    ]
+    # `ui.seen_reaction` is empty by default (owner, 2026-10-24): "typing…" alone is the ack
+    assert SEEN == ""
+    assert _calls(fakes) == [("chat_action", {"action": ChatAction.TYPING, "timeout": ACK_TIMEOUT})]
 
 
 async def test_the_seen_reaction_is_read_from_settings_at_use_time(dev_deps: DevDeps, fakes: Fakes) -> None:
@@ -116,7 +115,7 @@ async def test_the_ack_goes_out_well_within_one_second(dev_deps: DevDeps, fakes:
     started = time.monotonic()
     await _accept(dev_deps, make_update(3))
     assert time.monotonic() - started < 1.0  # NFR SPD ack ≤ 1 s, on a real SQLite file
-    assert {request.method for request in fakes.messenger.requests} == {"react", "chat_action"}
+    assert {request.method for request in fakes.messenger.requests} == {"chat_action"}
     assert fakes.clock.sleeps == []  # nothing waits before the ack
 
 

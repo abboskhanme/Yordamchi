@@ -5,7 +5,8 @@ Each burst takes exactly one of these paths, first match wins:
 1. the self-test (a synthetic update: P2 probation; recorded, nothing else) and the interrupt words — "to'xta",
    "stop", "bas", "hammasini to'xtat", "yo'q, boshqacha qil: …" — which skip the window and every model (≤ 3 s).
    "kut" is none of them: it never stops anything, it holds the burst window for the next part (`shared/burst`);
-2. commands that can never be an answer ("holat?", "/sozlamalar", "loyihalar", "xarajat?": `intents.EARLY`);
+2. commands that can never be an answer ("holat?", "/sozlamalar", "loyihalar", "xarajat?", and small talk:
+   "salom", "qandaysan?", "rahmat", "nima qila olasan?": `intents.EARLY`);
 3. `routing.answer_clarification`: the answer to "BonviHR'gami yoki HRMentor'gami?";
 4. `turns.answer_revert`, then `questions.answer_owner`: a wrong-target revert offer, a gate decision, an agent
    question (in that order, so a bare "ha" binds to at most one of them);
@@ -319,6 +320,12 @@ class Pipeline:
         if intent is Intent.SHOW_HEALTH:
             text = await health.show_health(deps, self.health, work=partial(turns.work_status, deps))
             await self._reply(item, text)
+        elif intent is Intent.GREETING:
+            await self._reply(item, await self._greeting(command.argument), kind=Kind.NOTICE)
+        elif intent is Intent.THANKS:
+            await self._reply(item, S.CHAT_THANKS(), kind=Kind.NOTICE)
+        elif intent is Intent.HELP:
+            await self._reply(item, S.HELP(), kind=Kind.NOTICE)
         elif intent is Intent.LIST_PROJECTS:
             await self._reply(item, await projects.show_projects(deps))
         elif intent is Intent.SHOW_COST:  # "xarajat?" (UC-07): queued as a reply to the question itself
@@ -347,6 +354,13 @@ class Pipeline:
                 return
             act = turns.continue_turn if intent is Intent.CONTINUE_TURN else turns.retry_delivery
             await self._reply(item, await act(deps, self.turns, target), kind=Kind.NOTICE, project=target)
+
+    async def _greeting(self, opening: str) -> BotText:
+        """A greeting answered as one, with the one fact worth knowing: what is working right now."""
+        working = await self._working()
+        state = S.CHAT_WORKING(projects=", ".join(working)) if working else S.CHAT_IDLE()
+        first = {intents.GREETING_HOW: S.CHAT_HOW, intents.GREETING_SALAM: S.CHAT_SALAM}.get(opening, S.CHAT_HELLO)
+        return S.CHAT_GREETING(opening=first(), state=state, hint=S.CHAT_HINT())
 
     async def _owner_command(self, item: TurnInput, command: Command, origin: OwnerOrigin, project: str | None) -> None:
         deps, intent = self.deps, command.intent

@@ -34,6 +34,9 @@ class Intent(StrEnum):
     """SPEC §6 intent names (the routed ones — instruct, report, investigate — live in `dev/routing`)."""
 
     SHOW_HEALTH = "show_health"
+    GREETING = "greeting"  # "salom", "qandaysan?": small talk, answered as such, never with a report
+    THANKS = "thanks"
+    HELP = "help"  # "nima qila olasan?", `/yordam`
     SHOW_SETTINGS = "show_settings"
     CHANGE_SETTING = "change_setting"  # read by the settings assistant: a change, a revert or a question
     REVERT_SETTING = "revert_setting"
@@ -62,7 +65,21 @@ class Intent(StrEnum):
 
 LATER_PHASE: Final = "P2"
 # Answered before open items are offered the message (module docstring).
-EARLY: Final = frozenset({Intent.SHOW_HEALTH, Intent.SHOW_SETTINGS, Intent.LIST_PROJECTS, Intent.SHOW_COST})
+EARLY: Final = frozenset(
+    {
+        Intent.SHOW_HEALTH,
+        Intent.SHOW_SETTINGS,
+        Intent.LIST_PROJECTS,
+        Intent.SHOW_COST,
+        Intent.GREETING,  # "rahmat" or "salom" is never the answer to an open question
+        Intent.THANKS,
+        Intent.HELP,
+    }
+)
+# `Command.argument` of a greeting: which opening the reply takes.
+GREETING_HOW: Final = "how"  # "qandaysan?", also "salom, qandaysan?"
+GREETING_SALAM: Final = "salam"  # "assalomu alaykum"
+GREETING_HELLO: Final = "hello"
 # Not wired in the dev bot yet: each is answered with `S.NOT_YET`. `self_update` waits for P2's drain and probation
 # wiring (docs/PENDING_WIRING.md, T56/T57).
 NOT_BUILT: Final = frozenset(
@@ -128,6 +145,8 @@ _ALIASES: Final[dict[str, Intent]] = {
     "/xarajat": Intent.SHOW_COST,
     "/integratsiyalar": Intent.INTEGRATIONS,
     "/sessiya": Intent.MAC_HANDOFF,
+    "/yordam": Intent.HELP,
+    "/help": Intent.HELP,
 }
 _ALIAS: Final = re.compile(r"(/[a-z]+)(?:@\w+)?(?:\s+(.*))?", re.DOTALL)
 
@@ -159,6 +178,23 @@ _PHRASES: Final[dict[str, Intent]] = {
     **dict.fromkeys(("qayta yubor", "qayta yuboring"), Intent.RETRY_DELIVERY),
     **dict.fromkeys(("yangi loyiha", "tamom", "boshla"), Intent.NEW_PROJECT),
 }
+# Small talk (owner, 2026-10-24: "qandaysan?" got a report). Only a whole message of such words: one that says
+# anything more ("salom, BonviHR'da login xatosini tuzat") is work and goes on to routing.
+_HELLO: Final = r"(?:assalomu?\s+alaykum|assalom|salom(?:lar)?|hello|hi|hey|привет|здравствуй(?:те)?|салам)"
+_HOW: Final = (
+    r"(?:qand[ae]y(?:san(?:iz)?|siz)|qal[ae]y(?:san(?:iz)?|siz)?|qanaqasan|yaxshi\s*mi(?:san(?:iz)?|siz)"
+    r"|zo'r\s*mi(?:san|siz)|ishlar\s+(?:qalay|yaxshimi)|nima\s+gap(?:lar)?"
+    r"|how\s+are\s+you|как\s+дела|как\s+ты)"
+)
+_SMALL_TALK: Final = re.compile(rf"(?:(?:{_HELLO}|{_HOW})[\s,.!?]*)+")
+_HOW_WORD: Final = re.compile(_HOW)
+_THANKS: Final = re.compile(
+    r"(?:katta\s+)?(?:ra[hx]mat(?:ingiz|lar)?|tashakkur|thanks?(?:\s+you)?|спасибо|spasibo)[\s,.!?)🙏👍🙂😊]*"
+)
+_HELP: Final = re.compile(
+    r"(?:sen\s+|siz\s+)?(?:nima(?:lar)?\s+(?:ish(?:lar)?\s+)?qil\s*(?:a\s*)?ola(?:san(?:iz)?|siz)"
+    r"|qanday\s+yordam\s+bera\s*ola(?:san(?:iz)?|siz)|imkoniyatlaring(?:\s+(?:qanday|nima(?:lar)?))?|yordam|help)"
+)
 # A setting key as the registry spells it: `outbox.progress_edit_s`.
 _SETTING_KEY: Final = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+")
 _REVERT: Final = re.compile(r"(?:sozlamani\s+)?oldingi\s+holat(?:i|ig)a\s+qaytar(?:ing)?(?:\s+(?P<key>\S+))?")
@@ -210,10 +246,23 @@ _NAMED: Final[tuple[tuple[re.Pattern[str], Intent], ...]] = (
 )
 
 
+def _small_talk_of(folded: str) -> Command | None:
+    if _SMALL_TALK.fullmatch(folded) is not None:
+        opening = GREETING_HOW if _HOW_WORD.search(folded) else GREETING_SALAM if "assalom" in folded else GREETING_HELLO
+        return Command(Intent.GREETING, argument=opening)
+    if _THANKS.fullmatch(folded) is not None:
+        return Command(Intent.THANKS)
+    if _HELP.fullmatch(folded) is not None:
+        return Command(Intent.HELP)
+    return None
+
+
 def _phrase_of(raw: str) -> Command | None:
     folded = normalise(raw)
     if (intent := _PHRASES.get(folded)) is not None:
         return Command(intent)
+    if (talk := _small_talk_of(folded)) is not None:
+        return talk
     if (revert := _REVERT.fullmatch(folded)) is not None:
         key = revert.group("key") or ""
         return Command(Intent.REVERT_SETTING, argument=key) if not key or _SETTING_KEY.fullmatch(key) else None
