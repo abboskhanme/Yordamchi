@@ -80,6 +80,27 @@ ERR_VAULT_SECRET_NOT_FOUND = Msg("«{name}» degan kalit omborda yo'q.")
 # --- outbox ---
 # --- burst ---
 # --- projects ---
+ERR_GIT_FAILED = Msg("git buyrug'i bajarilmadi ({operation}). Loyiha papkasi va uning git holatini tekshiring.")
+ERR_PROJECT_NOT_FOUND = Msg("«{name}» degan loyiha topilmadi. Ro'yxatini ko'rish uchun: loyihalar.")
+ERR_PROJECT_AMBIGUOUS = Msg("«{name}» bir nechta loyihaga mos keladi: {candidates}. Qaysi biri?")
+ERR_PROJECT_ALIAS_TAKEN = Msg("{project}: «{alias}» nomi allaqachon shu loyihaga tegishli.")
+ERR_PROJECT_ALIAS_INVALID = Msg("«{alias}» qisqa nom bo'la olmaydi: 2–{limit} belgi bo'lsin, bitta qatorda.")
+ERR_PROJECT_DESCRIPTION_INVALID = Msg("Tavsif 1–{limit} belgi bo'lsin, bitta qatorda.")
+# UC-18: the replies to alias_project / archive_project / describe_project.
+PROJECT_ALIAS_ADDED = Msg("{project}: endi «{alias}» deb ham taniyman.")
+PROJECT_ARCHIVED = Msg("{project}: arxivga oldim — endi faqat aniq nomi bilan murojaat qilsangiz ishlayman.")
+PROJECT_UNARCHIVED = Msg("{project}: arxivdan chiqardim.")
+PROJECT_DESCRIBED = Msg("{project}: tavsifni yangiladim.")
+# "loyihalar" (UC-18, P1 basic): a summary line, one line per active project, then the archived and vanished ones.
+PROJECTS_SUMMARY = Msg("Loyihalar: {active} ta faol, {archived} ta arxivda.")
+PROJECTS_NONE = Msg("{root} ichida loyiha topilmadi.")
+PROJECTS_ITEM = Msg("• {project}")
+PROJECTS_ITEM_DESCRIPTION = Msg(" — {description}")
+PROJECTS_ITEM_ALIASES = Msg(" (yana: {aliases})")
+PROJECTS_ITEM_WORKTREE = Msg(" (worktree)")
+PROJECTS_ARCHIVED_LIST = Msg("Arxivda: {projects}")
+PROJECTS_MISSING_LIST = Msg("Papkasi topilmadi: {projects}")
+
 # --- gate ---
 # --- voice ---
 # --- routing ---

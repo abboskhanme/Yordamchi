@@ -5,7 +5,7 @@ only need scripted facts (a status, a head) or a scripted failure. Unknown repos
 """
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from yordamchi.ports.git import Commit, FileChange, Git, GitStatus
@@ -17,6 +17,9 @@ CLEAN = GitStatus(branch="main", head=None, upstream=None, ahead=0, behind=0, ch
 class FakeGit:
     def __init__(self) -> None:
         self.heads: dict[Path, str | None] = {}
+        self.branches: dict[Path, str | None] = {}  # current branch; unknown repos are on "main"
+        self.commits: dict[tuple[Path, str], Commit] = {}  # (repo, ref) → the commit it names
+        self.trees: dict[tuple[Path, str, str], dict[str, bytes | None]] = {}  # (repo, ref, directory) → files
         self.statuses: dict[Path, GitStatus] = {}
         self.logs: defaultdict[Path, list[Commit]] = defaultdict(list)
         self.changes: defaultdict[Path, list[FileChange]] = defaultdict(list)
@@ -35,6 +38,21 @@ class FakeGit:
     async def head(self, repo: Path, *, timeout: float) -> str | None:
         self._call("head", repo)
         return self.heads.get(repo)
+
+    async def current_branch(self, repo: Path, *, timeout: float) -> str | None:
+        self._call("current_branch", repo)
+        return self.branches.get(repo, "main")
+
+    async def find_commit(self, repo: Path, ref: str, *, timeout: float) -> Commit | None:
+        self._call("find_commit", repo, ref)
+        return self.commits.get((repo, ref))
+
+    async def tree_files(
+        self, repo: Path, ref: str, directory: str, *, max_bytes: int, timeout: float
+    ) -> Mapping[str, bytes | None]:
+        self._call("tree_files", repo, ref, directory)
+        files = self.trees.get((repo, ref, directory.strip("/")), {})
+        return {name: None if data is None or len(data) > max_bytes else data for name, data in files.items()}
 
     async def status(self, repo: Path, *, timeout: float) -> GitStatus:
         self._call("status", repo)

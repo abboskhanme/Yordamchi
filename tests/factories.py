@@ -338,6 +338,114 @@ async def make_burst_row(
 
 
 # --- projects ---
+# Imports stay inside the block (TASKS R2): parallel tasks never touch the import list at the top.
+from dataclasses import replace  # noqa: E402
+from pathlib import PurePosixPath  # noqa: E402
+
+import yaml  # noqa: E402
+
+from yordamchi.dev.projects import store as projects_store  # noqa: E402
+from yordamchi.dev.projects.domain import (  # noqa: E402
+    UNPARSEABLE,
+    DeployBranches,
+    DescriptionSource,
+    ProjectRecord,
+    WorkflowFile,
+)
+from yordamchi.dev.projects.models import Project as ProjectRow  # noqa: E402
+from yordamchi.persistence.uow import Session  # noqa: E402
+
+WORKFLOW_FIXTURES: Final = Path(__file__).parent / "fixtures" / "workflows"
+OWNER_PROJECTS_ROOT: Final = PurePosixPath("/Users/owner/Documents/Projects")
+
+
+def projects_root_of(paths: Paths) -> Path:
+    """Where `projects.root` ("~/Documents/Projects") points for these test paths."""
+    return paths.home / "Documents" / "Projects"
+
+
+def load_workflow(name: str) -> WorkflowFile:
+    """A `tests/fixtures/workflows/` file as the service hands it to the domain (`yaml.safe_load`, or unparseable)."""
+    data = (WORKFLOW_FIXTURES / name).read_bytes()
+    try:
+        document: object = yaml.safe_load(data)
+    except yaml.YAMLError:
+        document = UNPARSEABLE
+    return WorkflowFile(name=name, document=document)
+
+
+def make_project_folder(
+    root: Path,
+    name: str,
+    *,
+    readme: str | None = None,
+    claude_md: str | None = None,
+    spec: str | None = None,
+    workflows: Mapping[str, str] | None = None,
+    git_dir: bool = False,
+) -> Path:
+    """A project folder on disk. `git_dir=True` adds an empty `.git/` (the scan only looks for it; tests of git
+    itself use real repositories). `workflows` maps a file name to its YAML text."""
+    folder = root / name
+    folder.mkdir(parents=True, exist_ok=True)
+    if readme is not None:
+        (folder / "README.md").write_text(readme, encoding="utf-8")
+    if claude_md is not None:
+        (folder / "CLAUDE.md").write_text(claude_md, encoding="utf-8")
+    if spec is not None:
+        (folder / "docs").mkdir(exist_ok=True)
+        (folder / "docs" / "SPEC.md").write_text(spec, encoding="utf-8")
+    if workflows:
+        directory = folder / ".github" / "workflows"
+        directory.mkdir(parents=True, exist_ok=True)
+        for file_name, text in workflows.items():
+            (directory / file_name).write_text(text, encoding="utf-8")
+    if git_dir:
+        (folder / ".git").mkdir(exist_ok=True)
+    return folder
+
+
+def make_project_record(
+    name: str = "BonviHR",
+    *,
+    at: datetime,
+    root: PurePosixPath = OWNER_PROJECTS_ROOT,
+    description: str = "",
+    description_source: DescriptionSource = DescriptionSource.NONE,
+    is_worktree: bool = False,
+    is_archive_name: bool = False,
+    deploy: DeployBranches | None = None,
+    missing_since: datetime | None = None,
+) -> ProjectRecord:
+    return ProjectRecord(
+        id=name,
+        path=str(root / name),
+        description=description,
+        description_source=description_source,
+        is_worktree=is_worktree,
+        is_archive_name=is_archive_name,
+        executor="claude",
+        git_remote_url=None,
+        default_branch="main",
+        deploy=deploy or DeployBranches(),
+        deploy_checked_sha=None,
+        discovered_at=at,
+        last_seen_at=at,
+        missing_since=missing_since,
+    )
+
+
+async def make_project(s: Session, name: str = "BonviHR", *, at: datetime, path: Path | None = None) -> ProjectRow:
+    """A registered `projects` row, written as the scan would (inside the caller's unit of work)."""
+    record = make_project_record(name, at=at)
+    if path is not None:
+        record = replace(record, path=str(path))
+    await projects_store.set_project(s, record)
+    row = await projects_store.get_project(s, name)
+    assert row is not None
+    return row
+
+
 # --- gate ---
 # --- voice ---
 # --- routing ---

@@ -1,0 +1,6 @@
+# Not valid YAML (an unclosed flow sequence). Expect: every branch and tag (fail closed).
+on:
+  push:
+    branches: [main, release
+jobs:
+  deploy: {runs-on: ubuntu-latest

@@ -1,0 +1,9 @@
+# Deploys on every push except to gh-pages, which counts as every branch. Expect: every branch, no tags.
+on:
+  push:
+    branches-ignore: [gh-pages]
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - run: rsync -az ./dist/ deploy@example.com:/var/www/

@@ -1,0 +1,8 @@
+# Calls a reusable workflow of this repo on a push to main. Expect (with reusable_flyctl.yml): branches ["main"].
+on:
+  push:
+    branches: [main]
+jobs:
+  call:
+    uses: ./.github/workflows/reusable_flyctl.yml
+    secrets: inherit

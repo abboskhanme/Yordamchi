@@ -1,0 +1,8 @@
+# A negated ref check cannot be read as "main only". Expect: every branch and tag (fail closed).
+on: push
+jobs:
+  stage:
+    if: "!(github.ref == 'refs/heads/main')"
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./deploy.sh staging

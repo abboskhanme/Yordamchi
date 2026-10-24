@@ -1,0 +1,7 @@
+# on: is a number, so no one can read the trigger, and the job deploys. Expect: every branch and tag.
+on: 42
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - run: kubectl apply -f k8s/

@@ -35,6 +35,12 @@ class ErrorCode(StrEnum):
     # --- outbox ---
     # --- burst ---
     # --- projects ---
+    GIT_FAILED = "git_failed"  # adapters/git (T17): a local git command failed
+    PROJECT_NOT_FOUND = "project_not_found"
+    PROJECT_AMBIGUOUS = "project_ambiguous"
+    PROJECT_ALIAS_TAKEN = "project_alias_taken"
+    PROJECT_ALIAS_INVALID = "project_alias_invalid"
+    PROJECT_DESCRIPTION_INVALID = "project_description_invalid"
     # --- gate ---
     # --- voice ---
     # --- routing ---
@@ -161,6 +167,47 @@ class VaultSecretNotFound(DomainError):
 # --- outbox ---
 # --- burst ---
 # --- projects ---
+class GitFailed(ExternalError):
+    """A local git command exited non-zero (adapters/git). `reason` is for code and logs only: `not_a_repo`,
+    `bad_ref`, `conflict`, `locked` (another git holds the index lock: retryable) or `failed`. git's own output is
+    never kept: it may quote file content."""
+
+    def __init__(self, *, operation: str, reason: str) -> None:
+        super().__init__(ErrorCode.GIT_FAILED, retryable=reason == "locked", operation=operation)
+        self.reason = reason
+
+
+class ProjectNotFound(DomainError):
+    """No registered project has this folder name or alias (exact, case-insensitive)."""
+
+    def __init__(self, *, name: str) -> None:
+        super().__init__(ErrorCode.PROJECT_NOT_FOUND, name=name)
+
+
+class ProjectAmbiguous(DomainError):
+    """More than one project answers to this name. `candidates` is the comma-separated list the owner picks from."""
+
+    def __init__(self, *, name: str, candidates: str) -> None:
+        super().__init__(ErrorCode.PROJECT_AMBIGUOUS, name=name, candidates=candidates)
+
+
+class ProjectAliasTaken(DomainError):
+    """The alias is already another project's folder name or alias."""
+
+    def __init__(self, *, alias: str, project: str) -> None:
+        super().__init__(ErrorCode.PROJECT_ALIAS_TAKEN, alias=alias, project=project)
+
+
+class ProjectAliasInvalid(DomainError):
+    def __init__(self, *, alias: str, limit: int) -> None:
+        super().__init__(ErrorCode.PROJECT_ALIAS_INVALID, alias=alias, limit=limit)
+
+
+class ProjectDescriptionInvalid(DomainError):
+    def __init__(self, *, limit: int) -> None:
+        super().__init__(ErrorCode.PROJECT_DESCRIPTION_INVALID, limit=limit)
+
+
 # --- gate ---
 # --- voice ---
 # --- routing ---

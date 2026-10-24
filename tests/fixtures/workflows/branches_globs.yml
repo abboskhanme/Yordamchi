@@ -1,0 +1,12 @@
+# Globs and a negation (negations are ignored, which can only over-ask). Expect: branches ["prod", "release/**"].
+on:
+  push:
+    branches:
+      - "release/**"
+      - prod
+      - "!release/**-alpha"
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - run: docker build -t registry.example.com/app . && docker push registry.example.com/app

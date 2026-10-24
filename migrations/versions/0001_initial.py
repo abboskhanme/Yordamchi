@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 10:04:43.924827
+Create Date: 2026-10-24 10:22:25.080981
 """
 
 from collections.abc import Sequence
@@ -85,6 +85,26 @@ def upgrade() -> None:
         sa.Column("next_offset", sa.BigInteger(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("bot", name=op.f("pk_poll_offsets")),
+    )
+    op.create_table(
+        "projects",
+        sa.Column("id", sa.String(length=64), nullable=False),
+        sa.Column("path", sa.String(length=1024), nullable=False),
+        sa.Column("description", sa.Text(), nullable=False),
+        sa.Column("description_source", sa.String(length=16), nullable=False),
+        sa.Column("is_worktree", sa.Boolean(), nullable=False),
+        sa.Column("is_archive_name", sa.Boolean(), nullable=False),
+        sa.Column("executor", sa.String(length=16), nullable=False),
+        sa.Column("git_remote_url", sa.String(length=1024), nullable=True),
+        sa.Column("default_branch", sa.String(length=255), nullable=True),
+        sa.Column("deploy_branches_json", sa.Text(), nullable=False),
+        sa.Column("deploy_checked_sha", sa.String(length=64), nullable=True),
+        sa.Column("discovered_at", sa.DateTime(), nullable=False),
+        sa.Column("last_seen_at", sa.DateTime(), nullable=False),
+        sa.Column("missing_since", sa.DateTime(), nullable=True),
+        sa.Column("last_activity_at", sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_projects")),
+        sa.UniqueConstraint("path", name=op.f("uq_projects_path")),
     )
     op.create_table(
         "setting_versions",
@@ -194,6 +214,7 @@ def downgrade() -> None:
 
     op.drop_table("usage_records")
     op.drop_table("setting_versions")
+    op.drop_table("projects")
     op.drop_table("poll_offsets")
     op.drop_table("kv_state")
     with op.batch_alter_table("health_events", schema=None) as batch_op:

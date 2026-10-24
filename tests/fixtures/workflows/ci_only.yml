@@ -1,0 +1,15 @@
+# Tests on every push and pull request; nothing deploys. A deploy key on checkout only reads the repo.
+# Expect: no deploy branches.
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+      - uses: actions/setup-python@v5
+      - run: uv sync && uv run pytest

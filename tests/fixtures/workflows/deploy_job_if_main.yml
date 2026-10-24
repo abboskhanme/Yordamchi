@@ -1,0 +1,13 @@
+# Runs on every push, but the deploy job only on main. Expect: branches ["main"], no tags.
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make test
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./scripts/deploy.sh

@@ -1,0 +1,11 @@
+# Deploys when a pull request into main is merged (`gh pr merge`). Expect: branches ["main"].
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+jobs:
+  site:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/deploy-pages@v4

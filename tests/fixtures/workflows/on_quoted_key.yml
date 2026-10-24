@@ -1,0 +1,10 @@
+# A quoted "on" stays a string key in YAML 1.1 (unquoted, it parses as True). Expect: branches ["production"].
+"on":
+  push:
+    branches: production
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm ci && npm run build
+      - run: npx vercel deploy --prod --token "$TOKEN"

@@ -1,0 +1,12 @@
+# One job; only its last step deploys, and only on production. Expect: branches ["production"].
+on:
+  push:
+    branches: [main, production]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm ci && npm test
+      - name: Upload site
+        if: ${{ github.ref_name == 'production' }}
+        run: aws s3 sync ./build s3://example-site

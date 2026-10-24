@@ -1,0 +1,11 @@
+# Publishes on a version tag; branch pushes never start it. Expect: tags ["v*"], no branches.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: uv build && uv publish

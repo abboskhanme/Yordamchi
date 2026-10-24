@@ -1,0 +1,8 @@
+# Reusable only (workflow_call): it deploys, but no push starts it directly. Expect alone: no deploy branches.
+on:
+  workflow_call:
+jobs:
+  up:
+    runs-on: ubuntu-latest
+    steps:
+      - run: flyctl deploy --remote-only

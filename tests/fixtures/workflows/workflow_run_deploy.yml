@@ -1,0 +1,13 @@
+# Deploys after CI finishes, for main only (a GitHub environment marks the deploy job). Expect: branches ["main"].
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+jobs:
+  go-live:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo done

@@ -1,0 +1,15 @@
+# Deploys on a push to main over SSH (UC-13 AC: "a fixture repo whose CI deploys on push to main").
+# Expect: branches ["main"], no tags.
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          script: cd /srv/app && docker compose up -d --build
