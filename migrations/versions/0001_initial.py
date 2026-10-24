@@ -308,6 +308,41 @@ def upgrade() -> None:
         batch_op.create_index("ix_clarifications_status", ["status"], unique=False)
 
     op.create_table(
+        "digests",
+        sa.Column("project_id", sa.String(length=64), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("checked_at", sa.DateTime(), nullable=False),
+        sa.Column("git_branch", sa.String(length=255), nullable=True),
+        sa.Column("git_head", sa.String(length=64), nullable=True),
+        sa.Column("git_head_subject", sa.Text(), nullable=True),
+        sa.Column("git_head_at", sa.DateTime(), nullable=True),
+        sa.Column("git_upstream", sa.String(length=255), nullable=True),
+        sa.Column("ahead", sa.Integer(), nullable=False),
+        sa.Column("behind", sa.Integer(), nullable=False),
+        sa.Column("dirty_count", sa.Integer(), nullable=False),
+        sa.Column("untracked_count", sa.Integer(), nullable=False),
+        sa.Column("git_error_code", sa.String(length=48), nullable=True),
+        sa.Column("recent_commits_json", sa.Text(), nullable=False),
+        sa.Column("recent_files_json", sa.Text(), nullable=False),
+        sa.Column("recent_files_count", sa.Integer(), nullable=False),
+        sa.Column("results_json", sa.Text(), nullable=False),
+        sa.Column("last_natija", sa.Text(), nullable=True),
+        sa.Column("last_natija_at", sa.DateTime(), nullable=True),
+        sa.Column("last_turn_id", sa.Integer(), nullable=True),
+        sa.Column("open_questions", sa.Integer(), nullable=False),
+        sa.Column("pending_decisions", sa.Integer(), nullable=False),
+        sa.Column("queued", sa.Integer(), nullable=False),
+        sa.Column("parked", sa.Integer(), nullable=False),
+        sa.Column("handoff_note", sa.Text(), nullable=True),
+        sa.Column("handoff_note_at", sa.DateTime(), nullable=True),
+        sa.Column("handoff_note_source", sa.String(length=16), nullable=True),
+        sa.Column("handoff_turn_id", sa.Integer(), nullable=True),
+        sa.Column("executor", sa.String(length=16), nullable=False),
+        sa.Column("session_id", sa.String(length=64), nullable=True),
+        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], name=op.f("fk_digests_project_id_projects")),
+        sa.PrimaryKeyConstraint("project_id", name=op.f("pk_digests")),
+    )
+    op.create_table(
         "inbound_updates",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("bot", sa.String(length=16), nullable=False),
@@ -480,6 +515,7 @@ def downgrade() -> None:
         batch_op.drop_index("ix_inbound_updates_bot_status_update_id")
 
     op.drop_table("inbound_updates")
+    op.drop_table("digests")
     with op.batch_alter_table("clarifications", schema=None) as batch_op:
         batch_op.drop_index("ix_clarifications_status")
 

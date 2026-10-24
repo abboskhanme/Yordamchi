@@ -29,6 +29,8 @@ from tests.fakes.web import FakeWebTools
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName, Paths
 from yordamchi.dev.deps import DevDeps
+from yordamchi.dev.digest.domain import ReportQuestion, ServerCheck
+from yordamchi.dev.digest.service import DigestState
 from yordamchi.dev.gate import domain as gate_domain
 from yordamchi.dev.gate import service as gate_service
 from yordamchi.dev.gate import store as gate_store
@@ -36,15 +38,17 @@ from yordamchi.dev.gate.domain import Policy
 from yordamchi.dev.gate.models import Decision
 from yordamchi.dev.gate.service import GateScope
 from yordamchi.dev.projects.domain import Project, ProjectPrefs, is_archive_name, project_view
-from yordamchi.dev.routing.domain import Activity, ActivityKind
+from yordamchi.dev.routing.domain import Activity, ActivityKind, Intent
 from yordamchi.dev.turns import store as turns_store
-from yordamchi.dev.turns.domain import DeliveryMode, DeliverySource, TurnKind, TurnRequest, TurnStatus
+from yordamchi.dev.turns.domain import DeliveryMode, DeliverySource, TurnKind, TurnRequest, TurnStatus, TurnSummary
 from yordamchi.dev.turns.models import Turn
+from yordamchi.dev.turns.service import TurnsState
 from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.uow import Database, Session
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.ports.agent import ToolCall
+from yordamchi.ports.git import Commit, GitStatus
 from yordamchi.ports.speech import Transcript
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.burst import domain as burst_domain
@@ -1022,6 +1026,81 @@ def write_transcript(home: Path, session_id: str, *, folder: str = "-Users-owner
 
 # --- questions ---
 # --- digest ---
+def make_digest_state(turns: TurnsState | None = None) -> DigestState:
+    """The dev bot's digest state, as `bots/dev/app.py` builds it next to its `TurnsState`."""
+    return DigestState(turns=turns if turns is not None else TurnsState())
+
+
+def make_report_question(
+    text: str = "BonviHR qanday?",
+    project: str | None = "BonviHR",
+    *,
+    intent: Intent | None = None,
+    needs_fresh: bool = False,
+    burst_id: int | None = None,
+) -> ReportQuestion:
+    """A report question as routing hands it over (`report_project` with a project, `report_all` without)."""
+    return ReportQuestion(
+        text=text,
+        project_id=project,
+        intent=intent or (Intent.REPORT if project is not None else Intent.REPORT_ALL),
+        needs_fresh=needs_fresh,
+        burst_id=burst_id,
+    )
+
+
+def script_git(
+    git: FakeGit,
+    folder: Path,
+    *,
+    head: str | None = "a1b2c3d4e5f6",
+    commits: tuple[Commit, ...] = (),
+    branch: str | None = "main",
+    upstream: str | None = "origin/main",
+    ahead: int = 0,
+    behind: int = 0,
+    changed: int = 0,
+    untracked: int = 0,
+) -> None:
+    """What `git status` and `git log` say for one repo; the head commit is the first of `commits` if it is one."""
+    git.statuses[folder] = GitStatus(branch, head, upstream, ahead, behind, changed, untracked)
+    git.heads[folder] = head
+    git.logs[folder] = list(commits)
+    if head is not None and commits and commits[0].sha == head:
+        git.commits[(folder, "HEAD")] = commits[0]
+
+
+def make_turn_summary(
+    turn_id: int = 1,
+    project: str = "BonviHR",
+    *,
+    status: TurnStatus = TurnStatus.RUNNING,
+    kind: TurnKind = TurnKind.INSTRUCT,
+    title: str = "Login sahifasini tuzat",
+    queued_at: datetime = DEFAULT_START,
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
+    natija: str | None = None,
+    tests: str | None = None,
+) -> TurnSummary:
+    return TurnSummary(
+        turn_id=turn_id,
+        project_id=project,
+        kind=kind,
+        status=status,
+        title=title,
+        queued_at=queued_at,
+        started_at=started_at,
+        ended_at=ended_at,
+        natija=natija,
+        tests=tests,
+    )
+
+
+def make_server_check(host: str = "web", *, at: datetime, ok: bool = True, summary: str = "") -> ServerCheck:
+    return ServerCheck(host=host, at=at, ok=ok, summary=summary)
+
+
 # --- servers ---
 # --- health ---
 HEALTH_VERSION: Final = "2026.10.24-abcdef0"

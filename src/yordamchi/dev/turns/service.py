@@ -82,6 +82,7 @@ from yordamchi.dev.turns.domain import (
     TurnKind,
     TurnRequest,
     TurnStatus,
+    TurnSummary,
     WorkFacts,
 )
 from yordamchi.dev.turns.models import Turn
@@ -131,6 +132,9 @@ _RUNNING: Final = (TurnStatus.STARTING.value, TurnStatus.RUNNING.value)
 _WAITING_OR_QUEUED: Final = (*(status.value for status in WAITING), TurnStatus.QUEUED.value)
 
 type QuestionHook = Callable[[DevDeps, PendingQuestion], Coroutine[object, object, None]]
+# `dev/digest` (T30): a project's turn ended (done, failed or stopped) and its row is committed; the hook refreshes
+# that project's digest. It runs in the background, so a slow refresh never holds a turn up.
+type TurnEndHook = Callable[[DevDeps, str], Coroutine[object, object, None]]
 
 
 # --- in-memory state ------------------------------------------------------------------------------------------------
@@ -178,7 +182,7 @@ class TurnsState:
     """The dev bot's live sessions and the scheduler's wake-up. Built once in `bots/dev/app.py`.
 
     `questions` is how `dev/questions` (T29) learns that an agent asked something: it posts the question and answers
-    it later through `answer_question`."""
+    it later through `answer_question`. `turn_ended` is how `dev/digest` (T30) learns that a project's turn ended."""
 
     wake: asyncio.Event = field(default_factory=asyncio.Event)
     live: dict[int, _Live] = field(default_factory=dict)  # agent_sessions.id → live session
@@ -188,6 +192,7 @@ class TurnsState:
     account_id: str | None = None  # ClaudeManager's active account, as last seen
     account_changed_at: datetime | None = None
     questions: QuestionHook | None = None
+    turn_ended: TurnEndHook | None = None
     tasks: set[asyncio.Task[None]] = field(default_factory=set)  # this feature's background work, for shutdown
 
     def spawn(self, name: str, coro: Coroutine[object, object, None]) -> None:
@@ -199,6 +204,11 @@ class TurnsState:
     def poke(self) -> None:
         """Run a scheduler pass now (after a submit, an answer, a stop)."""
         self.wake.set()
+
+    def ended(self, deps: DevDeps, project_id: str, turn_id: int) -> None:
+        """A turn's end is committed: `turn_ended` (T30's digest refresh) runs in the background."""
+        if self.turn_ended is not None:
+            self.spawn(f"turn_ended_{turn_id}", self.turn_ended(deps, project_id))
 
     def scope_for(self, token: str) -> GateScope | None:
         """The gate scope of the session holding `token` (the control socket's `gate_check` and `secret_blocked`).
@@ -1622,6 +1632,8 @@ async def _finish_turn(deps: DevDeps, state: TurnsState, live: _Live, turn_id: i
             await outbox.stop_typing(s, bot=deps.bot, chat_id=_chat(snap))
     _detach(live, now)
     state.poke()
+    if moved:
+        state.ended(deps, row.project_id, turn_id)
     log.info(
         "turn_finished",
         project=row.project_id,
@@ -1652,6 +1664,8 @@ async def _fail_turn(deps: DevDeps, state: TurnsState, live: _Live, row: Turn, *
     if live.turn_id == row.id:
         _detach(live, now)
     state.poke()
+    if moved:
+        state.ended(deps, row.project_id, row.id)
     log.warning("turn_failed", project=row.project_id, turn_id=row.id, error_code=code)
 
 
@@ -1681,6 +1695,8 @@ async def _end_stopped(deps: DevDeps, state: TurnsState, live: _Live, turn_id: i
             ask = S.TURN_PROCESS_DIED(project=row.project_id)
             await _tell(s, deps, snap, ask, ref=f"died-{turn_id}", project_id=row.project_id, turn_id=turn_id)
     state.poke()
+    if row is not None:
+        state.ended(deps, row.project_id, turn_id)
     log.info("turn_stopped", project=live.project_id, turn_id=turn_id)
 
 
@@ -2343,6 +2359,37 @@ async def latest_handoff(deps: DevDeps, project_id: str) -> HandoffNote | None:
     if row is None:
         return None
     return domain.handoff_from_json(row.project_id, row.id, row.handoff_json)
+
+
+def _summary(row: Turn) -> TurnSummary:
+    return TurnSummary(
+        turn_id=row.id,
+        project_id=row.project_id,
+        kind=TurnKind(row.kind),
+        status=TurnStatus(row.status),
+        title=row.title,
+        queued_at=row.queued_at,
+        started_at=row.started_at,
+        ended_at=row.ended_at,
+        natija=row.natija,
+        tests=row.tests_status,
+    )
+
+
+async def list_active_turns(deps: DevDeps) -> tuple[TurnSummary, ...]:
+    """Every queued, working or waiting turn of every project, oldest first (one read; no session is touched): the
+    reports' "hozir: <title>, N daq" and queue counts (SPEC §3.2.4 step 2)."""
+    statuses = sorted(status.value for status in (*ACTIVE, TurnStatus.QUEUED))
+    async with deps.db.read() as s:
+        rows = await store.list_turns_with_status(s, statuses)
+    return tuple(_summary(row) for row in rows)
+
+
+async def list_recent_turns(deps: DevDeps, project_id: str, *, limit: int) -> tuple[TurnSummary, ...]:
+    """The project's latest `limit` turns, newest first, whatever their status: its live state and last results."""
+    async with deps.db.read() as s:
+        rows = await store.list_project_turns(s, project_id, limit=limit)
+    return tuple(_summary(row) for row in rows)
 
 
 # --- retention (SPEC §4.2) ------------------------------------------------------------------------------------------

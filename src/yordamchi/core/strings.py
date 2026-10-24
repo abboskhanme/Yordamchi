@@ -420,6 +420,76 @@ WRONG_TARGET_REVERT_FAILED = Msg(
 
 # --- questions ---
 # --- digest ---
+# The fast report path (UC-15, SPEC §3.2.4): answered from the project digest, never from a session. Every report ends
+# with one freshness line; a stale digest is refreshed first, and the line says so.
+FRESHNESS = Msg("Ma'lumot: {age} oldin")
+FRESHNESS_JUST_NOW = Msg("Ma'lumot: hozirgina")
+FRESHNESS_REFRESHED = Msg("Ma'lumot: eskirgan edi ({age} oldin) — hozir yangiladim")
+FRESHNESS_COLLECTED = Msg("Ma'lumot: hozir yig'dim")
+FRESHNESS_REFRESH_FAILED = Msg("Ma'lumot: {age} oldin — yangilab bo'lmadi")
+FRESHNESS_NONE = Msg("Ma'lumot: hali yig'ilmagan — git'ni o'qib bo'lmadi")
+AGE_MINUTES = Msg("{count} daqiqa")
+AGE_HOURS = Msg("{count} soat")
+AGE_DAYS = Msg("{count} kun")
+# A question that needs a fresh look: sent within 2 s, then a read-only investigation turn answers (≤ 3 min).
+CHECKING = Msg("{project} · Tekshiryapman (~{minutes} daqiqa)")
+# One project (`report_project`): the live turn first, then what the digest holds.
+REPORT_TURN = Msg("{project} · hozir: «{title}», {state}, {minutes} daq")
+REPORT_TURN_MORE = Msg("Yana: «{title}», {state}, {minutes} daq")
+REPORT_IDLE = Msg("{project} · hozir ish yo'q")
+REPORT_TURN_STATES: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "starting": Msg("boshlanmoqda"),
+        "running": Msg("ishlayapti"),
+        "stopping": Msg("to'xtatilmoqda"),
+        "waiting_question": Msg("javobingizni kutyapti"),
+        "waiting_decision": Msg("qaroringizni kutyapti"),
+        "waiting_limit": Msg("Claude limitini kutyapti"),
+        "paused_runaway": Msg("to'xtab turibdi"),
+    }
+)
+REPORT_QUEUED = Msg("Navbatda: {count} ta topshiriq")
+REPORT_LAST_RESULT = Msg("Oxirgi natija ({time}): {natija} · Testlar: {tests}")
+REPORT_LAST_ENDED = Msg("Oxirgi topshiriq ({time}) {state}: «{title}»")
+REPORT_ENDED_STATES: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "failed": Msg("xato bilan tugadi"),
+        "interrupted": Msg("to'xtatilgan"),
+    }
+)
+REPORT_NO_RESULT = Msg("Hali natija yo'q")
+REPORT_GIT = Msg("Git: {branch} · {sync} · {tree}")
+REPORT_GIT_UNKNOWN = Msg("Git: o'qib bo'lmadi")
+REPORT_GIT_EMPTY = Msg("Git: {branch} · hali commit yo'q")
+REPORT_GIT_DETACHED = Msg("detached HEAD")
+REPORT_GIT_EVEN = Msg("{upstream} bilan bir xil")
+REPORT_GIT_AHEAD = Msg("{count} commit push qilinmagan")
+REPORT_GIT_BEHIND = Msg("{count} commit orqada")
+REPORT_GIT_DIVERGED = Msg("{ahead} commit oldinda, {behind} commit orqada")
+REPORT_GIT_NO_UPSTREAM = Msg("upstream yo'q")
+REPORT_GIT_CLEAN = Msg("toza")
+REPORT_GIT_DIRTY = Msg("{count} fayl commit qilinmagan")
+REPORT_TODAY = Msg("Bugun: {count} commit — {subjects}")
+REPORT_TODAY_CAPPED = Msg("Bugun: {count}+ commit — {subjects}")
+REPORT_LAST_COMMIT = Msg("Bugun commit yo'q. Oxirgisi ({time}): «{subject}»")
+REPORT_NO_COMMITS = Msg("So'nggi 7 kunda commit yo'q")
+REPORT_FILES = Msg("O'zgargan fayllar: {count} ta ({names})")
+REPORT_PENDING = Msg("Javobingizni kutyapti: {questions} ta savol, {decisions} ta qaror")
+# Every project at once (`report_all`): "bugun qaysi loyihalarda nima o'zgardi?".
+REPORT_ALL_HEADER = Msg("Bugun o'zgargan loyihalar: {count} ta")
+REPORT_ALL_NONE = Msg("Bugun hech qaysi loyihada o'zgarish bo'lmadi")
+REPORT_ALL_LINE = Msg("• {project}: {summary}")
+REPORT_ALL_COMMITS = Msg("{count} commit (oxirgisi: «{subject}»)")
+REPORT_ALL_COMMITS_CAPPED = Msg("{count}+ commit (oxirgisi: «{subject}»)")
+REPORT_ALL_RESULT = Msg("natija: {natija}")
+REPORT_ALL_RUNNING = Msg("Hozir ishlayapti: {items}")
+REPORT_ALL_RUNNING_ITEM = Msg("{project} («{title}», {minutes} daq)")
+REPORT_ALL_QUIET = Msg("Qolgan {count} ta loyihada bugun o'zgarish yo'q")
+REPORT_ALL_PENDING = Msg("Javobingizni kutyapti: {projects}")
+# Server checks (T31 fills them): the latest read-only check per host.
+REPORT_SERVERS = Msg("Serverlar: {hosts}")
+REPORT_SERVER_OK = Msg("{host} ✓ ({age} oldin)")
+REPORT_SERVER_FAILED = Msg("{host} ✗ {summary} ({age} oldin)")
 # --- servers ---
 # --- health ---
 HEALTH_ONLINE = Msg("Onlayn: {time}")

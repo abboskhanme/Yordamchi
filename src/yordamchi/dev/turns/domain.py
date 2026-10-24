@@ -821,6 +821,23 @@ class HandoffNote:
         return shorten("\n\n".join(part for part in parts if part), HANDOFF_NOTE_MAX)
 
 
+@dataclass(frozen=True, slots=True)
+class TurnSummary:
+    """One turn as `dev/digest` (T30) reports it (UC-15): where it stands now, and its result once it ended
+    (`service.list_active_turns`, `service.list_recent_turns`)."""
+
+    turn_id: int
+    project_id: str
+    kind: TurnKind
+    status: TurnStatus
+    title: str
+    queued_at: datetime
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    natija: str | None = None  # redacted when written
+    tests: str | None = None  # a `SuiteStatus` value
+
+
 def handoff_json(note: HandoffNote) -> JsonObject:
     files: list[JsonValue] = list(note.files)
     commits: list[JsonValue] = list(note.commits)
