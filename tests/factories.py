@@ -37,6 +37,9 @@ from yordamchi.dev.gate.models import Decision
 from yordamchi.dev.gate.service import GateScope
 from yordamchi.dev.projects.domain import Project, ProjectPrefs, is_archive_name, project_view
 from yordamchi.dev.routing.domain import Activity, ActivityKind
+from yordamchi.dev.turns import store as turns_store
+from yordamchi.dev.turns.domain import DeliveryMode, DeliverySource, TurnKind, TurnRequest, TurnStatus
+from yordamchi.dev.turns.models import Turn
 from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.uow import Database, Session
@@ -950,6 +953,70 @@ def gate_asker(deps: DevDeps) -> AskOwner:
 
 
 # --- turns ---
+def make_turn_request(
+    project: str = "BonviHR",
+    text: str = "Login sahifasini tuzat",
+    *,
+    kind: TurnKind = TurnKind.INSTRUCT,
+    merge: bool = False,
+    burst_id: int | None = None,
+    message_ids: tuple[int, ...] = (),
+    last_part_at: datetime | None = None,
+) -> TurnRequest:
+    """A routed instruction as routing hands it to `turns.service.submit`."""
+    return TurnRequest(
+        project_id=project,
+        text=text,
+        kind=kind,
+        merge=merge,
+        burst_id=burst_id,
+        message_ids=message_ids,
+        last_part_at=last_part_at,
+    )
+
+
+async def make_turn(
+    s: Session,
+    project: str = "BonviHR",
+    *,
+    at: datetime = DEFAULT_START,
+    status: TurnStatus = TurnStatus.QUEUED,
+    kind: TurnKind = TurnKind.INSTRUCT,
+    text: str = "Login sahifasini tuzat",
+    delivery_status: str = "pending",
+    mode: DeliveryMode = DeliveryMode.NEW_TURN,
+) -> Turn:
+    """A `turns` row in `status` with its first delivery in `delivery_status` (rows a crash may leave behind)."""
+    turn = await turns_store.add_turn(
+        s, project_id=project, kind=kind.value, status=status.value, title=text[:120], burst_id=None, at=at
+    )
+    delivery = await turns_store.add_delivery(
+        s,
+        turn_id=turn.id,
+        mode=mode.value,
+        source=DeliverySource.OWNER.value,
+        text=text,
+        media={"images": [], "message_ids": [], "media_group_ids": [], "last_part_at": None},
+        burst_id=None,
+        at=at,
+    )
+    assert delivery is not None
+    if delivery_status != "pending":
+        delivery.status = delivery_status
+    if status is not TurnStatus.QUEUED:
+        turn.started_at = at
+    await s.flush()
+    return turn
+
+
+def write_transcript(home: Path, session_id: str, *, folder: str = "-Users-owner-Documents-Projects-BonviHR") -> Path:
+    """An empty `~/.claude/projects/<folder>/<session_id>.jsonl`: the resume pre-check finds the session by name."""
+    path = home / ".claude" / "projects" / folder / f"{session_id}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+    return path
+
+
 # --- questions ---
 # --- digest ---
 # --- servers ---

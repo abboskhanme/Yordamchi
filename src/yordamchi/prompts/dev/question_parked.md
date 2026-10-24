@@ -1,0 +1,1 @@
+[Yordamchi] The owner has not answered yet. Do not wait and do not guess: finish any independent work, then end your turn with a Natija line saying you are waiting for this answer. The answer will arrive later as a message.

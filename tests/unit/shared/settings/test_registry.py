@@ -68,6 +68,8 @@ SPEC_KEYS.append("gate.shim_grant_window_s")
 # SPEC §5.3 gives the dev Assistant limit as `timeouts.<kind>_s`; the settings kind needs its own (T21). The T12 wiring
 # notes name the warm-pool size per kind and the routing effort (orchestrator decision 2026-10-24).
 SPEC_KEYS.extend(["timeouts.settings_s", "assistant.warm_clients", "models.routing_effort"])
+# SPEC §5.6 (revised after T22) names the scheduler's pressure threshold inline (T24).
+SPEC_KEYS.append("guard.max_pressure_level")
 
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")
@@ -77,6 +79,7 @@ SAFEGUARD_KEYS = (
     "gate.jump_only_hosts",
     "gate.shim_grant_window_s",
     "turns.max_concurrent",
+    "guard.max_pressure_level",
 )
 
 SETTINGS = sorted(REGISTRY, key=lambda setting: setting.key)

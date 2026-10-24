@@ -52,6 +52,7 @@ class ErrorCode(StrEnum):
     SETTING_PERSONAL_ONLY = "setting_personal_only"
     SETTING_DEV_ONLY = "setting_dev_only"
     # --- turns ---
+    TURN_NOT_FOUND = "turn_not_found"
     # --- questions ---
     # --- digest ---
     # --- servers ---
@@ -256,6 +257,13 @@ class SettingDevOnly(DomainError):
 
 
 # --- turns ---
+class TurnNotFound(DomainError):
+    """An answer, an approval or a revert names a turn that is not (or no longer) there."""
+
+    def __init__(self, *, turn_id: int) -> None:
+        super().__init__(ErrorCode.TURN_NOT_FOUND, turn_id=turn_id)
+
+
 # --- questions ---
 # --- digest ---
 # --- servers ---

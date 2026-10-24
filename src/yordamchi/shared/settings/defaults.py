@@ -868,6 +868,18 @@ GUARD_BLOCK_DISK_GB = Setting(
     bots=DEV,
     doc="Below this free disk new coding turns queue.",
 )
+# SPEC §5.6 (revised after T22): this Mac sits at level 2 under normal load, so "== 1" would queue every turn. A
+# safeguard: raising it lets turns start under heavier memory pressure. Level 4 (critical) always queues.
+GUARD_MAX_PRESSURE_LEVEL = Setting(
+    "guard.max_pressure_level",
+    int,
+    2,
+    check=Range(1, 3),
+    group=Group.CAPS,
+    bots=DEV,
+    weakens=increases,
+    doc="Highest macOS memory pressure level (1 normal, 2 warn, 4 critical) at which a queued turn may start.",
+)
 PARK_GRACE_S = Setting(
     "park.grace_s",
     int,

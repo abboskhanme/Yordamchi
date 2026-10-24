@@ -5,6 +5,11 @@
 On `send`, the next script runs: a `ToolStep` goes through `SessionSpec.guard` exactly as the real adapter's
 PreToolUse hook does — allowed → `Progress(tool_start)`, denied → `ToolDenied` — and every other item is emitted
 as-is. A `QuestionAsked` stays answerable until `answer()` takes it.
+
+A `Pause` holds the rest of the turn: the agent is still working. Meanwhile a `send(mode="next")` is merged into it
+(no new script, one result: S1), `release()` plays the rest, and `interrupt()` drops it and emits the interrupted
+result — or, with `kill_on_interrupt`, the adapter's backstop kill (`RuntimeFailed(process_died)` then
+`SessionClosed`). `emit()` pushes any event, e.g. a late background result or a process death.
 """
 
 import asyncio
@@ -47,7 +52,27 @@ class ToolStep:
     agent_id: str | None = None
 
 
-type ScriptItem = AgentEvent | ToolStep
+@dataclass(frozen=True, slots=True)
+class Pause:
+    """The agent is busy here: the rest of the script waits for `release()` or an interrupt."""
+
+
+type ScriptItem = AgentEvent | ToolStep | Pause
+
+
+def interrupted_result() -> TurnResult:
+    """What the real adapter emits once `interrupt()` stopped a running turn (SPIKES N5)."""
+    return TurnResult(
+        text="",
+        subtype="error_during_execution",
+        is_error=True,
+        stop_reason="tool_use",
+        cost_usd_micros=0,
+        model_usage={},
+        num_turns=1,
+        duration_ms=1,
+        interrupted=True,
+    )
 
 
 def done_result(text: str = "Natija: bajarildi.\nTestlar: o'tdi (1)") -> TurnResult:
@@ -68,12 +93,16 @@ class _Session:
     spec: SessionSpec
     queue: asyncio.Queue[AgentEvent] = field(default_factory=asyncio.Queue)
     pending_questions: set[str] = field(default_factory=set)
+    held: list[ScriptItem] | None = None  # the rest of a paused turn
 
 
 class FakeAgentRuntime:
-    def __init__(self, *, status: RuntimeStatus = READY, missing_sessions: Iterable[str] = ()) -> None:
+    def __init__(
+        self, *, status: RuntimeStatus = READY, missing_sessions: Iterable[str] = (), kill_on_interrupt: bool = False
+    ) -> None:
         self.status = status
         self.missing_sessions = set(missing_sessions)
+        self.kill_on_interrupt = kill_on_interrupt
         self._turns: deque[tuple[ScriptItem, ...]] = deque()
         self._sessions: dict[str, _Session] = {}
         self._opened = 0
@@ -118,11 +147,35 @@ class FakeAgentRuntime:
     async def send(self, h: SessionHandle, msg: AgentInput, *, mode: DeliveryMode, timeout: float) -> None:
         session = self._sessions[h.session_id]
         self.sends.append((h.session_id, msg, mode))
+        if mode == "next" and session.held is not None:
+            return  # merged into the running turn: its one result is still to come
         items = self._turns.popleft() if self._turns else (done_result(),)
-        for item in items:
+        await self._run(h, session, list(items))
+
+    async def _run(self, h: SessionHandle, session: _Session, items: list[ScriptItem]) -> None:
+        session.held = None
+        for index, item in enumerate(items):
+            if isinstance(item, Pause):
+                session.held = items[index + 1 :]
+                return
             await session.queue.put(await self._play(h, session, item))
 
-    async def _play(self, h: SessionHandle, session: _Session, item: ScriptItem) -> AgentEvent:
+    def busy(self, session_id: str) -> bool:
+        """A paused turn is still running in this session."""
+        return self._sessions[session_id].held is not None
+
+    async def release(self, session_id: str) -> None:
+        """The paused turn goes on: the rest of its script plays."""
+        session = self._sessions[session_id]
+        rest, session.held = session.held or [], None
+        await self._run(SessionHandle(session_id=session_id, executor=EXECUTOR, kind=session.spec.kind), session, rest)
+
+    def emit(self, session_id: str, *events: AgentEvent) -> None:
+        """Push events into a session's stream as if the executor sent them now."""
+        for event in events:
+            self._sessions[session_id].queue.put_nowait(event)
+
+    async def _play(self, h: SessionHandle, session: _Session, item: AgentEvent | ToolStep) -> AgentEvent:
         if isinstance(item, ToolStep):
             call = ToolCall(
                 tool_name=item.tool_name,
@@ -150,6 +203,15 @@ class FakeAgentRuntime:
 
     async def interrupt(self, h: SessionHandle, *, timeout: float) -> None:
         self.interrupts.append(h.session_id)
+        session = self._sessions.get(h.session_id)
+        if session is None or session.held is None:
+            return
+        session.held = None
+        if self.kill_on_interrupt:  # no interrupted result in time: the adapter's backstop kill
+            session.queue.put_nowait(RuntimeFailed(code="process_died", retryable=True))
+            session.queue.put_nowait(SessionClosed(reason="process_died"))
+        else:
+            session.queue.put_nowait(interrupted_result())
 
     async def set_model(self, h: SessionHandle, model: str, *, timeout: float) -> None:
         self.models.append((h.session_id, model))

@@ -343,6 +343,80 @@ SETTINGS_FILE_OPTIONS = Msg(" · mumkin: {options}")
 
 # --- turns ---
 DELIVERY_UNCERTAIN = Msg("{project}: oxirgi topshiriq bajarilmay qoldi — qayta yuboraymi?")
+DELIVERY_RESENT = Msg("{project}: topshiriqni qayta yubordim.")
+DELIVERY_NOTHING_TO_RETRY = Msg("{project}: qayta yuboradigan topshiriq yo'q.")
+ERR_TURN_NOT_FOUND = Msg("#{turn_id} raqamli topshiriq topilmadi.")
+# The one live progress line per project (SPEC §6.2, UC-11): edited at most every `outbox.progress_edit_s`.
+TURN_PROGRESS = Msg("{project} · ishlayapti {minutes} daq · {steps} qadam")
+TURN_PROGRESS_STEP = Msg("• {step}")
+TURN_PROGRESS_FINISHED = Msg("{project} · tugadi · {minutes} daq · {steps} qadam")
+TURN_PROGRESS_STOPPED = Msg("{project} · to'xtatildi · {minutes} daq · {steps} qadam")
+TURN_PROGRESS_PAUSED = Msg("{project} · to'xtab turibdi · {minutes} daq · {steps} qadam")
+TURN_PROGRESS_WAITING = Msg("{project} · javobingizni kutyapti · {minutes} daq · {steps} qadam")
+# The final result, a new message (SPEC §6.2 golden format).
+TURN_RESULT_NATIJA = Msg("{project} · Natija: {natija}")
+TURN_RESULT_NO_NATIJA = Msg("(natija yozilmadi)")
+TURN_RESULT_FILES = Msg("Fayllar: {count} ta ({names})")
+TURN_RESULT_NO_FILES = Msg("Fayllar: o'zgarmadi")
+TURN_RESULT_TESTS = Msg("Testlar: {status}")
+TURN_RESULT_TESTS_SUMMARY = Msg("Testlar: {status} ({summary})")
+TESTS_WORDS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "passed": Msg("o'tdi"),
+        "failed": Msg("yiqildi"),
+        "not_run": Msg("ishga tushirilmadi"),
+        "unknown": Msg("noma'lum"),
+    }
+)
+TURN_RESULT_COMMIT_PUSHED = Msg("Commit: {sha} · push: bajarildi ({upstream})")
+TURN_RESULT_COMMIT_UNPUSHED = Msg("Commit: {sha} · push: qilinmadi")
+TURN_RESULT_NO_COMMIT = Msg("Commit: yo'q")
+TURN_RESULT_PUSH_MISSED = Msg("Commit: commit/push qilinmadi")
+TURN_RESULT_GIT_UNKNOWN = Msg("Commit: git holatini o'qib bo'lmadi")
+TURN_RESULT_TIME = Msg("Vaqt: {minutes} daq")
+# A turn the executor started on its own after background work (no instruction owns it).
+TURN_LATE_NOTE = Msg("{project} · qo'shimcha: {text}")
+# The scheduler (SPEC §5.6, NFR-CAP-01): a queued turn names its place and why it waits.
+QUEUED = Msg("{project}: navbatga qo'ydim ({position}-o'rin) — {reason}.")
+QUEUE_REASONS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "cap": Msg("bir vaqtda ishlaydigan topshiriqlar soni to'lgan"),
+        "pressure": Msg("Mac xotirasi band"),
+        "disk": Msg("diskda joy kam"),
+        "mac_attached": Msg("loyiha Mac'da ochiq"),
+        "update_drain": Msg("Yordamchi yangilanishni kutyapti"),
+        "busy": Msg("oldingi topshiriq tugashini kutyapti"),
+    }
+)
+QUEUE_REASON_PRESSURE_CRITICAL = Msg("Mac xotirasi juda band — biror loyihani yopib turishni o'ylab ko'ring")
+# "to'xta", "hammasini to'xtat" (UC-03): sent right after the guard closes, before the interrupt completes.
+STOPPED = Msg("{project}: to'xtatdim.")
+STOP_NOTHING = Msg("{project}: hozir ishlayotgan topshiriq yo'q.")
+STOP_ALL_NOTHING = Msg("Hozir ishlayotgan topshiriq yo'q.")
+# The runaway guard (NFR-COST-03): the turn pauses and asks.
+TURN_RUNAWAY = Msg("{project}: {why} — to'xtatib turibman. Davom ettiraymi?")
+RUNAWAY_STEPS = Msg("{steps} qadamdan oshdi")
+RUNAWAY_WALL = Msg("{minutes} daqiqadan oshdi")
+RUNAWAY_SAME_FAILURE = Msg("bir xil xato {count} marta takrorlandi")
+TURN_CONTINUED = Msg("{project}: davom ettiryapman.")
+TURN_NOTHING_TO_CONTINUE = Msg("{project}: davom ettiradigan ish yo'q.")
+# Usage limit (UC-11 F, SPEC §5.6): one notice, then the turn goes on by itself.
+USAGE_LIMIT = Msg("{project}: Claude limiti tugadi — {time} da (yoki akkaunt almashganda) o'zim davom ettiraman.")
+USAGE_LIMIT_UNKNOWN = Msg("{project}: Claude limiti tugadi — limit tiklanganda o'zim davom ettiraman.")
+# The session or its process failed.
+TURN_PROCESS_DIED = Msg("{project}: Claude jarayoni kutilmaganda to'xtadi. Davom ettiraymi?")
+TURN_SHUTDOWN = Msg("{project}: Yordamchi qayta ishga tushayotgani uchun ishni to'xtatdim. Davom ettiraymi?")
+TURN_START_FAILED = Msg("{project}: sessiyani ochib bo'lmadi. Davom ettiraymi?")
+TURN_AUTH_FAILED = Msg("{project}: Claude login rad etildi — Mac'da `claude auth status` ni tekshiring.")
+TURN_FAILED = Msg("{project}: ish xato bilan tugadi ({reason}).")
+TURN_CREDENTIALS_REFUSED = Msg(
+    "{project}: sessiyani ochmadim — loyiha sozlamalarida begona Claude kirish manbai bor ({what}). Uni olib tashlang."
+)
+SESSION_RENEWED = Msg("{project}: eski sessiya o'chgan (30 kun) — eslatma bilan yangi sessiya boshladim")
+# Wrong target (UC-10 F): the routing block holds the offer and the outcome; this is the failed revert.
+WRONG_TARGET_REVERT_FAILED = Msg(
+    "{project}: o'zgarishlarni qaytarib bo'lmadi ({operation}). Fayllar o'z holicha qoldi."
+)
 
 # --- questions ---
 # --- digest ---
