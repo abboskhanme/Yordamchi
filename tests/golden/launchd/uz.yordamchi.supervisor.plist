@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- uz.yordamchi.supervisor (SPEC §9.1): watchdog, caffeinate, backups, log trimming, self-update. Its own release
+     and venv (stdlib only). Rendered by scripts/install.py into ~/Library/LaunchAgents; do not edit there. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>uz.yordamchi.supervisor</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/owner/Library/Application Support/Yordamchi/supervisor/current/.venv/bin/python</string>
+		<string>-I</string>
+		<string>-m</string>
+		<string>yordamchi_supervisor</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>YORDAMCHI_DATA_DIR</key>
+		<string>/Users/owner/Library/Application Support/Yordamchi</string>
+		<key>PATH</key>
+		<string>/Users/owner/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>LANG</key>
+		<string>en_US.UTF-8</string>
+		<key>PYTHONUNBUFFERED</key>
+		<string>1</string>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>/Users/owner/Library/Application Support/Yordamchi/run</string>
+	<key>ProcessType</key>
+	<string>Standard</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>ExitTimeOut</key>
+	<integer>10</integer>
+	<key>AbandonProcessGroup</key>
+	<false/>
+	<key>StandardOutPath</key>
+	<string>/Users/owner/Library/Logs/Yordamchi/uz.yordamchi.supervisor.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/owner/Library/Logs/Yordamchi/uz.yordamchi.supervisor.launchd.log</string>
+</dict>
+</plist>

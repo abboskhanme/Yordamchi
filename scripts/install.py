@@ -1,0 +1,1073 @@
+"""Install Yordamchi on this Mac (SPEC §9.3, §2.2, §9.1; TASKS T28). See docs/DEPLOY.md before running it.
+
+Run it with the uv-managed Python, never Homebrew's:
+
+    ~/.local/bin/python3.12 -I scripts/install.py --dry-run                # temp HOME; launchctl is never called
+    ~/.local/bin/python3.12 -I scripts/install.py --release <commit>       # the real install (owner's go-ahead)
+    ~/.local/bin/python3.12 -I scripts/install.py --env-only --rotate-tokens
+
+Steps, in order. Each one is idempotent, so a failed run is fixed and simply run again:
+ 1. preflight: arm64 macOS; `~/.local/bin/{uv,claude,gh,node}` and `/usr/bin/git`; no refused credential source
+    (`core.proc`'s refuse-list); the ffmpeg SHA-256 pins (or `--skip-ffmpeg`).
+ 2. toolchain: uv 0.13.5 (`uv self update`) and Python 3.12.15 (`uv python install`).
+ 3. the DATA tree (0700), `~/.config/yordamchi` (0700), the log dir (0700).
+ 4. `master.key`: base64 of 32 random bytes plus a newline, 0600, created only if absent, never overwritten;
+    `tmutil addexclusion` on its directory.
+ 5. env files `dev.env` / `personal.env` (0600): a value already there is never overwritten. Only missing values are
+    asked for, tokens with hidden input (`getpass`); `--rotate-tokens` asks for new tokens and replaces them.
+    `DEV_GROUP_ID` must be a `-100…` supergroup id.
+ 6. the app release `releases/<YYYY.MM.DD-sha7>/` from `git archive <commit>` (never the working copy), its `.venv`
+    from `uv sync --frozen` with Python 3.12.15, then `chmod -R a-w`.
+ 7. the supervisor release `supervisor/releases/<version>/` from `git archive <commit>:supervisor`, same build.
+ 8. ffmpeg + ffprobe 9.0.2 arm64 into `DATA/bin`, SHA-256 verified, `-encoders` must list libopus.
+ 9. a running bot is stopped (`launchctl bootout`), each existing DB is copied to `backups/pre-update/install-…`
+    (sqlite3 backup API + `integrity_check`), then `alembic upgrade head` runs on `db/dev.db` and `db/personal.db`.
+10. `releases/current` and `supervisor/current` are switched atomically (the previous target is printed: rollback).
+11. the plists are rendered from `ops/launchd/*.plist.tmpl` of the release into `DATA/launchd/`; dev and supervisor
+    are copied to `~/Library/LaunchAgents` (personal only with `--enable-personal`, P3).
+12. `launchctl bootstrap` / `kickstart -k`, then `python -m yordamchi.bots.cli.check` from the new release.
+
+`--dry-run` builds everything under a temporary HOME (the release, its venv with `uv sync --offline`, the DBs, the
+plists) and skips whatever would change this Mac outside it: `uv self update`, `uv python install`, the ffmpeg
+download, `tmutil`, every `launchctl` call and the final check. It never reads the owner's real env files.
+
+Standard library only, plus `yordamchi.core` and `yordamchi.bots.cli.check` from this checkout (both stdlib-only,
+A9), so the layout, the env-file grammar and the refuse-list have one definition. Secrets never reach the output:
+tokens are registered with `core.redact` the moment they are read and every printed line is scrubbed.
+"""
+
+import argparse
+import base64
+import getpass
+import hashlib
+import io
+import json
+import os
+import platform
+import plistlib
+import re
+import shutil
+import sqlite3
+import subprocess  # noqa: TID251  # an installer, run before any venv exists: core.proc is async-only
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.request
+import xml.sax.saxutils
+import zipfile
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
+from enum import StrEnum
+from pathlib import Path
+from typing import Final, Protocol, TextIO
+
+REPO: Final = Path(__file__).resolve().parents[1]
+if str(REPO / "src") not in sys.path:
+    sys.path.insert(0, str(REPO / "src"))
+
+from yordamchi.bots.cli import check as yd_check  # noqa: E402  # needs the sys.path entry above
+from yordamchi.core import proc as yd_proc  # noqa: E402
+from yordamchi.core import redact  # noqa: E402
+from yordamchi.core.errors import ConfigInvalid  # noqa: E402
+from yordamchi.core.paths import BotName, Paths, ProcessName  # noqa: E402
+
+UV_VERSION: Final = "0.13.5"
+PYTHON_VERSION: Final = "3.12.15"
+FFMPEG_VERSION: Final = "9.0.2"
+SESSION_KINDS: Final = ("routing", "report", "settings", "assistant", "smoke")
+RELEASE_MARKER: Final = ".yordamchi-release.json"
+FFMPEG_MARKER: Final = f".ffmpeg-{FFMPEG_VERSION}.json"
+DIR_MODE: Final = 0o700
+FILE_MODE: Final = 0o600
+PLIST_MODE: Final = 0o644
+TOKEN_PROMPT_TRIES: Final = 3
+SYSTEM_PATH: Final = "/usr/bin:/bin:/usr/sbin:/sbin"
+# The same grammar `core.config` enforces at bot start (tests/unit/ops/test_install.py keeps them in step).
+BOT_TOKEN: Final = re.compile(r"\d{8,10}:[A-Za-z0-9_-]{35}")
+GROUP_ID: Final = re.compile(r"-\d+")
+# Inherited variables that would point uv or Python somewhere else than the release being built.
+UNINHERITED_ENV: Final = ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PYTHON", "PYTHONPATH", "PYTHONHOME")
+
+TIMEOUT_QUICK_S: Final = 30.0
+TIMEOUT_GIT_S: Final = 120.0
+TIMEOUT_UV_S: Final = 1800.0
+TIMEOUT_DOWNLOAD_S: Final = 300.0
+TIMEOUT_MIGRATE_S: Final = 300.0
+TIMEOUT_LAUNCHCTL_S: Final = 45.0
+TIMEOUT_CHECK_S: Final = 120.0
+
+
+@dataclass(frozen=True, slots=True)
+class Pin:
+    """One pinned download: an https URL and the SHA-256 of the zip it serves."""
+
+    url: str
+    sha256: str
+
+
+# ffmpeg + ffprobe 9.0.2 static arm64 (martin-riedl.de, signed zips, opus enabled; STACK §2, §5 item 4).
+# docs/STACK.md §5 does not pin the URLs or the SHA-256 yet, so these stay None and the installer refuses to guess.
+# Copy both pins from STACK §5 once they are recorded there (docs/PENDING_WIRING.md, T28).
+FFMPEG_PINS: Final[Mapping[str, Pin | None]] = {"ffmpeg": None, "ffprobe": None}
+FFMPEG_NOT_PINNED: Final = (
+    f"ffmpeg {FFMPEG_VERSION}: the download URL and SHA-256 of ffmpeg.zip / ffprobe.zip are not pinned in "
+    "docs/STACK.md §5, and the installer does not guess them. Record both pins there, copy them into FFMPEG_PINS in "
+    "scripts/install.py, and run it again; or pass --skip-ffmpeg to install without voice encoding for now."
+)
+
+
+# --- seams the tests replace -----------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class Completed:
+    returncode: int
+    stdout: bytes = b""
+    stderr: bytes = b""
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0
+
+    def text(self) -> str:
+        return self.stdout.decode("utf-8", errors="replace").strip()
+
+
+class Runner(Protocol):
+    def __call__(self, argv: Sequence[str], *, cwd: Path | None = None, timeout: float) -> Completed: ...
+
+
+class Downloader(Protocol):
+    def __call__(self, url: str, dest: Path, *, timeout: float) -> None: ...
+
+
+class Prompter(Protocol):
+    @property
+    def interactive(self) -> bool: ...
+
+    def secret(self, prompt: str) -> str: ...
+
+    def text(self, prompt: str) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class Tools:
+    uv: Path
+    git: Path
+    claude: Path
+    gh: Path
+    node: Path
+    launchctl: Path = Path("/bin/launchctl")
+    tmutil: Path = Path("/usr/bin/tmutil")
+
+    @classmethod
+    def under(cls, tools_home: Path) -> "Tools":
+        local = tools_home / ".local" / "bin"
+        return cls(
+            uv=local / "uv", git=Path("/usr/bin/git"), claude=local / "claude", gh=local / "gh", node=local / "node"
+        )
+
+
+def child_env(environ: Mapping[str, str], tools_home: Path) -> dict[str, str]:
+    """`core.proc.clean_env` (no refused, nested-session or Yordamchi-private names) with `~/.local/bin` first."""
+    env = yd_proc.clean_env(path=f"{tools_home / '.local' / 'bin'}:{SYSTEM_PATH}", base=environ)
+    for name in UNINHERITED_ENV:
+        env.pop(name, None)
+    env["HOME"] = str(tools_home)  # uv's cache and managed Pythons live in the owner's real home
+    return env
+
+
+def subprocess_runner(env: Mapping[str, str]) -> Runner:
+    def run(argv: Sequence[str], *, cwd: Path | None = None, timeout: float) -> Completed:
+        try:
+            done = subprocess.run(  # noqa: S603  # argv lists of absolute tool paths, never a shell
+                list(argv), cwd=cwd, env=dict(env), capture_output=True, timeout=timeout, check=False
+            )
+        except subprocess.TimeoutExpired:
+            return Completed(returncode=124, stderr=b"timed out")
+        except OSError as exc:
+            return Completed(returncode=127, stderr=type(exc).__name__.encode())
+        return Completed(done.returncode, done.stdout, done.stderr)
+
+    return run
+
+
+def urllib_download(url: str, dest: Path, *, timeout: float) -> None:
+    if not url.startswith("https://"):
+        msg = "only https downloads are allowed"
+        raise ValueError(msg)
+    with urllib.request.urlopen(url, timeout=timeout) as response, dest.open("wb") as handle:  # noqa: S310  # https only
+        shutil.copyfileobj(response, handle)
+
+
+class TerminalPrompter:
+    @property
+    def interactive(self) -> bool:
+        return sys.stdin.isatty()
+
+    def secret(self, prompt: str) -> str:
+        return getpass.getpass(prompt).strip()
+
+    def text(self, prompt: str) -> str:
+        return input(prompt).strip()
+
+
+# --- options, steps, summary -----------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class Options:
+    home: Path
+    repo: Path = REPO
+    commit: str = "HEAD"
+    dry_run: bool = False
+    rotate_tokens: bool = False
+    env_only: bool = False
+    enable_personal: bool = False
+    skip_ffmpeg: bool = False
+    uid: int = field(default_factory=os.getuid)
+
+
+class Status(StrEnum):
+    DONE = "done"
+    UNCHANGED = "unchanged"
+    DRY_RUN = "dry-run"  # skipped because it would change this Mac outside the temp HOME
+    WARN = "warn"
+    FAILED = "failed"
+    BLOCKED = "blocked"  # not attempted: an earlier step it needs did not complete
+
+
+@dataclass(frozen=True, slots=True)
+class Step:
+    name: str
+    status: Status
+    detail: str = ""
+
+
+class InstallAborted(Exception):
+    """A real install stops at the first failure, so nothing after a broken step changes this Mac."""
+
+
+@dataclass(slots=True)
+class Releases:
+    sha: str = ""
+    version: str = ""
+    app: Path | None = None
+    supervisor: Path | None = None
+    previous_app: str | None = None
+    previous_supervisor: str | None = None
+
+
+# --- small file helpers ----------------------------------------------------------------------------------------------
+def ensure_dir(path: Path) -> bool:
+    """Create with 0700 or fix the mode; True when something changed."""
+    created = not path.exists()
+    path.mkdir(parents=True, exist_ok=True, mode=DIR_MODE)
+    changed = created or (path.stat().st_mode & 0o777) != DIR_MODE
+    path.chmod(DIR_MODE)
+    return changed
+
+
+def write_private(path: Path, data: bytes, *, mode: int = FILE_MODE) -> None:
+    """Atomic write; the temp file has its final mode before the first byte."""
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    tmp = Path(name)
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _walk(root: Path) -> Iterator[Path]:
+    for dirpath, dirnames, filenames in os.walk(root):
+        base = Path(dirpath)
+        for name in (*dirnames, *filenames):
+            yield base / name
+
+
+def make_read_only(root: Path) -> None:
+    """`chmod -R a-w`, without following symlinks (`.venv/bin/python` points at uv's interpreter)."""
+    for path in [*_walk(root), root]:
+        if path.is_symlink():
+            continue
+        path.chmod(path.stat().st_mode & ~0o222)
+
+
+def make_writable(root: Path) -> None:
+    for path in [root, *_walk(root)]:
+        if not path.is_symlink():
+            path.chmod(path.stat().st_mode | 0o200)
+
+
+def swap_symlink(link: Path, target: Path) -> str | None:
+    """Point `link` at `target` atomically, as a link relative to `link`'s directory (so DATA can move); returns
+    the previous link text."""
+    previous = str(link.readlink()) if link.is_symlink() else None
+    tmp = link.with_name(f".{link.name}.tmp")
+    tmp.unlink(missing_ok=True)
+    tmp.symlink_to(os.path.relpath(target, link.parent))
+    tmp.replace(link)
+    return previous
+
+
+def render_plist(template: str, values: Mapping[str, str]) -> str:
+    """`{{NAME}}` placeholders, XML-escaped; a missing value fails, and the result must parse as a plist."""
+    missing = sorted(set(re.findall(r"\{\{([A-Z_]+)\}\}", template)) - set(values))
+    if missing:
+        msg = f"plist template needs {missing}"
+        raise ValueError(msg)
+    rendered = re.sub(r"\{\{([A-Z_]+)\}\}", lambda m: xml.sax.saxutils.escape(values[m.group(1)]), template)
+    plistlib.loads(rendered.encode("utf-8"))
+    return rendered
+
+
+def plist_values(paths: Paths) -> dict[str, str]:
+    return {"DATA": str(paths.data), "HOME": str(paths.home), "LOGS": str(paths.logs)}
+
+
+def data_dirs(paths: Paths) -> list[Path]:
+    """SPEC §2.2, every directory the installer owns (all 0700)."""
+    backups = paths.backups
+    return [
+        paths.data,
+        paths.db_dir,
+        paths.releases,
+        paths.supervisor,
+        paths.supervisor / "releases",
+        paths.run,
+        paths.flags,
+        paths.updates,
+        backups,
+        backups / "daily",
+        backups / "weekly",
+        backups / "pre-update",
+        paths.media,
+        paths.data / "sessions",
+        *(paths.session_dir(kind) for kind in SESSION_KINDS),
+        paths.bin,
+        staging_dir(paths),
+        paths.config,
+        paths.logs,
+    ]
+
+
+def staging_dir(paths: Paths) -> Path:
+    """Rendered plists live here first; launchd never reads this directory."""
+    return paths.data / "launchd"
+
+
+def _sqlite_backup(source: Path, target: Path) -> str:
+    src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    try:
+        dst = sqlite3.connect(target)
+        try:
+            src.backup(dst)
+            row = dst.execute("PRAGMA integrity_check").fetchone()
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    return str(row[0]) if row else "no result"
+
+
+# --- env files -------------------------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class EnvKey:
+    name: str
+    secret: bool
+    required: bool
+    prompt: str
+
+
+ENV_SPECS: Final[Mapping[BotName, tuple[EnvKey, ...]]] = {
+    BotName.DEV: (
+        EnvKey("DEV_BOT_TOKEN", secret=True, required=True, prompt="Dev bot token from BotFather (hidden): "),
+        EnvKey("OWNER_ID", secret=False, required=False, prompt="Your Telegram user id (empty: find it later): "),
+        EnvKey("DEV_GROUP_ID", secret=False, required=False, prompt="Dev group id, -100… (empty: find it later): "),
+    ),
+    BotName.PERSONAL: (
+        EnvKey("PERSONAL_BOT_TOKEN", secret=True, required=False, prompt="Personal bot token (hidden, P3): "),
+        EnvKey("OWNER_ID", secret=False, required=False, prompt="Your Telegram user id: "),
+        EnvKey("PERSONAL_GROUP_ID", secret=False, required=False, prompt="Personal group id (optional, empty = DM): "),
+    ),
+}
+ENV_HEADER: Final = (
+    "# Written by scripts/install.py (SPEC §2.2). Mode 0600. Never commit this file and never paste it into chat.\n"
+)
+
+
+def env_problem(key: str, value: str) -> str | None:
+    """Why `value` is not acceptable for `key`, or None."""
+    if key.endswith("_BOT_TOKEN"):
+        return None if BOT_TOKEN.fullmatch(value) else "not a BotFather token (digits:35 characters)"
+    if key == "OWNER_ID":
+        return None if value.isdigit() and int(value) > 0 else "not a Telegram user id (a positive number)"
+    if key == "DEV_GROUP_ID":
+        if yd_check.SUPERGROUP_ID.fullmatch(value):
+            return None
+        return (
+            "not a -100… supergroup id (a basic group changes its id when Telegram upgrades it, and the bot would "
+            "then leave it as foreign)"
+        )
+    if key == "PERSONAL_GROUP_ID":
+        return None if GROUP_ID.fullmatch(value) else "not a group id (a negative number)"
+    return None
+
+
+# --- the installer ---------------------------------------------------------------------------------------------------
+class Installer:
+    def __init__(
+        self,
+        options: Options,
+        *,
+        tools: Tools,
+        runner: Runner,
+        download: Downloader,
+        prompter: Prompter,
+        environ: Mapping[str, str],
+        out: TextIO,
+        pins: Mapping[str, Pin | None] = FFMPEG_PINS,
+        machine: str = "",
+        stamp: Callable[[], str] = lambda: time.strftime("%Y%m%dT%H%M%S"),
+    ) -> None:
+        self.options = options
+        self.paths = Paths.defaults(options.home)
+        self.tools = tools
+        self.run_cmd = runner
+        self.download = download
+        self.prompter = prompter
+        self.environ = environ
+        self.out = out
+        self.pins = pins
+        self.machine = machine or f"{sys.platform}/{platform.machine()}"
+        self.stamp = stamp
+        self.steps: list[Step] = []
+        self.releases = Releases()
+        self.stopped: list[ProcessName] = []
+        self.changed_plists: set[ProcessName] = set()
+        self.switched = False
+
+    # --- bookkeeping ---
+    @property
+    def dry(self) -> bool:
+        return self.options.dry_run
+
+    def record(self, name: str, status: Status, detail: str = "") -> None:
+        detail = detail.replace(str(self.paths.data), "DATA").replace(str(self.paths.home), "~")
+        self.steps.append(Step(name, status, detail))
+        self.say(f"  [{status}] {name}{': ' + detail if detail else ''}\n")
+
+    def problem(self, name: str, detail: str) -> None:
+        """A failed step: a real install stops here; a dry run notes it and goes on to show the rest."""
+        self.record(name, Status.FAILED, detail)
+        if not self.dry:
+            raise InstallAborted(detail)
+
+    def say(self, text: str) -> None:
+        self.out.write(redact.scrubbed(text))
+        self.out.flush()
+
+    def would(self, name: str, argv: Sequence[object]) -> None:
+        self.record(name, Status.DRY_RUN, "would run: " + " ".join(str(part) for part in argv))
+
+    def run(self, argv: Sequence[object], *, cwd: Path | None = None, timeout: float) -> Completed:
+        """`argv` items are `str` or `Path`; each is passed as `str(item)`."""
+        return self.run_cmd([str(part) for part in argv], cwd=cwd, timeout=timeout)
+
+    # --- entry ---
+    def install(self) -> int:
+        old_umask = os.umask(0o077)
+        mode = "DRY RUN (temp HOME, no launchctl, no downloads)" if self.dry else "INSTALL"
+        self.say(f"Yordamchi installer, {mode}\n  HOME = {self.paths.home}\n  DATA = {self.paths.data}\n")
+        try:
+            if self.options.env_only:
+                self.data_tree()
+                self.env_files()
+                self.restart_after_env()
+            else:
+                self.preflight()
+                self.toolchain()
+                self.data_tree()
+                self.master_key()
+                self.env_files()
+                self.resolve_release()
+                self.build_releases()
+                self.ffmpeg()
+                self.stop_bots()
+                self.backup_dbs()
+                self.migrate()
+                self.switch_current()
+                self.plists()
+                self.launchd()
+                self.final_check()
+        except InstallAborted:
+            self.say("\nStopped at the first failure; nothing after it was changed.\n")
+            self.restart_stopped()
+        finally:
+            os.umask(old_umask)
+        self.summary()
+        return 1 if any(step.status is Status.FAILED for step in self.steps) else 0
+
+    # --- 1. preflight ---
+    def preflight(self) -> None:
+        if self.machine != "darwin/arm64":
+            self.problem("preflight: platform", f"needs macOS on Apple silicon, found {self.machine}")
+        tools = {"uv": self.tools.uv, "claude": self.tools.claude, "gh": self.tools.gh, "node": self.tools.node}
+        missing = [f"{name} ({path})" for name, path in tools.items() if not os.access(path, os.X_OK)]
+        if not os.access(self.tools.git, os.X_OK):
+            missing.append(f"git ({self.tools.git}; xcode-select --install)")
+        if missing:
+            self.problem("preflight: tools", "missing " + ", ".join(missing))
+        refused = yd_proc.check_credentials([self.paths.claude_user_settings], environ=self.environ)
+        if refused:
+            self.problem("preflight: credentials", "refused credential sources present: " + ", ".join(refused))
+        if not self.options.skip_ffmpeg and any(pin is None for pin in self.pins.values()):
+            self.problem("preflight: ffmpeg pins", FFMPEG_NOT_PINNED)
+        if not any(step.name.startswith("preflight") for step in self.steps):
+            self.record("preflight", Status.DONE, f"{self.machine}; tools found; no refused credential source")
+
+    # --- 2. toolchain ---
+    def toolchain(self) -> None:
+        version = self.run([self.tools.uv, "--version"], timeout=TIMEOUT_QUICK_S)
+        found = version.text().split()[1] if version.ok and len(version.text().split()) > 1 else "?"
+        if found == UV_VERSION:
+            self.record("uv", Status.UNCHANGED, f"uv {UV_VERSION}")
+        elif self.dry:
+            self.would(f"uv {found} -> {UV_VERSION}", [self.tools.uv, "self", "update", UV_VERSION])
+        elif not self.run([self.tools.uv, "self", "update", UV_VERSION], timeout=TIMEOUT_UV_S).ok:
+            self.problem("uv", f"uv self update {UV_VERSION} failed (found {found})")
+        else:
+            self.record("uv", Status.DONE, f"{found} -> {UV_VERSION}")
+        find = [self.tools.uv, "python", "find", "--managed-python", "--no-python-downloads", PYTHON_VERSION]
+        if self.run(find, timeout=TIMEOUT_QUICK_S).ok:
+            self.record("python", Status.UNCHANGED, f"Python {PYTHON_VERSION} (uv-managed)")
+        elif self.dry:
+            self.would("python", [self.tools.uv, "python", "install", PYTHON_VERSION])
+        elif not self.run([self.tools.uv, "python", "install", PYTHON_VERSION], timeout=TIMEOUT_UV_S).ok:
+            self.problem("python", f"uv python install {PYTHON_VERSION} failed")
+        else:
+            self.record("python", Status.DONE, f"installed {PYTHON_VERSION}")
+
+    # --- 3. data tree ---
+    def data_tree(self) -> None:
+        changed = sum(ensure_dir(path) for path in data_dirs(self.paths))
+        fixed: list[str] = []
+        for bot in BotName:
+            db = self.paths.db_file(bot)
+            for path in (self.paths.env_file(bot), db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
+                if path.exists() and (path.stat().st_mode & 0o777) != FILE_MODE:
+                    path.chmod(FILE_MODE)
+                    fixed.append(path.name)
+        launch_agents = yd_check.launch_agents_dir(self.paths)
+        launch_agents.mkdir(parents=True, exist_ok=True)  # the owner's own directory: its mode is not ours to change
+        detail = f"{len(data_dirs(self.paths))} dirs at 0700 ({changed} created or fixed)"
+        self.record("data tree", Status.DONE if changed or fixed else Status.UNCHANGED, detail + _fixed(fixed))
+
+    # --- 4. master key ---
+    def master_key(self) -> None:
+        key = self.paths.master_key
+        if key.exists():
+            raw = key.read_bytes()
+            try:
+                ok = len(base64.b64decode(raw.strip(), validate=True)) == yd_check.MASTER_KEY_BYTES
+            except ValueError:
+                ok = False
+            if not ok:
+                self.problem("master.key", f"{key} exists but is not base64 of 32 bytes; it is never overwritten")
+                return
+            key.chmod(FILE_MODE)
+            self.record("master.key", Status.UNCHANGED, "kept (never overwritten), mode 0600")
+        else:
+            write_private(key, base64.b64encode(os.urandom(yd_check.MASTER_KEY_BYTES)) + b"\n")
+            self.record("master.key", Status.DONE, "created: 32 random bytes, base64, mode 0600")
+        exclusion = [self.tools.tmutil, "addexclusion", self.paths.config]
+        if self.dry:
+            self.would("time machine exclusion", exclusion)
+        elif not self.run(exclusion, timeout=TIMEOUT_QUICK_S).ok:
+            self.record(
+                "time machine exclusion", Status.WARN, f"tmutil addexclusion failed; run it by hand: {exclusion}"
+            )
+        else:
+            self.record("time machine exclusion", Status.DONE, str(self.paths.config))
+
+    # --- 5. env files ---
+    def env_files(self) -> None:
+        read = {bot: self._read_env(bot) for bot in BotName}
+        owners = [values.get("OWNER_ID", "") for values in read.values() if values is not None]
+        known_owner = next((owner for owner in owners if env_problem("OWNER_ID", owner) is None), "")
+        for bot, values in read.items():
+            if values is not None:
+                self._env_file(bot, values, known_owner)
+
+    def _read_env(self, bot: BotName) -> dict[str, str] | None:
+        path = self.paths.env_file(bot)
+        if not path.exists():
+            return {}
+        try:
+            return yd_check.read_env_values(path)
+        except ConfigInvalid as exc:
+            self.problem(f"{path.name}", f"malformed ({exc.params.get('key')}: {exc.params.get('problem')}); fix it")
+            return None
+
+    def _env_file(self, bot: BotName, values: Mapping[str, str], known_owner: str) -> None:
+        path = self.paths.env_file(bot)
+        if bot is BotName.PERSONAL and not path.exists() and not self.options.enable_personal:
+            self.record(path.name, Status.UNCHANGED, "not created before P3 (--enable-personal)")
+            return
+        specs = ENV_SPECS[bot]
+        invalid = [
+            f"{spec.name} ({problem})"
+            for spec in specs
+            if values.get(spec.name) and (problem := env_problem(spec.name, values[spec.name])) is not None
+        ]
+        if invalid:
+            self.problem(path.name, "invalid value, fix it by hand (it is never overwritten): " + "; ".join(invalid))
+            return
+        updates, replace, missing = self._collect(specs, values, known_owner)
+        text = (
+            path.read_text(encoding="utf-8") if path.exists() else ENV_HEADER + "".join(f"{s.name}=\n" for s in specs)
+        )
+        new_text, changed = yd_check.update_env_text(text, updates, replace=replace)
+        if new_text != text or not path.exists():
+            yd_check.write_env_file(path, new_text)
+        path.chmod(FILE_MODE)
+        kept = [spec.name for spec in specs if values.get(spec.name) and spec.name not in replace]
+        detail = f"kept {kept or '-'}, set {list(changed) or '-'}, empty {missing or '-'}; mode 0600"
+        required = bot is BotName.DEV or self.options.enable_personal
+        required_missing = [spec.name for spec in specs if required and spec.required and spec.name in missing]
+        rotatable = [s.name for s in specs if s.secret and values.get(s.name)] if self.options.rotate_tokens else []
+        if self.dry and (missing or rotatable):
+            asked = [*missing, *rotatable]
+            self.record(path.name, Status.DRY_RUN, f"{detail}. Would ask at the terminal for {asked} (tokens hidden)")
+        elif required_missing:
+            self.problem(path.name, f"{detail}. Required and still empty: {required_missing}")
+        elif missing and any(name in {"OWNER_ID", "DEV_GROUP_ID"} for name in missing):
+            self.record(path.name, Status.WARN, detail + ". Find the ids: python -m yordamchi.check --discover-ids")
+        else:
+            self.record(path.name, Status.DONE if changed else Status.UNCHANGED, detail)
+
+    def _collect(
+        self, specs: Sequence[EnvKey], values: Mapping[str, str], known_owner: str
+    ) -> tuple[dict[str, str], set[str], list[str]]:
+        """New values to write, the keys whose value is replaced (token rotation only), and what stays empty."""
+        updates: dict[str, str] = {}
+        replace: set[str] = set()
+        missing: list[str] = []
+        for spec in specs:
+            current = values.get(spec.name, "")
+            if spec.secret and current and self.options.rotate_tokens:
+                new = self._ask(spec, rotate_from=current)
+                if new:
+                    updates[spec.name] = new
+                    replace.add(spec.name)
+            elif current:
+                continue  # an existing value is never overwritten
+            elif spec.name == "OWNER_ID" and known_owner:
+                updates[spec.name] = known_owner  # the same owner in both files
+            elif new := self._ask(spec):
+                updates[spec.name] = new
+            else:
+                missing.append(spec.name)
+        return updates, replace, missing
+
+    def _ask(self, spec: EnvKey, *, rotate_from: str = "") -> str:
+        # A dry run never asks: a real token typed into a throwaway HOME would be a copy nobody cleans up.
+        if self.dry or not self.prompter.interactive:
+            return ""
+        prompt = f"New {spec.prompt}" if rotate_from else spec.prompt
+        for _ in range(TOKEN_PROMPT_TRIES):
+            value = self.prompter.secret(prompt) if spec.secret else self.prompter.text(prompt)
+            if not value:
+                return ""
+            if spec.secret:
+                redact.add_known_secrets([value])
+            problem = env_problem(spec.name, value)
+            if problem is None and value == rotate_from:
+                problem = "that is the old token; revoke it in BotFather (/revoke) and paste the new one"
+            if problem is None:
+                return value
+            self.say(f"    {spec.name}: {problem}. Try again (empty to skip).\n")
+        return ""
+
+    def restart_after_env(self) -> None:
+        """`--env-only`: the bots read their env file at start, so a loaded bot is restarted to pick up new tokens."""
+        for process in ("dev", "personal"):
+            target = f"gui/{self.options.uid}/{yd_check.label(process)}"
+            if self.dry:
+                self.would(f"restart {process}", [self.tools.launchctl, "kickstart", "-k", target])
+                continue
+            if not self.run([self.tools.launchctl, "print", target], timeout=TIMEOUT_LAUNCHCTL_S).ok:
+                self.record(f"restart {process}", Status.UNCHANGED, "not loaded")
+            elif self.run([self.tools.launchctl, "kickstart", "-k", target], timeout=TIMEOUT_LAUNCHCTL_S).ok:
+                self.record(f"restart {process}", Status.DONE, "kickstart -k")
+            else:
+                self.record(f"restart {process}", Status.WARN, f"kickstart failed: launchctl kickstart -k {target}")
+
+    # --- 6, 7. releases ---
+    def resolve_release(self) -> None:
+        repo = self.options.repo
+        sha = self.run(
+            [self.tools.git, "-C", repo, "rev-parse", "--verify", "--quiet", f"{self.options.commit}^{{commit}}"],
+            timeout=TIMEOUT_GIT_S,
+        )
+        if not sha.ok or not re.fullmatch(r"[0-9a-f]{40}", sha.text()):
+            self.record("release", Status.FAILED, f"{self.options.commit!r} is not a commit in {repo}")
+            raise InstallAborted(self.options.commit)
+        day = self.run(
+            [self.tools.git, "-C", repo, "log", "-1", "--format=%cd", "--date=format:%Y.%m.%d", sha.text()],
+            timeout=TIMEOUT_GIT_S,
+        )
+        if not day.ok or not re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", day.text()):
+            self.record("release", Status.FAILED, "could not read the commit date")
+            raise InstallAborted(sha.text())
+        self.releases.sha = sha.text()
+        self.releases.version = f"{day.text()}-{sha.text()[:7]}"
+        self.record("release", Status.DONE, f"{self.releases.version} (commit {self.releases.sha})")
+
+    def build_releases(self) -> None:
+        version, sha = self.releases.version, self.releases.sha
+        self.releases.app = self._build("app release", self.paths.releases / version, sha)
+        self.releases.supervisor = self._build(
+            "supervisor release", self.paths.supervisor / "releases" / version, f"{sha}:supervisor"
+        )
+
+    def _build(self, name: str, target: Path, treeish: str) -> Path | None:
+        marker = target / RELEASE_MARKER
+        if marker.exists():
+            make_read_only(target)
+            self.record(name, Status.UNCHANGED, f"{target} (already built, read-only)")
+            return target
+        if target.exists():  # a build that stopped half way: start it again
+            make_writable(target)
+            shutil.rmtree(target)
+        archive = self.run(
+            [self.tools.git, "-C", self.options.repo, "archive", "--format=tar", treeish], timeout=TIMEOUT_GIT_S
+        )
+        if not archive.ok:
+            self.problem(name, f"git archive {treeish} failed")
+            return None
+        target.mkdir(mode=DIR_MODE)
+        with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as tar:
+            tar.extractall(target, filter="data")
+        sync = [
+            self.tools.uv,
+            "sync",
+            "--frozen",
+            "--no-dev",
+            "--no-editable",
+            "--compile-bytecode",
+            "--link-mode",
+            "clone",  # never hardlink: chmod -R a-w must not reach into uv's cache
+            "--managed-python",
+            "--python",
+            PYTHON_VERSION,
+        ]
+        if self.dry:
+            sync += ["--offline", "--no-python-downloads"]
+        result = self.run(sync, cwd=target, timeout=TIMEOUT_UV_S)
+        if not result.ok:
+            tail = result.stderr.decode("utf-8", errors="replace").strip().splitlines()[-1:] or ["?"]
+            self.problem(name, f"uv sync failed in {target}: {tail[0]}")
+            return None
+        info = {"version": target.name, "treeish": treeish, "python": PYTHON_VERSION, "built_by": "scripts/install.py"}
+        marker.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+        make_read_only(target)
+        self.record(name, Status.DONE, f"{target} (git archive {treeish}, uv sync --frozen, chmod -R a-w)")
+        return target
+
+    # --- 8. ffmpeg ---
+    def ffmpeg(self) -> None:
+        if self.options.skip_ffmpeg:
+            self.record("ffmpeg", Status.WARN, "skipped (--skip-ffmpeg): voice replies are degraded until installed")
+            return
+        pins = {name: pin for name, pin in self.pins.items() if pin is not None}
+        if len(pins) != len(self.pins):
+            self.record("ffmpeg", Status.BLOCKED, "not pinned (see preflight)")
+            return
+        marker = self.paths.bin / FFMPEG_MARKER
+        wanted = {name: pin.sha256 for name, pin in pins.items()}
+        if marker.exists() and all((self.paths.bin / name).exists() for name in pins):
+            try:
+                recorded = json.loads(marker.read_text(encoding="utf-8"))
+            except ValueError:
+                recorded = None
+            if recorded == wanted:
+                self.record("ffmpeg", Status.UNCHANGED, f"{FFMPEG_VERSION} in {self.paths.bin}")
+                return
+        if self.dry:
+            for name, pin in pins.items():
+                self.record(f"ffmpeg: {name}", Status.DRY_RUN, f"would download {pin.url} (sha256 {pin.sha256})")
+            return
+        for name, pin in pins.items():
+            self._install_binary(name, pin)
+        encoders = self.run([self.paths.bin / "ffmpeg", "-hide_banner", "-encoders"], timeout=TIMEOUT_QUICK_S)
+        if not encoders.ok or "libopus" not in encoders.stdout.decode("utf-8", errors="replace"):
+            self.problem("ffmpeg", "ffmpeg -encoders does not list libopus")
+            return
+        write_private(marker, json.dumps(wanted).encode())
+        self.record("ffmpeg", Status.DONE, f"{FFMPEG_VERSION} arm64, SHA-256 verified, libopus present")
+
+    def _install_binary(self, name: str, pin: Pin) -> None:
+        zipped = self.paths.bin / f".{name}.download.zip"
+        zipped.unlink(missing_ok=True)
+        try:
+            self.download(pin.url, zipped, timeout=TIMEOUT_DOWNLOAD_S)
+            digest = hashlib.sha256(zipped.read_bytes()).hexdigest()
+            if digest != pin.sha256.lower():
+                self.problem(f"ffmpeg: {name}", f"SHA-256 mismatch (got {digest}); nothing installed")
+                return
+            with zipfile.ZipFile(zipped) as archive:
+                members = [m for m in archive.infolist() if not m.is_dir() and Path(m.filename).name == name]
+                if len(members) != 1:
+                    self.problem(f"ffmpeg: {name}", f"the zip has no single '{name}' binary")
+                    return
+                data = archive.read(members[0])
+            write_private(self.paths.bin / name, data, mode=DIR_MODE)  # 0700: executable by the owner only
+        except OSError as exc:
+            self.problem(f"ffmpeg: {name}", f"download failed ({type(exc).__name__})")
+        finally:
+            zipped.unlink(missing_ok=True)
+
+    # --- 9. stop, back up, migrate ---
+    def _target(self, process: ProcessName) -> str:
+        return f"gui/{self.options.uid}/{yd_check.label(process)}"
+
+    def _loaded(self, process: ProcessName) -> bool:
+        return self.run([self.tools.launchctl, "print", self._target(process)], timeout=TIMEOUT_LAUNCHCTL_S).ok
+
+    def stop_bots(self) -> None:
+        if self.dry:
+            self.record("stop bots", Status.DRY_RUN, "launchctl is never called in a dry run")
+            return
+        for process in ("dev", "personal"):
+            if self._loaded(process):
+                self.run([self.tools.launchctl, "bootout", self._target(process)], timeout=TIMEOUT_LAUNCHCTL_S)
+                self.stopped.append(process)
+        self.record("stop bots", Status.DONE if self.stopped else Status.UNCHANGED, f"stopped {self.stopped or '-'}")
+
+    def restart_stopped(self) -> None:
+        """After an abort before the switch, the bots this run stopped go back up on the release they ran before."""
+        if self.switched or not self.stopped:
+            return  # nothing stopped, or `current` already moved (the launchd step then decides)
+        for process in self.stopped:
+            plist = yd_check.plist_path(self.paths, process)
+            ok = self.run(
+                [self.tools.launchctl, "bootstrap", f"gui/{self.options.uid}", plist], timeout=TIMEOUT_LAUNCHCTL_S
+            ).ok
+            self.record(f"restart {process}", Status.DONE if ok else Status.WARN, "back on the previous release")
+
+    def backup_dbs(self) -> None:
+        existing = [self.paths.db_file(bot) for bot in BotName if self.paths.db_file(bot).exists()]
+        if not existing:
+            self.record("db backup", Status.UNCHANGED, "no database yet (first install)")
+            return
+        target = self.paths.backups / "pre-update" / f"install-{self.releases.version}-{self.stamp()}"
+        ensure_dir(target)
+        for db in existing:
+            copy = target / db.name
+            verdict = _sqlite_backup(db, copy)
+            copy.chmod(FILE_MODE)
+            if verdict != "ok":
+                self.problem("db backup", f"{copy} failed integrity_check ({verdict}); migrations not run")
+                return
+        self.record("db backup", Status.DONE, f"{[db.name for db in existing]} -> {target} (integrity ok)")
+
+    def migrate(self) -> None:
+        app = self.releases.app
+        python = app / ".venv" / "bin" / "python" if app else None
+        if app is None or python is None or not python.exists():
+            self.record("migrations", Status.BLOCKED, "no built app release")
+            return
+        for bot in BotName:
+            db = self.paths.db_file(bot)
+            argv = [python, "-I", "-m", "alembic", "-c", app / "alembic.ini", "-x", f"db={db}", "upgrade", "head"]
+            result = self.run(argv, cwd=app, timeout=TIMEOUT_MIGRATE_S)
+            if not result.ok:
+                tail = result.stderr.decode("utf-8", errors="replace").strip().splitlines()[-1:] or ["?"]
+                self.problem("migrations", f"alembic upgrade head on {db.name} failed: {tail[0]}")
+                return
+            for path in (db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
+                if path.exists():
+                    path.chmod(FILE_MODE)
+        self.record("migrations", Status.DONE, "alembic upgrade head on dev.db and personal.db")
+
+    # --- 10. current ---
+    def switch_current(self) -> None:
+        app, supervisor = self.releases.app, self.releases.supervisor
+        if app is None or supervisor is None:
+            self.record("switch current", Status.BLOCKED, "a release did not build")
+            return
+        self.switched = True
+        self.releases.previous_app = swap_symlink(self.paths.current_release, app)
+        self.releases.previous_supervisor = swap_symlink(self.paths.supervisor / "current", supervisor)
+        self.record(
+            "switch current",
+            Status.DONE,
+            f"releases/current -> {app.name} (was {self.releases.previous_app or '-'}), "
+            f"supervisor/current -> releases/{supervisor.name} (was {self.releases.previous_supervisor or '-'})",
+        )
+
+    # --- 11. plists ---
+    def installed_processes(self) -> list[ProcessName]:
+        return ["dev", "personal", "supervisor"] if self.options.enable_personal else ["dev", "supervisor"]
+
+    def plists(self) -> None:
+        source = (self.releases.app or self.options.repo) / "ops" / "launchd"
+        values = plist_values(self.paths)
+        rendered: list[str] = []
+        for process in ("dev", "personal", "supervisor"):
+            name = yd_check.label(process)
+            try:
+                text = render_plist((source / f"{name}.plist.tmpl").read_text(encoding="utf-8"), values)
+            except (OSError, ValueError) as exc:
+                self.problem("plists", f"{name}: {type(exc).__name__}")
+                return
+            write_private(staging_dir(self.paths) / f"{name}.plist", text.encode())
+            if process not in self.installed_processes():
+                continue
+            target = yd_check.plist_path(self.paths, process)
+            if not target.exists() or target.read_text(encoding="utf-8") != text:
+                write_private(target, text.encode(), mode=PLIST_MODE)
+                self.changed_plists.add(process)
+            rendered.append(name)
+        held = "" if self.options.enable_personal else "; uz.yordamchi.personal rendered to DATA/launchd only (P3)"
+        self.record("plists", Status.DONE, f"installed {rendered} in ~/Library/LaunchAgents{held}")
+
+    # --- 12. launchd and the check ---
+    def launchd(self) -> None:
+        if self.dry:
+            for process in self.installed_processes():
+                self.would(
+                    f"launchd {process}",
+                    [
+                        self.tools.launchctl,
+                        "bootstrap",
+                        f"gui/{self.options.uid}",
+                        yd_check.plist_path(self.paths, process),
+                    ],
+                )
+            return
+        if self.releases.app is None or self.releases.supervisor is None:
+            self.record("launchd", Status.BLOCKED, "no release to run")
+            return
+        for process in self.installed_processes():
+            target, plist = self._target(process), yd_check.plist_path(self.paths, process)
+            loaded = self._loaded(process)
+            if loaded and process not in self.changed_plists:
+                ok = self.run([self.tools.launchctl, "kickstart", "-k", target], timeout=TIMEOUT_LAUNCHCTL_S).ok
+                how = "kickstart -k"
+            else:
+                if loaded:
+                    self.run([self.tools.launchctl, "bootout", target], timeout=TIMEOUT_LAUNCHCTL_S)
+                self.run([self.tools.launchctl, "enable", target], timeout=TIMEOUT_LAUNCHCTL_S)
+                ok = self.run(
+                    [self.tools.launchctl, "bootstrap", f"gui/{self.options.uid}", plist], timeout=TIMEOUT_LAUNCHCTL_S
+                ).ok
+                how = "bootstrap"
+            if not ok:
+                self.problem(f"launchd {process}", f"launchctl {how} failed for {target}")
+                return
+            self.record(f"launchd {process}", Status.DONE, how)
+
+    def final_check(self) -> None:
+        python = self.paths.current_release / ".venv" / "bin" / "python"
+        argv = [python, "-I", "-m", "yordamchi.bots.cli.check", "--no-colour"]
+        if self.dry:
+            self.would("check", argv)
+            return
+        result = self.run(argv, cwd=self.paths.run, timeout=TIMEOUT_CHECK_S)
+        self.say(redact.scrubbed(result.stdout.decode("utf-8", errors="replace")))
+        if result.ok:
+            self.record("check", Status.DONE, "all green")
+        else:
+            self.record("check", Status.WARN, "red lines above: fix them, then run python -m yordamchi.check")
+
+    # --- summary ---
+    def summary(self) -> None:
+        width = max((len(step.name) for step in self.steps), default=10)
+        lines = ["", "Summary", "-------"]
+        lines += [f"  {step.status.value:<10} {step.name:<{width}}  {step.detail}" for step in self.steps]
+        counts = {status: sum(1 for step in self.steps if step.status is status) for status in Status}
+        lines.append("  " + ", ".join(f"{count} {status.value}" for status, count in counts.items() if count))
+        if self.releases.previous_app or self.releases.previous_supervisor:
+            lines += [
+                "",
+                "Rollback (docs/DEPLOY.md):",
+                f"  point releases/current back at {self.releases.previous_app or '(none)'}",
+                f"  point supervisor/current back at {self.releases.previous_supervisor or '(none)'}",
+                "  then launchctl kickstart -k each job; DBs: backups/pre-update/install-*",
+            ]
+        if self.dry:
+            lines += ["", f"Dry run only. Everything above was written under {self.paths.home}."]
+        self.say("\n".join(lines) + "\n")
+
+
+def _fixed(names: list[str]) -> str:
+    return f"; fixed modes of {names}" if names else ""
+
+
+# --- command line ----------------------------------------------------------------------------------------------------
+def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Install Yordamchi on this Mac (docs/DEPLOY.md).")
+    parser.add_argument(
+        "--release", default="HEAD", help="the commit to install (default HEAD); never the working copy"
+    )
+    parser.add_argument("--repo", type=Path, default=REPO, help="the git repository (default: this checkout)")
+    parser.add_argument("--dry-run", action="store_true", help="build everything under a temp HOME; no launchctl")
+    parser.add_argument("--home", type=Path, help="the HOME a dry run builds into (default: a new temp dir)")
+    parser.add_argument("--rotate-tokens", action="store_true", help="ask for new bot tokens and replace them")
+    parser.add_argument("--env-only", action="store_true", help="only the env files (and restart loaded bots)")
+    parser.add_argument("--enable-personal", action="store_true", help="P3: install and load the personal bot")
+    parser.add_argument("--skip-ffmpeg", action="store_true", help="install without ffmpeg (voice degraded)")
+    parser.add_argument("--yes", action="store_true", help="do not ask before a real install")
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    environ = dict(os.environ)  # noqa: TID251  # judged by the refuse-list and cleaned for children, never logged
+    real_home = Path.home()
+    if args.dry_run:
+        home = (args.home or Path(tempfile.mkdtemp(prefix="yordamchi-dry-run-"))).resolve()
+        if home == real_home.resolve():
+            sys.stderr.write("--dry-run must not use the real HOME\n")
+            return 2
+    else:
+        if args.home is not None:
+            sys.stderr.write("--home is for --dry-run only; a real install uses your HOME\n")
+            return 2
+        home = real_home
+        if not args.yes:
+            if not sys.stdin.isatty():
+                sys.stderr.write("a real install needs a terminal (or --yes); try --dry-run first\n")
+                return 2
+            answer = input(f"Install Yordamchi {args.release} into {home} and load it into launchd? Type 'install': ")
+            if answer.strip() != "install":
+                sys.stderr.write("cancelled; nothing changed\n")
+                return 1
+    options = Options(
+        home=home,
+        repo=args.repo.resolve(),
+        commit=args.release,
+        dry_run=args.dry_run,
+        rotate_tokens=args.rotate_tokens,
+        env_only=args.env_only,
+        enable_personal=args.enable_personal,
+        skip_ffmpeg=args.skip_ffmpeg,
+    )
+    installer = Installer(
+        options,
+        tools=Tools.under(real_home),
+        runner=subprocess_runner(child_env(environ, real_home)),
+        download=urllib_download,
+        prompter=TerminalPrompter(),
+        environ=environ,
+        out=sys.stdout,
+    )
+    return installer.install()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

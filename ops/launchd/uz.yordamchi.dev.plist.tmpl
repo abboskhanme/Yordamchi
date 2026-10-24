@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- uz.yordamchi.dev (SPEC §9.1). Rendered by scripts/install.py into ~/Library/LaunchAgents; do not edit there. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>uz.yordamchi.dev</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{DATA}}/releases/current/.venv/bin/python</string>
+		<string>-I</string>
+		<string>-m</string>
+		<string>yordamchi.bots.dev.app</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>YORDAMCHI_DATA_DIR</key>
+		<string>{{DATA}}</string>
+		<key>YORDAMCHI_ENV_FILE</key>
+		<string>{{DATA}}/dev.env</string>
+		<key>PATH</key>
+		<string>{{DATA}}/releases/current/shims:{{HOME}}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>LANG</key>
+		<string>en_US.UTF-8</string>
+		<key>PYTHONUNBUFFERED</key>
+		<string>1</string>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>{{DATA}}/run</string>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>ExitTimeOut</key>
+	<integer>20</integer>
+	<key>AbandonProcessGroup</key>
+	<false/>
+	<key>SoftResourceLimits</key>
+	<dict>
+		<key>NumberOfFiles</key>
+		<integer>8192</integer>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>{{LOGS}}/uz.yordamchi.dev.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{LOGS}}/uz.yordamchi.dev.launchd.log</string>
+</dict>
+</plist>
