@@ -1,0 +1,15 @@
+{
+  "case": "health_two_litres_water",
+  "category": "health",
+  "duration_ms": 10746,
+  "first_text_ms": 1218,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Har kuni 2 litr suv ichish shartmi yoki bu afsonami?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Yo'q, 2 litr majburiy qoida emas, bu ko'proq afsona. Aniq ilmiy asosga ega universal \"2 litr\" normasi yo'q.\n\n• Tana suv ehtiyojining bir qismini ovqatdan oladi (meva, sabzavot, sho'rva, choy, qahva ham hisobga kiradi). Odatda ichimlik sifatida 1,5–2 litr atrofi yetarli, lekin bu o'rtacha raqam, qat'iy norma emas.\n• 2022-yilda Science jurnalida chop etilgan yirik xalqaro tadqiqot (Yamada va boshq.) odamlar kuniga qancha suv aylantirishini o'lchagan: u yoshga, jinsga, faollikka, iqlimga qarab ancha farq qiladi.\n• Eng yaxshi ko'rsatkich: chanqoqlik va siydik rangi. Och sarg'ish rang yaxshi, to'q sariq bo'lsa ko'proq ichish kerak.\n• Ko'proq kerak bo'ladi: issiq havoda, sport paytida, homiladorlik va emizish davrida, isitma yoki ich ketishida.\n• Haddan ortiq ichish ham zararli bo'lishi mumkin (gipонатриемия, qondagi natriy kamayishi), lekin bu asosan juda ko'p miqdorda, qisqa vaqtda ichilganda uchraydi.\n\nBuyrak toshi, yurak yoki buyrak kasalligi bo'lsa, shifokor belgilagan miqdorga amal qiling.\n\nMening fikrim: hisoblab o'tirmang, chanqaganda ichib, siydik rangini kuzating. Ishonchim yuqori.\n\n---OVOZ---\nKuniga ikki litr suv ichish majburiy qoida emas, bu ko'proq afsona. Suvning bir qismini ovqatdan va choydan ham olasiz. Chanqoqlikka va siydik rangiga qarang: och sarg'ish bo'lsa, yetarli. Issiqda, sportda va kasallik paytida ko'proq ichish kerak. Buyrak yoki yurak kasalligi bo'lsa, shifokor maslahatiga amal qiling.",
+  "tool_calls": [],
+  "web_searches": 0
+}

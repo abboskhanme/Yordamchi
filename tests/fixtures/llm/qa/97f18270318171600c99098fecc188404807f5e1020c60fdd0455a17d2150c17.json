@@ -1,0 +1,15 @@
+{
+  "case": "finance_savings_inflation",
+  "category": "finance",
+  "duration_ms": 13273,
+  "first_text_ms": 1022,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Inflyatsiya paytida jamg'armani qanday saqlash to'g'ri: dollar, oltin yoki depozit?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Bitta \"eng to'g'ri\" variant yo'q: eng ishonchli yo'l — jamg'armani bo'lib saqlash. Men uchun umumiy tartib shunday (ishonchim o'rtacha, chunki sizning maqsad va muddatingizni bilmayman):\n\n• Depozit (so'm): foizi inflyatsiyadan yuqori bo'lsa foydali, past bo'lsa pulingiz asta-sekin qadrsizlanadi. Hozirgi foiz va inflyatsiya raqamlarini bank va Markaziy bank saytidan solishtiring. Ulushi: yaqin 1–2 yillik xarajatlar uchun.\n• Dollar: so'mga nisbatan qadrsizlanishdan himoya qiladi va likvid. Lekin dollarning o'zi ham AQShda inflyatsiyadan yutqazadi, va foizsiz yotadi. Ulushi: taxminan uchdan bir qism.\n• Oltin: uzoq muddatda (10+ yil) qadrni yaxshi saqlaydi, inflyatsiya va valyuta tushishiga qarshi himoya. Lekin narxi yillar davomida o'zgarib turadi, daromad bermaydi va sotishda spred bor. Ulushi: taxminan 10–25%. Quyma yoki bank orqali sotib olinsa, saqlash va hujjatlarga e'tibor bering.\n\nTaxminiy namuna: 40% depozit, 30% dollar, 20% oltin, 10% boshqa (masalan, ta'lim yoki o'z biznesingiz). Bu qat'iy qoida emas, o'zingizga moslashtiring.\n\nMuhim:\n• Zaxira fondi (3–6 oylik xarajat) har doim naqd yoki depozitda tursin.\n• Hammasini bitta aktivga solmang, ayniqsa oltin narxi rekord darajada bo'lganda bir yo'la kirmang. Qismlarga bo'lib oling.\n• Dinga ko'ra: depozit foizi ko'p ulamolarga ko'ra riba bo'lishi mumkin. Islomiy variantlar (oltin, savdo, sherikchilik) uchun malakali olimdan so'rang.\n• Katta summa bo'lsa, moliyaviy maslahatchiga murojaat qiling.\n\nHozirgi kurs va narxlarni tekshirib, aniq raqamlar bilan hisoblab beraymi?\n\n---OVOZ---\nBitta eng yaxshi variant yo'q, jamg'armani bo'lib saqlash to'g'ri. Yaqin xarajatlar uchun so'm depoziti, qadrsizlanishdan himoya uchun dollar, uzoq muddat uchun oltin. Taxminan qirq, o'ttiz, yigirma foiz nisbatini o'zingizga moslang. Zaxira fondini doim yoningizda tuting, oltinga esa bir yo'la kirmang.",
+  "tool_calls": [],
+  "web_searches": 0
+}

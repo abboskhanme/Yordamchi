@@ -1,0 +1,15 @@
+{
+  "case": "worldview_ai_jobs",
+  "category": "worldview",
+  "duration_ms": 12961,
+  "first_text_ms": 1173,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Sun'iy intellekt odamlarning ishini tortib oladimi? Sening fikring qanday?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Qisman ha, lekin \"hammasini tortib oladi\" degan fikr tarixga va hozirgi dalillarga mos kelmaydi. Mening bahoyim: ishlarning katta qismi o'zgaradi, ayrim kasblar keskin qisqaradi, lekin umumiy bandlik yo'q bo'lib ketmaydi. Ishonchim o'rtacha: bashorat qilish qiyin.\n\nNega shunday deb o'ylayman:\n• Avtomatlashtirish odatda butun kasbni emas, kasb ichidagi vazifalarni almashtiradi. Dasturchi, shifokor, huquqshunos ishi o'zgaradi, lekin to'liq yo'qolmaydi.\n• Tarixda (to'quv stanoklari, kompyuterlar) yangi texnologiya eski ishlarni yo'qotgan, yangilarini yaratgan. Lekin o'tish og'riqli bo'lgan va bu yerda tezlik farqli bo'lishi mumkin.\n• Eng xavfli joy: yangi boshlovchilar uchun oddiy, takrorlanuvchi aqliy ishlar (tarjima, oddiy matn yozish, mijozlarga javob, ma'lumot kiritish). Birinchi zarba shu yerga tushadi.\n• Nisbatan xavfsizroq: jismoniy va joyda bajariladigan ish (elektrik, santexnik, hamshira), odamlar bilan ishonchli muloqot, mas'uliyat olish talab qiladigan ishlar.\n\nQarama-qarshi fikr: ba'zi tadqiqotchilar bu safar boshqacha bo'lishi mumkin, chunki AI aynan aqliy mehnatga zarba beradi va tez tarqaladi. Buni rad etib bo'lmaydi.\n\nAmaliy maslahat: AI'ni raqib emas, asbob qilib o'rgan. Kasbingda AI'dan foydalanishni biladigan odam, bilmaydigandan oldinda bo'ladi. Chuqur bilim, hukm va odamlar bilan ishlash qobiliyatini oshir. Shunda ish o'rningni emas, ish usulingni o'zgartirasan.\n\n---OVOZ---\nQisqa javob: sun'iy intellekt ishlarning bir qismini oladi, lekin hammasini emas. Ko'proq vazifalar o'zgaradi, kasblar emas. Eng xavfli joy oddiy takrorlanuvchi aqliy ish. Eng muhim maslahat: sun'iy intellektni raqib emas, asbob sifatida o'rgan va chuqur bilim hamda odamlar bilan ishlashni rivojlantir.",
+  "tool_calls": [],
+  "web_searches": 0
+}

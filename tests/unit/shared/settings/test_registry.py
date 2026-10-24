@@ -127,6 +127,21 @@ SPEC_KEYS.extend(["integrations.refresh_every_s", "integrations.refresh_lead_min
 # A4 bounds every port call; the GitHub port's calls take theirs from TIMEOUTS (T52, used by the new-project flow).
 SPEC_KEYS.append("timeouts.github_s")
 
+# T70: the bridge read bound (UC-36 "≤ 4 s"). T72: the personal assistant's bounds (SPEC §3.2.13: whole answer,
+# stream silence, the fallback model, one draft) and the WebSearch cap and rotation point SPEC §3.2.13 step 10 and
+# STACK §4.8 give inline ("env cap raised to 1000", "at 900 WebSearch calls").
+SPEC_KEYS.extend(
+    [
+        "timeouts.bridge_s",
+        "timeouts.qa_s",
+        "timeouts.qa_idle_s",
+        "timeouts.qa_fallback_s",
+        "timeouts.qa_draft_s",
+        "qa.web_searches_max",
+        "qa.web_search_rotate_at",
+    ]
+)
+
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")
 SAFEGUARD_KEYS = (

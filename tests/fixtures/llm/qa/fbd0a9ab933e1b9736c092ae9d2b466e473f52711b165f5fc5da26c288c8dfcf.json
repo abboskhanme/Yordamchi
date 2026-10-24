@@ -1,0 +1,15 @@
+{
+  "case": "advice_sleep",
+  "category": "advice",
+  "duration_ms": 12963,
+  "first_text_ms": 1024,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Kechasi uyqum yomon, ertalab charchab turaman. Nima qilsam bo'ladi?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Avval asosiylarini tartibga solish kerak: uyqu gigiyenasi ko'pincha dorilardan ham kuchliroq ishlaydi (ishonchim yuqori, bu uyqu tibbiyotida keng tan olingan birinchi qadam).\n\n1. Har kuni bir xil payt turing va yoting, dam olish kunlari ham (farq 1 soatdan oshmasin). Eng muhim qoida shu.\n2. Ertalab 30 daqiqa ichida tashqarida yorug'likda bo'ling: bu ichki soatni sozlaydi.\n3. Kofein: oxirgi choy yoki kofeni soat 14:00 dan keyin ichmang. Uning ta'siri 6–8 soat saqlanadi.\n4. Kechqurun: yotishdan 1 soat oldin telefon va yorqin ekranni qoldiring, xona salqin (18–20°C), qorong'i va tinch bo'lsin. Og'ir ovqat va spirtli ichimlikdan saqlaning.\n5. Yotoqda 20 daqiqa uxlay olmasangiz, turib, xira yorug'likda tinch ish qiling, uyqu bosganda qayting. Karavotni bezovtalik bilan bog'lamang.\n6. Kunduzi uxlasangiz, 20–30 daqiqadan oshirmang va soat 15:00 dan keyin yotmang.\n\nShifokorga murojaat qiling, agar muammo 3 haftadan oshsa, kunduzi juda uyqu bosib, diqqat susaysa, kuchli xurrak yoki nafas to'xtashi (apnoe) bo'lsa, yoki kayfiyat tushkunligi qo'shilsa. Bunda CBT-I (uyqusizlik uchun kognitiv-xulq terapiyasi) eng samarali usul sanaladi. Melatonin yoki uyqu dorilarini shifokorsiz doimiy ichmang.\n\nAytgancha, hozir soat 14:00, ya'ni kofe uchun oxirgi imkoniyat. 😄\n\n---OVOZ---\nAsosiysi, har kuni bir xil vaqtda turing va yoting. Ertalab yorug'likda yarim soat bo'ling. Kofeni soat ikkidan keyin ichmang. Yotishdan bir soat oldin telefonni qo'ying, xona salqin va qorong'i bo'lsin. Agar muammo uch haftadan oshsa yoki kunduzi juda uyqu bosa, shifokorga boring.",
+  "tool_calls": [],
+  "web_searches": 0
+}

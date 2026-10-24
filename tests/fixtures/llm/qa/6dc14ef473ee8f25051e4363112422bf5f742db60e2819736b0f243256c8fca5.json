@@ -1,0 +1,18 @@
+{
+  "case": "finance_news_dollar_rate",
+  "category": "news",
+  "duration_ms": 13958,
+  "first_text_ms": 13938,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Bugun dollar kursi qancha? Markaziy bank kursi bo'yicha ayt.",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Markaziy bank (CBU) rasmiy kursi bo'yicha 1 AQSh dollari 11 838,92 so'm. Kurs 24.10.2026 sanasi bilan e'lon qilingan va kechagidan 64,23 so'm past.\n\n• Manba: cbu.uz, rasmiy kurslar sahifasi.\n• Bu rasmiy kurs. Banklar va obmenniklarda sotib olish va sotish kurslari bundan farq qiladi.\n\n---OVOZ---\nMarkaziy bank rasmiy kursi bo'yicha bir dollar o'n bir ming sakkiz yuz o'ttiz sakkiz so'm va to'qson ikki tiyin. Kurs kechagidan oltmish to'rt so'm atrofida pastroq. Banklar va obmenniklarda kurs bundan farq qilishi mumkin.",
+  "tool_calls": [
+    "WebSearch",
+    "WebFetch"
+  ],
+  "web_searches": 1
+}

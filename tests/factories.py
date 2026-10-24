@@ -32,6 +32,8 @@ from tests.fakes.web import FakeWebTools
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.paths import BotName, Paths
 from yordamchi.dev.deps import DevDeps
+from yordamchi.dev.digest import domain as digest_domain
+from yordamchi.dev.digest import store as digest_store
 from yordamchi.dev.digest.domain import ReportQuestion, ServerCheck
 from yordamchi.dev.digest.service import DigestState
 from yordamchi.dev.gate import domain as gate_domain
@@ -50,6 +52,7 @@ from yordamchi.dev.selfupdate import domain as selfupdate_domain
 from yordamchi.dev.selfupdate import store as selfupdate_store
 from yordamchi.dev.selfupdate.models import SelfUpdate
 from yordamchi.dev.servers import domain as servers_domain
+from yordamchi.dev.servers import store as servers_store
 from yordamchi.dev.servers.models import ServerCheck as ServerCheckRow
 from yordamchi.dev.turns import store as turns_store
 from yordamchi.dev.turns.domain import DeliveryMode, DeliverySource, TurnKind, TurnRequest, TurnStatus, TurnSummary
@@ -62,7 +65,9 @@ from yordamchi.personal.artefacts import domain as artefacts_domain
 from yordamchi.personal.artefacts.domain import VideoLimits
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.personal.media.domain import MediaKind, MediaRequest
+from yordamchi.personal.qa.domain import QaQuestion
 from yordamchi.ports.agent import ToolCall
+from yordamchi.ports.assistant import Assistant
 from yordamchi.ports.git import Commit, GitStatus
 from yordamchi.ports.mcp import McpTool
 from yordamchi.ports.media import MediaAnalysis
@@ -1576,3 +1581,118 @@ async def make_owner_burst(
         )
     async with deps.db.uow() as s:
         return await make_closed_burst(s, part)
+
+
+# --- bridge ---
+async def add_digest_row(
+    db: Database,
+    project: str = "BonviHR",
+    *,
+    at: datetime,
+    checked_at: datetime | None = None,
+    description: str = "",
+    natija: str | None = "Login sahifasi tuzatildi",
+    tests: str = "passed",
+    commits: Sequence[tuple[str, datetime]] = (),
+    branch: str = "main",
+    upstream: str | None = "origin/main",
+    ahead: int = 0,
+    behind: int = 0,
+    dirty: int = 0,
+    git_error_code: str | None = None,
+    open_questions: int = 0,
+    pending_decisions: int = 0,
+    handoff_note: str | None = None,
+) -> None:
+    """A `projects` row plus its `digests` row in dev.db, written with the dev digest's own JSON helpers, so the
+    bridge reads exactly the shapes the dev bot writes."""
+    checked = checked_at or at
+    commit_lines = tuple(
+        digest_domain.CommitLine(f"{index:07x}", subject, moment) for index, (subject, moment) in enumerate(commits)
+    )
+    results = (
+        (
+            digest_domain.ResultLine(
+                1, TurnStatus.DONE, "Login sahifasini tuzat", natija=natija, tests=tests, at=checked
+            ),
+        )
+        if natija is not None
+        else ()
+    )
+    async with db.uow() as s:
+        await make_project(s, project, at=at)
+        if description:
+            row = await projects_store.get_project(s, project)
+            assert row is not None
+            row.description = description
+        await digest_store.set_digest(
+            s,
+            project,
+            {
+                "updated_at": checked,
+                "checked_at": checked,
+                "git_branch": branch,
+                "git_head": "a1b2c3d4e5f6",
+                "git_head_subject": None,
+                "git_head_at": None,
+                "git_upstream": upstream,
+                "ahead": ahead,
+                "behind": behind,
+                "dirty_count": dirty,
+                "untracked_count": 0,
+                "git_error_code": git_error_code,
+                "recent_commits_json": digest_domain.commits_json(commit_lines),
+                "recent_files_json": [],
+                "recent_files_count": 0,
+                "results_json": digest_domain.results_json(results),
+                "last_natija": natija,
+                "last_natija_at": checked if natija else None,
+                "last_turn_id": 1 if natija else None,
+                "open_questions": open_questions,
+                "pending_decisions": pending_decisions,
+                "queued": 0,
+                "parked": 0,
+                "handoff_note": handoff_note,
+                "handoff_note_at": checked if handoff_note else None,
+                "handoff_note_source": "executor" if handoff_note else None,
+                "handoff_turn_id": None,
+                "executor": "claude",
+                "session_id": None,
+            },
+        )
+
+
+async def add_server_check_row(
+    db: Database, host: str = "bonvi-srv", *, at: datetime, ok: bool = True, issues: Sequence[str] = ()
+) -> None:
+    summary: JsonValue = {"issues": [{"kind": "disk", "subject": issue, "value": 91} for issue in issues]}
+    async with db.uow() as s:
+        await servers_store.add_server_check(
+            s, host=host, at=at, ok=ok, summary=summary, error_code=None, duration_ms=120
+        )
+
+
+# --- qa ---
+def make_qa_question(
+    text: str = "Kvant kompyuter nima?",
+    *,
+    chat_id: int = OWNER_ID,
+    burst_id: int | None = 1,
+    forwarded: Sequence[str] = (),
+) -> QaQuestion:
+    """A closed burst as `personal/qa` gets it: the owner's own words and what he forwarded."""
+    return QaQuestion(chat_id=chat_id, own_text=text, forwarded=tuple(forwarded), burst_id=burst_id)
+
+
+def with_fallback(deps: PersonalDeps, fallback: Assistant | None) -> PersonalDeps:
+    """The personal deps with a "zaxira model" assistant (Q4)."""
+    return replace(deps, fallback_assistant=fallback)
+
+
+QA_REPLY: Final = (
+    "Kvant kompyuter kubitlar bilan ishlaydi: ular bir vaqtda 0 va 1 holatida bo'la oladi.\n"
+    "Bu ba'zi masalalarni ancha tez yechishga imkon beradi.\n"
+    "---OVOZ---\n"
+    "Kvant kompyuter kubitlar bilan ishlaydi. Asosiy farqi: bir vaqtda bir nechta holat. "
+    "E'tibor bering, u oddiy kompyuterning o'rnini bosmaydi.\n"
+)

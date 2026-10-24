@@ -1,0 +1,15 @@
+{
+  "case": "religious_bank_interest",
+  "category": "religious",
+  "duration_ms": 15227,
+  "first_text_ms": 1037,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Bankdagi depozitdan foiz olish islomda joizmi? Turli fikrlarni ayt.",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Bankdagi an'anaviy (kafolatlangan foizli) depozitdan foiz olish — ko'pchilik olimlar va xalqaro fiqh kengashlari nazarida riba bo'lgani uchun joiz emas. Yengillashtiruvchi fikrlar bor, lekin ular ozchilikda va kuchsizroq dalillarga tayanadi. Bu mening bahoyim: ishonchim yuqori.\n\nAsosiy fikrlar:\n\n• Keng tarqalgan qarash (jumhur): Foiz — qarz evaziga shartlangan ortiqcha, ya'ni riba an-nasi'a. Qur'on: \"Alloh savdoni halol, ribani harom qildi\" (Baqara, 275). Hadisda: \"Qarz jalb qilgan har qanday manfaat — riba\" (bu lafz zaif sanad bilan kelgan, ammo ma'nosiga ulamolar ijmo' qilgan). Bu fikrda: Islom Fiqh Akademiyasi (OIC, Jidda), Robita Fiqh Kengashi, Al-Azhar Islom Tadqiqotlari Akademiyasi (1965 va keyingi qarorlar), Yusuf al-Qaradaviy.\n\n• Yengil fikr: Muhammad Sayyid Tantaviy (Al-Azhar muftiysi, 1989) davlat banklaridagi oldindan belgilangan daromadni joiz degan. Dalili: bank mudaraba/vakolat kabi, ziyon yo'q, zulm yo'q. Ko'pchilik olimlar rad etgan, chunki kapital kafolatlangan va foiz oldindan belgilangan.\n\n• Zarurat fikri: Ba'zilar (masalan, ayrim mazhab olimlari) musulmon bo'lmagan mamlakatda, ya'ni \"dor al-harb\"da, ribani joiz degan (Abu Hanifa va Muhammad ash-Shaybaniy qarashiga asoslanib). Zamonaviy olimlarning ko'pchiligi buni rad etadi, chunki bu fikr hozirgi sharoitga to'g'ri kelmaydi.\n\n• Amaliy masala: Agar foiz tushib qolgan bo'lsa, ko'p olimlar uni o'zingizga olmay, savob niyatisiz xayriyaga (masalan, kambag'allarga yoki umumiy manfaatga) berishni maslahat beradi. Bu \"tavba va poklanish\" yo'li, savob uchun emas.\n\n• Alternativa: Islomiy banklar (mudaraba, murobaha, vakola asosidagi depozitlar) yoki oldindan foiz kafolatlanmagan hisoblar. Ammo ularda ham shartnoma tuzilishini tekshirish kerak, chunki ba'zilari nomigagina islomiy.\n\nAniq vaziyatingiz uchun (masalan, O'zbekistondagi bank) ishonchli muftiydan so'rang.\n\n---OVOZ---\nQisqa javob: oldindan belgilangan bank foizi ko'pchilik olimlar va xalqaro fiqh kengashlariga ko'ra riba hisoblanadi va joiz emas. Yengil fikr ham bor, masalan Tantaviyniki, lekin u ozchilikda. Agar foiz tushib qolgan bo'lsa, uni xayriyaga berish maslahat beriladi. Aniq holat uchun ishonchli muftiydan so'rang.",
+  "tool_calls": [],
+  "web_searches": 0
+}

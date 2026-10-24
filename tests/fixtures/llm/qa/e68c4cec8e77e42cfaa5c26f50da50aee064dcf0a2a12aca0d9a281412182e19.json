@@ -1,0 +1,15 @@
+{
+  "case": "creative_autumn_poem",
+  "category": "creative",
+  "duration_ms": 7433,
+  "first_text_ms": 994,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Kuz haqida qisqa she'r yozib ber, kayfiyatim tushib turibdi.",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Kuz\n\nSarg'aygan barglar jim to'kilar,\nShamol ohista qo'shiq aytar.\nYomg'ir tomchisi deraza qoqar,\nGo'yo \"yuragim, bezovta bo'lma\" der.\n\nKuz – nafas rostlash fasli,\nDaraxt ham yukini tashlaydi.\nSen ham tashla g'am-tashvishni,\nBahor har doim ortidan keladi.\n\nChoyni damla, issiq ho'plab ol,\nBugun o'zing bilan mehribon bo'l.\nTushgan kayfiyat ham bir yaproq,\nShamol uni olib ketar, ishon.\n\nKayfiying tushgan bo'lsa, bu insoniy holat, kuzning o'zi ham ba'zan shunday ta'sir qiladi. Agar bu holat uzoq davom etsa, yaqin odamingiz yoki mutaxassis bilan gaplashgan ma'qul.\n\n---OVOZ---\nKuz barglarini to'kadi, daraxt yukini tashlaydi. Sen ham g'am-tashvishni tashla, bahor har doim ortidan keladi. Bugun issiq choy ichib, o'zingga mehribon bo'l. Tushgan kayfiyat ham bir yaproq, shamol uni olib ketadi.",
+  "tool_calls": [],
+  "web_searches": 0
+}

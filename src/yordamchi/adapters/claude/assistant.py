@@ -40,6 +40,21 @@ allows (no tools, so an ask has no side effect). Usage limit (`rate_limit_event`
 executor) → `RateLimited(retry_after)`; 401/403 → `AuthFailed`; missing CLI → `NotInstalled`; anything else →
 `ProviderUnavailable`. Cost is the per-ask delta in micro-USD (`stream.StreamTranslator`).
 
+**The personal `qa` kind (T72; SPEC §3.2.13, §5.3 personal column; NFR-SEC-08; spike S5).** The dev kinds above are
+unchanged. A `qa` pool belongs to one *conversation*, whose key is the CLI session id, and holds one live client and
+no spare (a spare cannot share the session id): the first ask of a new conversation is warmed by `warm()`, later
+asks are warm, and a client rebuilt for the same conversation (it broke, a timeout, an effort or toolset change, a
+bot restart with `resume=True`) **resumes** the session, so the conversation survives. Settings versions, the ask
+count and the context size never rotate it: persona and limits travel per ask (S4), the CLI compacts its own
+context, and the qa service rotates conversations (idle hours, the WebSearch count, "yangi suhbat") via `reset()`.
+Options: cwd `<sessions>/assistant`, `setting_sources=[]`, the custom system prompt, `tools=["WebSearch",
+"WebFetch"]` plus the request's in-process toolsets as SDK MCP servers, `allowed_tools` = the exact allowlist,
+`dontAsk`, `strict_mcp_config=True`, `--restricted` (S5), `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`,
+`CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION`, partial messages on. The PreToolUse guard allows exactly the allowlist.
+The `init` check is `allowlist ⊆ init.tools ⊆ allowlist + harness` and the MCP servers are exactly the toolsets, all
+`connected`; anything else refuses the session with `PersonalToolsMismatch` (never retried, never used). Tool calls
+run the request's handlers, bounded by each tool's `timeout_s`; a failure is an error result the model reads.
+
 Logs: kind, session id, codes, counts, durations, versions, cost. Never prompts, instructions or answers.
 """
 
@@ -56,7 +71,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, cast
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ClaudeSDKError
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    ClaudeSDKError,
+    SdkMcpTool,
+    ToolAnnotations,
+    create_sdk_mcp_server,
+)
 
 from yordamchi.adapters.claude import cli, control, proctree
 from yordamchi.adapters.claude.guard import GuardBridge, message_with_context
@@ -69,8 +91,10 @@ from yordamchi.core.errors import (
     ConfigInvalid,
     ExternalError,
     NotInstalled,
+    PersonalToolsMismatch,
     ProviderUnavailable,
     RateLimited,
+    YordamchiError,
 )
 from yordamchi.core.json_value import JsonValue
 from yordamchi.core.log import get_log
@@ -94,13 +118,31 @@ from yordamchi.ports.assistant import (
     AssistantProfile,
     AssistantReply,
     AssistantRequest,
+    AssistantTool,
+    AssistantToolset,
+    ToolHandler,
+    ToolOutput,
 )
 from yordamchi.ports.clock import Clock
 
 log = get_log(__name__)
 
 PROVIDER: Final = "claude"
-SUPPORTED_KINDS: Final[frozenset[AssistantKind]] = frozenset({"routing", "report", "settings"})
+QA_KIND: Final = "qa"
+DEV_KINDS: Final[frozenset[AssistantKind]] = frozenset({"routing", "report", "settings"})
+SUPPORTED_KINDS: Final[frozenset[AssistantKind]] = DEV_KINDS | {QA_KIND}
+# The personal session (SPEC §5.3 personal column; S5).
+QA_BUILTIN_TOOLS: Final = ("WebSearch", "WebFetch")
+QA_EXTRA_ARGS: Final[Mapping[str, str | None]] = {"restricted": None}
+QA_CWD: Final = "assistant"  # DATA/sessions/assistant (SPEC §2.2)
+QA_WEB_SEARCHES_ENV: Final = "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION"
+QA_WEB_SEARCHES_DEFAULT: Final = 1000  # STACK §4.8; the caller passes `qa.web_searches_max`
+QA_DENY_MESSAGE: Final = "personal_tool_not_allowed"
+TOOL_UNAVAILABLE: Final = "tool_unavailable"
+TOOL_TIMED_OUT: Final = "tool_timed_out"
+TOOL_FAILED: Final = "tool_failed"
+SDK_SERVER_VERSION: Final = "1.0.0"
+TOOL_ERRORS: Final = (YordamchiError, OSError, ValueError, LookupError, TypeError)  # a handler's own failures
 MAX_ASKS: Final = 20  # SPEC §5.3
 CONTEXT_LIMIT_TOKENS: Final = 50_000
 CONNECT_TIMEOUT_S: Final = 60.0  # a spare's spawn; `timeouts.session_open_s` default
@@ -119,6 +161,33 @@ SOFT_REASONS: Final = frozenset({"max_asks", "context_size", "effort_changed"})
 type ClientFactory = Callable[[ClaudeAgentOptions], ClaudeSDKClient]
 
 
+def _toolset_signature(toolsets: Sequence[AssistantToolset]) -> str | None:
+    """What the CLI sees of the in-process tools (names, descriptions, schemas): a change needs a new process."""
+    if not toolsets:
+        return None
+    shape = [
+        [toolset.server, [[tool.name, tool.description, tool.input_schema, tool.read_only] for tool in toolset.tools]]
+        for toolset in toolsets
+    ]
+    return json.dumps(shape, sort_keys=True, ensure_ascii=False)
+
+
+def _check_conversation(profile: AssistantProfile) -> None:
+    """A `qa` profile names its conversation by a UUID (it becomes the CLI `--session-id`) and asks for no schema."""
+    conversation = profile.conversation
+    if conversation is None:
+        raise ConfigInvalid(key="conversation", problem="conversation_required")
+    try:
+        uuid.UUID(conversation)
+    except ValueError:
+        raise ConfigInvalid(key="conversation", problem="conversation_not_uuid") from None
+    if profile.output_schema is not None:
+        raise ConfigInvalid(key="output_schema", problem="unsupported_for_qa")
+    servers = [toolset.server for toolset in profile.toolsets]
+    if len(servers) != len(set(servers)):
+        raise ConfigInvalid(key="toolsets", problem="duplicate_server")
+
+
 @dataclass(frozen=True, slots=True)
 class _LaunchKey:
     """The options a client is spawned with and cannot change later. The model is not here: `set_model()`."""
@@ -126,13 +195,26 @@ class _LaunchKey:
     system_prompt: str
     effort: str | None
     schema: str | None
+    tools: str | None = None  # `qa`: the toolset signature
+    web_searches: int | None = None  # `qa`: the WebSearch cap
 
     @classmethod
     def of(cls, profile: AssistantProfile) -> "_LaunchKey":
         if profile.effort is not None and profile.effort not in EFFORTS:
             raise ConfigInvalid(key="effort", problem="unknown_effort")
         schema = None if profile.output_schema is None else json.dumps(profile.output_schema, sort_keys=True)
-        return cls(system_prompt=profile.system_prompt, effort=profile.effort, schema=schema)
+        if profile.kind != QA_KIND:
+            if profile.toolsets:
+                raise ConfigInvalid(key="toolsets", problem="dev_kinds_have_no_tools")
+            return cls(system_prompt=profile.system_prompt, effort=profile.effort, schema=schema)
+        _check_conversation(profile)
+        return cls(
+            system_prompt=profile.system_prompt,
+            effort=profile.effort,
+            schema=schema,
+            tools=_toolset_signature(profile.toolsets),
+            web_searches=profile.max_web_searches or QA_WEB_SEARCHES_DEFAULT,
+        )
 
     @property
     def frozen_part(self) -> tuple[str, str | None]:
@@ -165,6 +247,7 @@ class _Client:
     asks: int = 0
     context_tokens: int = 0
     context: str = ""  # this ask's instructions; the UserPromptSubmit hook returns it as additionalContext
+    handlers: dict[str, ToolHandler] = field(default_factory=dict)  # `qa`: this ask's tool handlers, by full name
     turn_over: bool = True  # False from the send until the turn's result: a client left mid-turn is discarded
     dead: bool = False
     closing: bool = False
@@ -185,6 +268,15 @@ class _Pool:
     spare_key: _LaunchKey | None = None
     profile: AssistantProfile | None = None
     prompt_version: int | None = None
+    # `qa` only: the conversation (the CLI session id), whether this process started it, and the close of the
+    # client it last retired (a rebuilt client resumes the same session only once that process is gone).
+    conversation: str | None = None
+    started: bool = False
+    closing: asyncio.Task[None] | None = None
+
+    @property
+    def spares(self) -> bool:
+        return self.kind != QA_KIND
 
 
 @dataclass(slots=True)
@@ -198,6 +290,7 @@ class _TurnState:
     failure: RuntimeFailed | None = None
     web_searches: int = 0
     result: TurnResult | None = None
+    tools: list[str] = field(default_factory=list)  # the tools called this ask, in order
 
     def read(self, frame: _Frame) -> list[str]:
         texts: list[str] = []
@@ -218,8 +311,10 @@ class _TurnState:
                 self.limited = event
             elif isinstance(event, RuntimeFailed):
                 self.failure = event
-            elif isinstance(event, Progress) and event.kind == "tool_start" and event.tool_name == WEB_SEARCH_TOOL:
-                self.web_searches += 1
+            elif isinstance(event, Progress) and event.kind == "tool_start":
+                self.tools.append(event.tool_name or "")
+                if event.tool_name == WEB_SEARCH_TOOL:
+                    self.web_searches += 1
             elif isinstance(event, TurnResult):
                 self.result = event
         return texts
@@ -334,6 +429,32 @@ def _connect_error(error: BaseException) -> ExternalError:
     return ProviderUnavailable(provider=PROVIDER, retryable=retryable)
 
 
+def _mismatch(kind: AssistantKind) -> ExternalError:
+    """A refused `init`: the personal session says so in the owner's words (NFR-SEC-08); a dev kind as before."""
+    if kind == QA_KIND:
+        return PersonalToolsMismatch()
+    return ProviderUnavailable(provider=PROVIDER, retryable=False)
+
+
+def _cwd_name(kind: AssistantKind) -> str:
+    return QA_CWD if kind == QA_KIND else kind
+
+
+def _qa_expected(profile: AssistantProfile) -> frozenset[str]:
+    """The personal allowlist: the two web tools plus every in-process tool, by its full `mcp__` name."""
+    names = {name for toolset in profile.toolsets for name in toolset.tool_names}
+    return frozenset(QA_BUILTIN_TOOLS) | names
+
+
+def _json_arguments(arguments: Any) -> dict[str, JsonValue]:
+    """The model's tool arguments as plain JSON (the SDK validated them against the tool's schema)."""
+    try:
+        value = json.loads(json.dumps(arguments, allow_nan=False))
+    except (TypeError, ValueError):
+        return {}
+    return {str(key): item for key, item in value.items()} if isinstance(value, dict) else {}
+
+
 def _ensure_dir(path: Path) -> None:
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
@@ -365,7 +486,7 @@ class ClaudeAssistant:
         self._context_limit = context_limit_tokens
         self._connect_timeout = connect_timeout_s
         self._kill_grace_s = kill_grace_s
-        self._pools: dict[AssistantKind, _Pool] = {}
+        self._pools: dict[tuple[AssistantKind, str | None], _Pool] = {}  # (kind, conversation); dev kinds: None
         self._closing: set[asyncio.Task[None]] = set()
         self._closed = False
 
@@ -379,7 +500,7 @@ class ClaudeAssistant:
 
     async def warm(self, profile: AssistantProfile, *, timeout: float) -> None:
         key = self._key(profile)
-        pool = self._pool(profile.kind)
+        pool = self._pool(profile.kind, profile.conversation)
         try:
             async with asyncio.timeout(timeout):
                 async with pool.lock:
@@ -415,14 +536,17 @@ class ClaudeAssistant:
             raise CallTimedOut(operation=f"assistant_{request.kind}") from None
 
     async def reset(self, kind: AssistantKind, *, conversation: str | None, timeout: float) -> None:
-        del conversation  # dev kinds are stateless asks; personal conversations come with the `qa` kind
-        pool = self._pools.get(kind)
+        """Dev kinds: drop the live client (the spare takes over). `qa`: end that conversation's session; the next
+        conversation has its own key, so nothing waits for the old process to go."""
+        pool = self._pools.get(self._pool_key(kind, conversation))
         if pool is None:
             return
         try:
             async with asyncio.timeout(timeout), pool.lock:
                 if pool.live is not None:
                     self._retire(pool, pool.live, reason="reset")
+                if kind == QA_KIND:
+                    self._pools.pop(self._pool_key(kind, conversation), None)
         except TimeoutError:
             raise CallTimedOut(operation=f"assistant_{kind}_reset") from None
 
@@ -458,12 +582,17 @@ class ClaudeAssistant:
             raise ConfigInvalid(key="assistant_kind", problem="unsupported_kind")
         return _LaunchKey.of(profile)
 
-    def _pool(self, kind: AssistantKind) -> _Pool:
+    @staticmethod
+    def _pool_key(kind: AssistantKind, conversation: str | None) -> tuple[AssistantKind, str | None]:
+        return (kind, conversation if kind == QA_KIND else None)
+
+    def _pool(self, kind: AssistantKind, conversation: str | None = None) -> _Pool:
         if self._closed:
             raise ProviderUnavailable(provider=PROVIDER, retryable=False)
-        pool = self._pools.get(kind)
+        key = self._pool_key(kind, conversation)
+        pool = self._pools.get(key)
         if pool is None:
-            pool = self._pools[kind] = _Pool(kind=kind)
+            pool = self._pools[key] = _Pool(kind=kind, conversation=key[1])
         return pool
 
     async def _bounded[T](self, awaitable: Awaitable[T], idle: float | None) -> T:
@@ -478,7 +607,7 @@ class ClaudeAssistant:
     ) -> AsyncGenerator[AssistantDelta | AssistantReply]:
         profile = request.profile
         key = self._key(profile)
-        pool = self._pool(request.kind)
+        pool = self._pool(request.kind, request.conversation)
         # The instructions ride the UserPromptSubmit hook when short, else they open the message (guard.py).
         content = await cli.user_content(message_with_context(request.prompt, request.instructions), request.images)
         await self._bounded(pool.lock.acquire(), idle)
@@ -529,6 +658,9 @@ class ClaudeAssistant:
                 "priority": "later",
             }
             client.context = request.instructions
+            client.handlers = {
+                toolset.qualified(tool): tool.handler for toolset in request.toolsets for tool in toolset.tools
+            }
             client.translator.sent(command_uuid)
             sdk = client.sdk
             if sdk is None:
@@ -542,6 +674,7 @@ class ClaudeAssistant:
                     yield item
         finally:
             client.context = ""
+            client.handlers = {}
             if client.dead:
                 if pool.live is client:
                     self._retire(pool, client, reason="broken")
@@ -585,7 +718,7 @@ class ClaudeAssistant:
                 client.dead = True
                 if turn.failure is not None and turn.failure.code == "protocol":
                     log.error("assistant_tools_mismatch", kind=client.kind, session_id=client.session_id)
-                    raise _Broken(ProviderUnavailable(provider=PROVIDER, retryable=False), retry=False)
+                    raise _Broken(_mismatch(client.kind), retry=False)
                 raise _Broken(ProviderUnavailable(provider=PROVIDER, retryable=True), retry=True)
             for text in turn.read(frame):
                 yield AssistantDelta(text=text)
@@ -625,6 +758,7 @@ class ClaudeAssistant:
             web_searches=web_searches,
             usage=_usage(result, last_context),
             prompt_version=request.prompt_version,
+            tool_calls=tuple(turn.tools) if client.kind == QA_KIND else (),
         )
 
     def _raise_for(
@@ -667,7 +801,29 @@ class ClaudeAssistant:
         )
         return next((reason for reason, due in reasons if due), None)
 
+    async def _acquire_conversation(self, pool: _Pool, profile: AssistantProfile, key: _LaunchKey) -> _Client:
+        """`qa`: the conversation's live client, or a new one for the same session id (resumed once it has turns)."""
+        live = pool.live
+        if live is not None and not live.dead and live.key == key:
+            return live
+        if live is not None:
+            reason = "broken" if live.dead else "launch_changed"
+            if live.key.system_prompt != key.system_prompt:  # a resumed session keeps its first prompt (snapshot)
+                log.warning("assistant_qa_prompt_frozen", session_id=live.session_id)
+            self._retire(pool, live, reason=reason, promote=False)
+        closing = pool.closing
+        if closing is not None and not closing.done():
+            await asyncio.shield(closing)  # one process per session id: the old one must be gone first
+        conversation = pool.conversation or ""
+        built = await self._build(profile, key, session_id=conversation, resume=pool.started or profile.resume)
+        if isinstance(built, ExternalError):
+            raise built
+        pool.live, pool.started = built, True
+        return built
+
     async def _acquire(self, pool: _Pool, profile: AssistantProfile, key: _LaunchKey) -> _Client:
+        if not pool.spares:
+            return await self._acquire_conversation(pool, profile, key)
         live = pool.live
         reason = "empty" if live is None else self._stale(live, profile, key)
         if live is not None and reason is None:
@@ -738,7 +894,7 @@ class ClaudeAssistant:
     def _rotate_if_due(self, pool: _Pool) -> None:
         """After an answer: if the live client is now due and the spare is ready, swap now, off the ask path."""
         live, profile = pool.live, pool.profile
-        if live is None or profile is None:
+        if live is None or profile is None or not pool.spares:
             return
         key = _LaunchKey.of(profile)
         reason = self._stale(live, profile, key)
@@ -761,7 +917,10 @@ class ClaudeAssistant:
             asks=client.asks,
             context_tokens=client.context_tokens,
         )
-        self._spawn_close(client)
+        closing = self._spawn_close(client)
+        if not pool.spares:
+            pool.closing = closing  # `qa`: no spare to promote; a rebuilt client waits for this close
+            return
         profile = pool.profile
         if not promote or profile is None or self._closed:
             return
@@ -773,6 +932,9 @@ class ClaudeAssistant:
 
     # --- one client ---------------------------------------------------------------------------------------------
     def _spec(self, profile: AssistantProfile, cwd: Path, client: _Client, expected: frozenset[str]) -> SessionSpec:
+        if profile.kind == QA_KIND:
+            return self._qa_spec(profile, cwd, client, expected)
+
         async def guard(call: ToolCall) -> GuardVerdict:
             if call.tool_name in expected:
                 return GuardVerdict(allow=True)
@@ -794,18 +956,64 @@ class ClaudeAssistant:
             hook_timeout_s=GUARD_TIMEOUT_S,
         )
 
-    async def _build(self, profile: AssistantProfile, key: _LaunchKey) -> _Built:
-        session_id = str(uuid.uuid4())
-        expected = frozenset({STRUCTURED_TOOL}) if profile.output_schema is not None else frozenset[str]()
+    def _qa_spec(self, profile: AssistantProfile, cwd: Path, client: _Client, expected: frozenset[str]) -> SessionSpec:
+        """SPEC §5.3 personal column: the allowlist hook, `dontAsk`, strict MCP, `--restricted` (S5)."""
+
+        async def allowlist(call: ToolCall) -> GuardVerdict:
+            if call.tool_name in expected:
+                return GuardVerdict(allow=True)
+            return GuardVerdict(allow=False, message=QA_DENY_MESSAGE, reason_code=QA_DENY_MESSAGE)
+
+        env = {**ASSISTANT_ENV, QA_WEB_SEARCHES_ENV: str(client.key.web_searches or QA_WEB_SEARCHES_DEFAULT)}
+        return SessionSpec(
+            kind="investigation",  # never read by build_options or the bridge; the closest shape (dontAsk, no edits)
+            cwd=cwd,
+            model=profile.model,
+            guard=allowlist,
+            effort=cast("Effort | None", profile.effort),
+            context_provider=lambda: client.context,
+            setting_sources=(),
+            tools=QA_BUILTIN_TOOLS,
+            allowed_tools=tuple(sorted(expected)),
+            permission_mode="dontAsk",
+            sdk_servers=tuple(toolset.server for toolset in profile.toolsets),
+            strict_mcp=True,
+            env=env,
+            expected_tools=expected,
+            extra_args=QA_EXTRA_ARGS,
+            hook_timeout_s=GUARD_TIMEOUT_S,
+        )
+
+    def _sdk_servers(self, client: _Client, profile: AssistantProfile) -> dict[str, Any]:
+        """One in-process MCP server per toolset; each tool runs the handler the current ask brought."""
+        return {
+            toolset.server: create_sdk_mcp_server(
+                name=toolset.server,
+                version=SDK_SERVER_VERSION,
+                tools=[_sdk_tool(client, toolset.qualified(tool), tool) for tool in toolset.tools],
+            )
+            for toolset in profile.toolsets
+        }
+
+    async def _build(
+        self, profile: AssistantProfile, key: _LaunchKey, *, session_id: str | None = None, resume: bool = False
+    ) -> _Built:
+        session_id = session_id or str(uuid.uuid4())
+        qa = profile.kind == QA_KIND
+        if qa:
+            expected = _qa_expected(profile)
+        else:
+            expected = frozenset({STRUCTURED_TOOL}) if profile.output_schema is not None else frozenset[str]()
+        servers = frozenset(toolset.server for toolset in profile.toolsets) if qa else None
         client = _Client(
             kind=profile.kind,
             key=key,
             session_id=session_id,
             model=profile.model,
             settings_version=profile.settings_version,
-            translator=StreamTranslator(session_id=session_id, expected_tools=expected),
+            translator=StreamTranslator(session_id=session_id, expected_tools=expected, expected_servers=servers),
         )
-        cwd = self._sessions_dir / profile.kind
+        cwd = self._sessions_dir / _cwd_name(profile.kind)
         try:
             await asyncio.to_thread(_ensure_dir, cwd)
             spec = self._spec(profile, cwd, client, expected)
@@ -817,9 +1025,10 @@ class ClaudeAssistant:
                 spec,
                 cli_path=self._cli_path,
                 env=env,
-                launch=Launch(session_id=session_id, resume=False),
+                launch=Launch(session_id=session_id, resume=resume),
                 hooks=bridge.hooks(),
                 can_use_tool=bridge.can_use_tool,
+                sdk_servers=self._sdk_servers(client, profile) if qa else None,
                 stderr=_drop_stderr,
             )
         except (OSError, ValueError) as error:
@@ -850,6 +1059,10 @@ class ClaudeAssistant:
             mapped = _connect_error(error)
             log.warning("assistant_connect_failed", kind=profile.kind, session_id=session_id, code=mapped.code.value)
             client.dead = True
+            if qa and resume and control.failure(error)[0] == "session_not_found":
+                # The transcript is gone (cleanup): the conversation restarts under the same id, without its past.
+                log.warning("assistant_qa_resume_missing", session_id=session_id)
+                return await self._build(profile, key, session_id=session_id, resume=False)
             return mapped
         client.cli_pid = control.cli_pid(sdk)
         client.pump = aio.spawn(f"assistant_pump_{session_id[:8]}", self._pump(client, sdk, bridge))
@@ -887,12 +1100,13 @@ class ClaudeAssistant:
             bridge.release_questions()
             client.queue.put_nowait(_Ended(code=code))
 
-    def _spawn_close(self, client: _Client) -> None:
+    def _spawn_close(self, client: _Client) -> "asyncio.Task[None] | None":
         if client.closing:
-            return
+            return None
         task = aio.spawn(f"assistant_close_{client.session_id[:8]}", self._close_client(client))
         self._closing.add(task)
         task.add_done_callback(self._closing.discard)
+        return task
 
     async def _close_client(self, client: _Client) -> None:
         if client.closing:
@@ -937,6 +1151,42 @@ class ClaudeAssistant:
                     await asyncio.shield(pump)
         proctree.send(plan, signal.SIGKILL, own_pgid=own_pgid)
         log.warning("assistant_client_killed", session_id=client.session_id, groups=len(plan.groups))
+
+
+def _sdk_tool(client: _Client, qualified: str, tool: AssistantTool) -> SdkMcpTool[Any]:
+    """The SDK side of one in-process tool: bounded by `tool.timeout_s`, and any failure is an error result."""
+
+    async def call(arguments: dict[str, Any]) -> dict[str, Any]:
+        started = time.monotonic()
+        handler = client.handlers.get(qualified)
+        if handler is None:  # a call outside an ask (nothing should make one)
+            output = ToolOutput(text=TOOL_UNAVAILABLE, is_error=True)
+        else:
+            try:
+                async with asyncio.timeout(tool.timeout_s):
+                    output = await handler(_json_arguments(arguments))
+            except TimeoutError:
+                output = ToolOutput(text=TOOL_TIMED_OUT, is_error=True)
+            except TOOL_ERRORS as error:
+                log.warning("assistant_tool_failed", tool=qualified, error_type=type(error).__name__)
+                output = ToolOutput(text=TOOL_FAILED, is_error=True)
+        log.info(
+            "assistant_tool_called",
+            kind=client.kind,
+            session_id=client.session_id,
+            tool=qualified,
+            is_error=output.is_error,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+        return {"content": [{"type": "text", "text": output.text}], "is_error": output.is_error}
+
+    return SdkMcpTool(
+        name=tool.name,
+        description=tool.description,
+        input_schema=dict(tool.input_schema),
+        handler=call,
+        annotations=ToolAnnotations(readOnlyHint=tool.read_only),
+    )
 
 
 def _conforms(assistant: ClaudeAssistant) -> Assistant:

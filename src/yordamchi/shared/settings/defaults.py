@@ -1141,8 +1141,18 @@ SELFUPDATE_HEALTH_TIMEOUT_S = Setting(
 PERSONA_PERSONAL = Setting(
     "persona.personal",
     str,
-    "Short, precise and professional, a little warm. Takes its own evidence-based position, cites scholars and "
-    "sources, and notes where they disagree.",
+    # T72 (UC-30): the owner's personal assistant. Model-facing English; it travels in every turn's instructions
+    # block (SPEC §5.4), so a change by chat applies to the next reply.
+    "Short, precise and professional, with a little warmth; light humour when the moment allows, not always "
+    "business-only. Think for yourself: take your own position, grounded in evidence, the scientific consensus, "
+    "world experience and the views of recognised scholars (Islamic scholars where the question touches religion "
+    "or morals), and say how sure you are. Do not mirror the owner: when he is mistaken or a claim is contested, "
+    "say so plainly and kindly, give your strongest reason or source, and name the best argument on the other "
+    "side. Never flatter "
+    "and never agree just to please. On religion: be respectful; cite the Qur'an, authentic hadith collections "
+    "and named scholars or madhhabs; separate consensus from difference of opinion; for a personal ruling, "
+    "suggest asking a qualified scholar. On health, law and money: concrete, useful guidance, and say when a "
+    "professional is needed. Poems, songs and stories: creative and natural in the language asked for.",
     check=MaxLen(2000),
     group=Group.PERSONA,
     bots=PERSONAL,
@@ -1514,6 +1524,76 @@ TIMEOUTS_GITHUB_S = Setting(
 
 # --- newproject ---
 # `newproject.draft_silence_s` and `newproject.plan_max_min` were seeded in the "newproject (P2)" block above.
+
+# --- bridge ---
+# T70, UC-36: the personal bot's read-only view of dev.db (SPEC §2.3). A status answer arrives within 4 s.
+TIMEOUTS_BRIDGE_S = Setting(
+    "timeouts.bridge_s",
+    float,
+    2.0,
+    check=Range(0.5, 10),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="One read of the dev bot's digests through the bridge (a status answer, or the assistant's status tool).",
+)
+
+# --- qa ---
+# T72, UC-30, SPEC §3.2.13: the personal assistant's bounds. NFR-SPD: first text ≤ 8 s, complete ≤ 20 s without
+# tools, ≤ 30 s with a web search; the totals below are hard stops, not targets.
+TIMEOUTS_QA_S = Setting(
+    "timeouts.qa_s",
+    float,
+    120.0,
+    check=Range(20, 600),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="Longest whole answer (tools included); past it the fallback model answers if it can.",
+)
+TIMEOUTS_QA_IDLE_S = Setting(
+    "timeouts.qa_idle_s",
+    float,
+    60.0,
+    check=Range(5, 300),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="Longest silence of the assistant's stream before the answer counts as failed.",
+)
+TIMEOUTS_QA_FALLBACK_S = Setting(
+    "timeouts.qa_fallback_s",
+    float,
+    25.0,
+    check=Range(5, 120),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="One answer of the 'zaxira model' while Claude is unavailable.",
+)
+TIMEOUTS_QA_DRAFT_S = Setting(
+    "timeouts.qa_draft_s",
+    float,
+    3.0,
+    check=Range(0.5, 10),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="One sendMessageDraft while an answer streams; a slow draft is dropped, never the answer.",
+)
+QA_WEB_SEARCHES_MAX = Setting(
+    "qa.web_searches_max",
+    int,
+    1000,
+    check=Range(200, 5000),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION of the personal session (STACK §4.8; the CLI default is 200).",
+)
+QA_WEB_SEARCH_ROTATE_AT = Setting(
+    "qa.web_search_rotate_at",
+    int,
+    900,
+    check=Range(100, 5000),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="A conversation with this many web searches starts anew (seeded with its summary), below the cap.",
+)
 
 
 # Every Setting bound above, by key (Registry rejects a duplicate key).

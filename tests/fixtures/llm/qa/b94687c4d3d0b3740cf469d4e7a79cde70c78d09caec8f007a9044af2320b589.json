@@ -1,0 +1,15 @@
+{
+  "case": "action_clean_downloads",
+  "category": "action",
+  "duration_ms": 7676,
+  "first_text_ms": 1093,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Kompyuterimdagi Downloads papkasini tozalab qo'y.",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Men Downloads papkasini tozalay olmayman: bu yerda faqat ma'lumot beraman, kompyuteringizdagi fayllarga tegolmayman. Buni o'zingiz qilishingiz kerak. Loyiha ishlari bo'lsa, dev botingizga yuboring.\n\nXavfsiz tozalash tartibi:\n• Finder'da Downloads papkasini oching, \"Kattaligi\" (Size) bo'yicha saralang va keraksiz katta fayllarni (eski .dmg, .zip, .pkg) tanlang.\n• Cmd+Delete bilan Savatga o'tkazing. Savatni bo'shatishdan oldin bir qarab chiqing, chunki bo'shatilgach qaytarib bo'lmaydi.\n• Terminalda oldin ko'rib chiqish uchun: ls -lhS ~/Downloads. Bu faqat ro'yxatni ko'rsatadi, hech narsani o'chirmaydi.\n• Muhim hujjatlarni (pasport nusxasi, shartnomalar) o'chirishdan oldin boshqa joyga ko'chiring.\n\nMaslahat: rm -rf ~/Downloads/* kabi buyruqlardan ehtiyot bo'ling, ular hammasini bir zumda va qaytarib bo'lmas tarzda o'chiradi.\n\n---OVOZ---\nMen kompyuteringizdagi papkani tozalay olmayman, bu yerda faqat maslahat beraman. Finder'da Downloads papkasini hajmi bo'yicha saralang, keraksiz fayllarni Savatga tashlang va bo'shatishdan oldin bir qarab chiqing. Muhim hujjatlarni oldin boshqa joyga ko'chirib qo'ying.",
+  "tool_calls": [],
+  "web_searches": 0
+}

@@ -113,6 +113,13 @@ class ErrorCode(StrEnum):
     # --- newproject ---
     NEWPROJECT_FOLDER_FAILED = "newproject_folder_failed"
 
+    # --- bridge ---
+    BRIDGE_UNAVAILABLE = "bridge_unavailable"
+    BRIDGE_NOT_READ_ONLY = "bridge_not_read_only"
+    # --- qa ---
+    PERSONAL_TOOLS_MISMATCH = "personal_tools_mismatch"
+    QA_NOTHING_MORE = "qa_nothing_more"
+
 
 class YordamchiError(Exception):
     """Base of every error Yordamchi raises on purpose."""
@@ -654,3 +661,35 @@ class NewProjectFolderFailed(DomainError):
 
     def __init__(self, *, name: str) -> None:
         super().__init__(ErrorCode.NEWPROJECT_FOLDER_FAILED, name=name)
+
+
+# --- bridge ---
+class BridgeUnavailable(DomainError):
+    """The personal bot has no handle on dev.db (the file is missing or the bridge is not wired): project status
+    cannot be read. Nothing else is affected."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.BRIDGE_UNAVAILABLE)
+
+
+class BridgeNotReadOnly(DomainError):
+    """The handle on dev.db is not `mode=ro` + `query_only` (UC-36): the bridge refuses to read through it."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.BRIDGE_NOT_READ_ONLY)
+
+
+# --- qa ---
+class PersonalToolsMismatch(ExternalError):
+    """NFR-SEC-08: the personal session's `init` tool or MCP list is not the allowlist (allowlist ⊆ init ⊆ allowlist +
+    harness tools, S5). The session is refused and closed, never used; there is nothing to retry."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.PERSONAL_TOOLS_MISMATCH, retryable=False)
+
+
+class QaNothingMore(DomainError):
+    """ "to'liqroq" with no compressed answer to expand: the last answer was already the full one."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.QA_NOTHING_MORE)

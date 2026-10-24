@@ -1,0 +1,15 @@
+{
+  "case": "opinion_books_useless",
+  "category": "opinion",
+  "duration_ms": 10918,
+  "first_text_ms": 1004,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Menimcha, kitob o'qish endi foydasiz, hammasini YouTube'dan o'rgansa bo'ladi. To'g'rimi?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Yo'q, to'liq to'g'ri emas. YouTube ko'p narsani o'rgatishga yaxshi (amaliy ko'nikmalar, tezkor tushuntirish), lekin kitobni to'liq almashtira olmaydi. Ishonchim yuqori, chunki bu o'qish va o'rganish bo'yicha tadqiqotlarga tayanadi.\n\nKitobning afzalliklari:\n• Chuqurlik: kitob bir mavzuni izchil, dalillari bilan ochadi. Video esa ko'pincha 10–15 daqiqaga siqilgan xulosa bo'ladi.\n• Diqqat: o'qish diqqatni jamlashga o'rgatadi. Qisqa videolar esa buning aksini qiladi.\n• Tezlik va nazorat: o'qishda to'xtab, qaytib, o'ylab borasiz. Video sizni o'z sur'atiga olib ketadi.\n• Sifat: kitobni odatda muharrir ko'rib chiqadi. YouTube'da esa mutaxassis ham, havaskor ham bir xil ko'rinadi.\n\nBoshqa tomondan, sizning fikringizda ham haqiqat bor: pazandalik, ta'mirlash, dasturlash kabi amaliy narsalarni videodan o'rganish ko'pincha osonroq. Kitob o'qishning ba'zi afzalliklari (masalan, matnni tushunish bo'yicha) mavzuga bog'liq, va olimlar orasida bu borada hamma narsa hal bo'lgan emas.\n\nMening fikrim: ikkalasini birga ishlating. Videoni mavzuga kirish uchun oling, chuqur o'rganish uchun kitobga o'ting. Hatto \"hammasi YouTube'da\" degan fikrning o'zi ham kitob o'qimaslikning bahonasi bo'lib qolmasin. 😄\n\n---OVOZ---\nYo'q, kitob hali foydasiz emas. YouTube amaliy ko'nikmalar va tezkor tushuntirish uchun yaxshi, lekin chuqurlik, diqqat va izchil fikrlash uchun kitob ustun. Eng yaxshi yo'l ikkalasini birga ishlatish: videodan boshlang, kitob bilan chuqurlashing.",
+  "tool_calls": [],
+  "web_searches": 0
+}

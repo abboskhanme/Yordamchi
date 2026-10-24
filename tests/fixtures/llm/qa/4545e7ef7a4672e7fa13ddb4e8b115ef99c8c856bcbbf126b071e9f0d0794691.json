@@ -1,0 +1,15 @@
+{
+  "case": "opinion_ten_percent_brain",
+  "category": "opinion",
+  "duration_ms": 12197,
+  "first_text_ms": 1052,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Odam miyasining faqat 10 foizini ishlatadi, shuning uchun miyani ochadigan tabletka ichmoqchiman. Yaxshi fikr-a?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Yo'q, yaxshi fikr emas. \"10 foiz\" — mashhur afsona: inson miyasining deyarli barcha qismi ishlatiladi, faqat turli vaqtda turli hududlar faolroq bo'ladi. Uxlaganda ham miya faol.\n\nNega bu noto'g'ri:\n• Funksional MRT va PET tekshiruvlari butun miya faoliyatini ko'rsatadi.\n• Miya tanadagi og'irlikning taxminan 2% bo'lsa-da, energiyaning taxminan 20% ni sarflaydi. Ishlatilmaydigan 90% uchun tabiat bunchalik \"to'lamasdi\".\n• Miyaning har qanday kichik hududi shikastlansa, nutq, harakat, xotira yoki xulq-atvorda iz qoladi. \"Bo'sh\" joy topilmagan.\n\nTabletkalar haqida:\n• \"Miyani ochadigan\" dori mavjud emas. Bunday va'da qiladigan ko'p qo'shimchalarning samarasi isbotlanmagan.\n• Retsept bilan beriladigan stimulyatorlar (masalan, metilfenidat, modafinil) diqqat buzilishi yoki uyqu kasalligini davolaydi. Sog'lom odamda aql-idrokni sezilarli oshirishi isbotlanmagan, lekin yurak urishi, uyqusizlik, bezovtalik va qaramlik xavfi bor.\n• Qora bozordagi \"nootrop\" tabletkalarning tarkibi noma'lum bo'lishi mumkin.\n\nAniq ishlaydigan narsalar: yetarli uyqu (7-9 soat), jismoniy harakat, to'g'ri ovqatlanish, yangi narsa o'rganish, ijtimoiy muloqot. Zerikarli, lekin dalillar shu tomonda. Diqqat yoki xotira bilan muammo sezsangiz, shifokorga (nevrolog) murojaat qiling.\n\nIshonchim yuqori: bu mavzuda ilmiy konsensus aniq.\n\n---OVOZ---\nYo'q, yaxshi fikr emas. Miyaning o'n foizini ishlatish haqidagi gap afsona. Tasvirlash tekshiruvlari butun miya faolligini ko'rsatadi. Miyani ochadigan tabletka mavjud emas, retseptli stimulyatorlar esa xavfli bo'lishi mumkin. Yaxshisi, uyqu, harakat va o'rganishga e'tibor bering. Muammo sezsangiz, nevrologga boring.",
+  "tool_calls": [],
+  "web_searches": 0
+}

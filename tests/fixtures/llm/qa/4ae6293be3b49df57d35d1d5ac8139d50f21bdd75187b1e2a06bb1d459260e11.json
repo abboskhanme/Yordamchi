@@ -1,0 +1,15 @@
+{
+  "case": "education_english_plan",
+  "category": "education",
+  "duration_ms": 12494,
+  "first_text_ms": 2034,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Ingliz tilini 6 oyda B2 darajaga olib chiqish uchun qisqa reja tuzib ber.",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "B2 ga 6 oyda yetish mumkin, lekin boshlang'ich darajangizga bog'liq. A2 dan B1 gacha bo'lsangiz, kuniga 2 soat bilan real. A1 dan boshlasangiz, 6 oy juda tig'iz bo'ladi. Rasmiy hisoblarga ko'ra, bir daraja uchun taxminan 150–200 soat kerak.\n\nReja (kuniga 1,5–2 soat):\n\n1–2-oy (A2 dan B1 ga):\n• Grammatika asoslari: zamonlar, modal fe'llar, shart gaplar (English Grammar in Use, Murphy).\n• Kuniga 10 ta yangi so'z, takrorlash uchun Anki.\n• Kuniga 30 daqiqa tinglash (BBC Learning English, subtitr bilan).\n\n3–4-oy (B1 mustahkamlash):\n• Grammatika: passiv, reported speech, gerund va infinitiv.\n• Haftada 2–3 marta suhbat amaliyoti (repetitor yoki italki/Preply).\n• Har kuni 10–15 daqiqa yozish, xatolarni tuzatish.\n• Subtitrsiz podkast va YouTube.\n\n5–6-oy (B1 dan B2 ga):\n• Faqat B2 darajadagi materiallar: maqola, podkast, seriallar.\n• IELTS, Cambridge B2 First (FCE) formatida mashq va to'liq mock testlar.\n• Haftalik suhbat va insho yozish, fikrni asoslash.\n• Oxirida mock test orqali darajani tekshiring.\n\nAsosiy qoida: har kun oz bo'lsa ham qiling, o'tkazib yuborishdan ko'ra 30 daqiqa yaxshi. Nutq bo'yicha eng tez natijani muloqot beradi, faqat grammatika emas.\n\nAvval bepul onlayn daraja testini topshiring (masalan, Cambridge yoki EF SET), shunda reja aniqroq bo'ladi. Hozir qaysi darajadasiz?\n\n---OVOZ---\nOltı oyda B2 ga yetish mumkin, agar hozir A2 yoki B1 darajasida bo'lsangiz va kuniga ikki soat shug'ullansangiz. Birinchi ikki oy grammatika va lug'at, keyingi ikki oy suhbat va yozish, oxirgi ikki oy B2 formatidagi testlar. Eng muhimi, har kun muntazam shug'ullaning. Avval daraja testini topshiring.",
+  "tool_calls": [],
+  "web_searches": 0
+}

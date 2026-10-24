@@ -1,0 +1,15 @@
+{
+  "case": "religious_fasting_toothpaste",
+  "category": "religious",
+  "duration_ms": 14595,
+  "first_text_ms": 1068,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Ro'za tutgan odam tish pastasi ishlatsa ro'zasi buziladimi? Ulamolar nima deydi?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Tish pastasi ishlatish ro'zani o'z-o'zidan buzmaydi, lekin ehtiyot bo'lish kerak: hech narsa yutib yubormaslik shart. Ko'pchilik ulamolar buni ruxsat etilgan, ammo makruh yoki ehtiyot uchun afzal emas deb hisoblaydi.\n\nUlamolar qarashlari:\n• Hanafiy mazhabi: ro'za tutgan kishiga misvok yoki tish cho'tkasi mumkin. Pasta ishlatish makruh sanalishi mumkin, chunki ta'mi og'izda qoladi va tomoqqa o'tib ketish xavfi bor. Lekin tomoqqa o'tmasa, ro'za buzilmaydi.\n• Shofe'iy va Molikiy mazhablari: ta'm va hid yutilmasa ham, mubolag'a bilan chayqash va tomoqqa o'tib ketish xavfi sababli pastadan qochish yaxshiroq. Yutib yuborilsa, ro'za buziladi.\n• Hanbaliy mazhabi va zamonaviy fatvolar (masalan, Shayx Ibn Boz, Ibn Usaymin): og'izni yaxshilab chayqab, yutmasa, ro'za buzilmaydi. Ibn Usaymin pastadan qochishni afzal deb bilgan, chunki kuchli ta'mi tomoqqa o'tishi mumkin.\n\nAsos: Payg'ambar ﷺ ro'zadorga burunga suv tortishda mubolag'a qilmaslikni aytgan, ya'ni suv ichkariga o'tib ketmasligi kerak (Abu Dovud, Termiziy, hadis sahih). Ulamolar buni tish yuvishga ham o'xshatadilar.\n\nAmaliy maslahat:\n1. Eng xavfsiz yo'l: ro'za paytida pastasiz, faqat suv bilan yoki misvok bilan tozalash. Pastani suhurdan keyin yoki iftordan keyin ishlatish ham mumkin.\n2. Zarur bo'lsa, juda oz miqdorda pasta ishlating, boshni oldinga egib, so'ng tozalab qayta-qayta chayqang.\n3. Tasodifan oz yutib yuborilsa: ko'pchilik ulamolarga ko'ra, ataylab bo'lmasa, ro'za buzilmaydi.\n\nIshonchim yuqori: asosiy fikr, ya'ni yutilmasa ro'za buzilmaydi, mazhablar o'rtasida keng tarqalgan. Shaxsiy holatingiz uchun mahalliy muftiyat yoki malakali ulamodan so'rang.\n\n---OVOZ---\nTish pastasi ro'zani o'zi buzmaydi, agar uni yutib yubormasangiz. Ko'p ulamolar buni ruxsat etilgan, lekin ehtiyot uchun makruh yoki afzal emas deb biladi. Eng yaxshi yo'l: ro'za paytida pastasiz tozalash yoki misvok ishlatish, pastani esa suhurdan keyin yoki iftordan keyin ishlatish. Tasodifan oz yutilsa, ataylab bo'lmasa, ro'za buzilmaydi.",
+  "tool_calls": [],
+  "web_searches": 0
+}

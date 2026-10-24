@@ -1,0 +1,15 @@
+{
+  "case": "personal_work_life_balance",
+  "category": "personal",
+  "duration_ms": 12921,
+  "first_text_ms": 1010,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Ishdan charchab kelaman, oilamga vaqt ajrata olmayapman. Qanday muvozanat topsam bo'ladi?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Muvozanat \"vaqtni teng bo'lish\" emas, balki oilaga sifatli, to'liq e'tibor berilgan vaqtni himoya qilishdir. Charchoq bilan kelsangiz, soatlar ko'p bo'lsa ham, oila buni his qiladi.\n\nEng ishlaydigan qadamlar:\n• Ish tugash vaqtini belgilang. Oxirgi vazifa tugamasa ham, soat 18:00 yoki 19:00 da yoping. Qolganini ertangi ro'yxatga yozing, bu miyani tinchitadi.\n• Kuniga 1-2 soatni \"telefonsiz\" oila vaqti qiling: birga ovqat, suhbat, bolalar bilan o'yin. Ko'p emas, lekin buzilmasin.\n• Dam olish kunining kamida yarmini ishdan butunlay uzing. Bildirishnomalarni o'chiring.\n• Haftada 3 ta eng muhim ishni aniqlang, qolganiga \"yo'q\" deyishni o'rganing yoki topshiring.\n• Yo'lda ish haqida o'ylamang: zikr, tinch musiqa yoki yurish orqali \"uyga o'tish\" odatini yarating.\n• Oilangiz bilan ochiq gaplashing: ular nimani ko'proq kutishini so'rang. Ko'pincha ular uzoq vaqtni emas, e'tiborni xohlaydi.\n\nDinimiz ham buni qo'llaydi: Payg'ambar ﷺ \"Albatta, badaningning ham haqqi bor, oilangning ham haqqi bor\" degan (Buxoriy rivoyati, mazmuni). Oilaga vaqt ajratish ham ibodat savobli ish.\n\nAgar charchoq uzoq davom etsa, uyqu buzilsa yoki hech narsadan quvonmasangiz, shifokor yoki psixolog bilan maslahatlashing. Bu kuyib ketish (burnout) alomati bo'lishi mumkin. Aniqroq maslahat uchun ishingiz va oilangiz haqida bir oz yozing.\n\n---OVOZ---\nMuvozanat vaqtni teng bo'lish emas, oilaga to'liq e'tibor berilgan vaqtni himoya qilishdir. Ish tugash soatini belgilang, kuniga bir-ikki soat telefonsiz oila vaqti ajrating, dam olish kunining yarmini ishdan uzing. Muhim ishlarni tanlab, qolganiga yo'q deyishni o'rganing. Charchoq uzoq davom etsa, mutaxassisga murojaat qiling.",
+  "tool_calls": [],
+  "web_searches": 0
+}

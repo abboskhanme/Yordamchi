@@ -74,6 +74,17 @@ def tools_match(expected: frozenset[str], reported: Sequence[str]) -> bool:
     return expected <= actual <= expected | HARNESS_TOOLS
 
 
+MCP_CONNECTED: Final = "connected"
+
+
+def servers_match(expected: frozenset[str], reported: Any) -> bool:
+    """`init.mcp_servers` names exactly the expected servers, each `connected` (S5: check names and status too)."""
+    entries = [entry for entry in reported if isinstance(entry, Mapping)] if isinstance(reported, list) else []
+    names = [str(entry.get("name")) for entry in entries]
+    connected = {str(entry.get("name")) for entry in entries if entry.get("status") == MCP_CONNECTED}
+    return len(names) == len(set(names)) and set(names) == expected == connected
+
+
 def _clip(text: str, limit: int) -> str:
     text = text.strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -199,9 +210,16 @@ class _Limits:
 class StreamTranslator:
     """One per session. `feed()` each raw message in order; call `sent()` / `stop_requested()` as the executor acts."""
 
-    def __init__(self, *, session_id: str, expected_tools: frozenset[str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        expected_tools: frozenset[str] | None = None,
+        expected_servers: frozenset[str] | None = None,
+    ) -> None:
         self.session_id = session_id
         self.expected_tools = expected_tools
+        self.expected_servers = expected_servers  # the personal session's in-process MCP servers (NFR-SEC-08)
         self.ready = False
         self.refused = False
         self.capabilities: frozenset[str] = frozenset()
@@ -325,6 +343,9 @@ class StreamTranslator:
         self.ready = True
         tools = tuple(str(tool) for tool in msg.get("tools") or ())
         if self.expected_tools is not None and not tools_match(self.expected_tools, tools):
+            self.refused = True
+            return [RuntimeFailed(code="protocol", retryable=False)]
+        if self.expected_servers is not None and not servers_match(self.expected_servers, msg.get("mcp_servers")):
             self.refused = True
             return [RuntimeFailed(code="protocol", retryable=False)]
         servers = tuple(

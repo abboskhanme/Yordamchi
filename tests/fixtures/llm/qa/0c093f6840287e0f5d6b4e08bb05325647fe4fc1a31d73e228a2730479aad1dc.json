@@ -1,0 +1,15 @@
+{
+  "case": "explain_quantum_computer",
+  "category": "explain",
+  "duration_ms": 10676,
+  "first_text_ms": 989,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Kvant kompyuter oddiy kompyuterdan nimasi bilan farq qiladi?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Kvant kompyuter axborotni bitlar (0 yoki 1) bilan emas, kubitlar bilan qayta ishlaydi. Kubit superpozitsiya tufayli 0 va 1 holatlarining birikmasida bo'la oladi, shuning uchun ayrim masalalarda hisoblash usuli butunlay boshqacha bo'ladi.\n\nAsosiy farqlar:\n• Superpozitsiya: kubit o'lchanguncha ikki holatning birikmasida turadi. O'lchaganda esa bitta natija beradi.\n• Chalkashlik (entanglement): kubitlar o'zaro bog'langan bo'lib, birining holati boshqasi bilan bog'liq bo'ladi.\n• Interferensiya: algoritmlar to'g'ri javob ehtimolini oshirib, noto'g'risini kamaytiradi.\n• Xatolar: kubitlar juda nozik, shovqin va haroratga sezgir. Ko'pincha mutlaq nolga yaqin sovutish kerak bo'ladi.\n\nMuhim tushuncha: kvant kompyuter «hamma variantni bir vaqtda sinab ko'radi» degan gap noto'g'ri, bu mashhur sodda tushuntirish xolos. U faqat maxsus algoritmlar mavjud masalalarda tezroq bo'ladi. Masalan, katta sonlarni ko'paytuvchilarga ajratish (Shor algoritmi) yoki kvant tizimlarini modellashtirish (kimyo, materiallar). Oddiy ishlarda (internet, matn, o'yinlar) oddiy kompyuter yaxshiroq va arzonroq bo'lib qoladi.\n\nIshonchim yuqori: bu mavjud ilmiy konsensus. Amaliy foydali, xatosiz katta kvant kompyuterlar holati esa tez o'zgaryapti, aniq ma'lumot kerak bo'lsa, qidirib beraman.\n\n---OVOZ---\nKvant kompyuter bitlar o'rniga kubitlar bilan ishlaydi. Kubit nol va bir holatlarining birikmasida bo'lishi mumkin, kubitlar esa o'zaro chalkashib bog'lanadi. Lekin u hamma narsada tezroq emas. Faqat maxsus masalalarda, masalan sonlarni ajratish va molekulalarni modellashtirishda ustun bo'ladi. Oddiy kundalik ishlar uchun oddiy kompyuter yaxshiroq.",
+  "tool_calls": [],
+  "web_searches": 0
+}

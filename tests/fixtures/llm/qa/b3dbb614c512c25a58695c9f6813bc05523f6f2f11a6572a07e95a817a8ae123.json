@@ -1,0 +1,19 @@
+{
+  "case": "news_today",
+  "category": "news",
+  "duration_ms": 28080,
+  "first_text_ms": 28060,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Bugungi eng muhim jahon yangiliklari qanday?",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Bugungi (23-oktabr) yangiliklarni aniq sana bilan tasdiqlay olmadim. Qidiruv natijalarida sana ko'rsatilmagan, shuning uchun quyidagilarni ehtiyotkorlik bilan oling:\n\n• Eron va Fors ko'rfazi: Eron Hormuz bo'g'ozida yetti neft tankeri hujumga uchraganini aytmoqda, urush qaytishi xavfi haqida gap ketyapti.\n• G'arbiy Sohil: Isroil hududni to'liq blokadaga olgani va Hebronda yuzlab oila ko'chib ketgani xabar qilingan.\n• Ukraina: Starlink tiklangani va bir shaharda o't ochishni to'xtatish kelishilgani haqida xabarlar bor. Bu xabarlarni mustaqil manbada tekshirmadim.\n• Fransiya: Parij yaqinida terror deb tekshirilayotgan otishma va yana ommaviy noroziliklar kutilmoqda.\n• Boshqa: Iordaniyada cherkovga hujum (7 o'lik), Keniyada qurilayotgan bino qulashi, Kim Chen Inning Xitoyga tashrifi.\n\nIshonch darajam o'rtacha: bular bosh sahifa lavhalari, aniq vaqti va tafsiloti yo'q. Eng ishonchli yo'li:\nhttps://www.aljazeera.com/\nhttps://www.nbcnews.com/world\nhttps://globalnews.ca/world/\n\n---OVOZ---\nBugungi yangiliklarni sana bilan aniq tasdiqlay olmadim. Bosh sahifalarda Hormuz bo'g'ozida tankerlarga hujum, G'arbiy Sohilda blokada, Ukrainada o't ochishni to'xtatish haqida xabarlar va Fransiyadagi voqealar ko'rinmoqda. Ular sanasiz, shuning uchun muhim xabarlarni Al Jazeera yoki boshqa yirik manbada tekshirib oling.",
+  "tool_calls": [
+    "WebSearch",
+    "WebSearch",
+    "WebSearch"
+  ],
+  "web_searches": 3
+}

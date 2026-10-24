@@ -1,0 +1,15 @@
+{
+  "case": "creative_lullaby",
+  "category": "creative",
+  "duration_ms": 5736,
+  "first_text_ms": 1209,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Farzandim uchun qisqa alla yozib ber.",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Alla-yo alla, jonim bolam, alla,\nKo'zlaringni yum, bolam, alla.\nOy ham uxlar, yulduzlar jim,\nTinch uxla sen, ey shirin qizim, alla.\n\nAlla-yo alla, tong otguncha,\nMehr qo'lida tebranar beshik.\nOnang yoningda, dadang yoningda,\nOrzularing bo'lsin yorug', bolam, alla.\n\nAlla-yo alla, quvonchim mening,\nSen borsan, chiroq bu uyda.\nXudo asrasin har onda seni,\nUxla xotirjam, jonim, alla.\n\n(Agar o'g'il bo'lsa, \"shirin qizim\"ni \"shirin o'g'lim\" deb almashtiring.)\n\n---OVOZ---\nAlla-yo alla, jonim bolam, alla. Ko'zlaringni yum, bolam, alla. Oy ham uxlar, yulduzlar jim. Tinch uxla sen, shirin jonim, alla.",
+  "tool_calls": [],
+  "web_searches": 0
+}

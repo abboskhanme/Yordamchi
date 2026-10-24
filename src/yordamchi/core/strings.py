@@ -1022,6 +1022,51 @@ ERR_MEDIA_PAGE_NOT_READABLE = Msg(
 MEDIA_VIDEO_FAILED = Msg("Videoni ko'ra olmadim: {reason}.")
 MEDIA_DOWNLOAD_FAILED = Msg("Faylni Telegram'dan yuklab bo'lmadi. Qayta yuboring.")
 
+# --- bridge ---
+# UC-36: "BonviHR qanday?" in the personal chat, read from the dev bot's digest through the read-only bridge. The
+# lines reuse the dev report's `REPORT_*` entries; every answer ends with one `FRESHNESS*` line.
+BRIDGE_PROJECT = Msg("{project} · {description}")
+BRIDGE_PROJECT_BARE = Msg("{project}")
+BRIDGE_QUEUED_PARKED = Msg("Navbatda: {queued} ta · to'xtatib qo'yilgan: {parked} ta")
+BRIDGE_NO_DIGEST = Msg("{project}: dev bot bu loyiha haqida hali ma'lumot yig'magan.")
+ERR_BRIDGE_UNAVAILABLE = Msg(
+    "Loyihalar holatini hozir o'qib bo'lmadi: dev botning ma'lumotlari ochilmadi. Dev botning o'zidan so'rang."
+)
+ERR_BRIDGE_NOT_READ_ONLY = Msg(
+    "Loyihalar holatini o'qimadim: dev bot ma'lumotlariga ulanish faqat o'qish rejimida emas (xavfsizlik qoidasi). "
+    "O'rnatishni tekshirish kerak."
+)
+
+# --- qa ---
+# UC-30: the personal assistant. Its answers are model output (`redact.scrubbed`); these are the frames around them.
+# Q4: while Claude is unavailable a plain question is answered by the fallback model, labelled first.
+FALLBACK_LABEL = Msg("(zaxira model)")
+QA_FALLBACK_HEADER = Msg("(zaxira model) Claude hozir ishlamayapti — {reason}. Javob zaxira modeldan:")
+QA_FALLBACK_REASONS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "rate_limited": Msg("limit tugagan"),
+        "quota_exhausted": Msg("limit tugagan"),
+        "auth_failed": Msg("login rad etildi"),
+        "not_installed": Msg("Claude CLI topilmadi"),
+        "call_timed_out": Msg("javob vaqtida kelmadi"),
+    }
+)
+QA_FALLBACK_REASON_OTHER = Msg("javob bermayapti")
+QA_NEW_CONVERSATION = Msg("Yangi suhbat boshladim — oldingi mavzularni unutdim.")
+# After a shortened answer (SPEC §3.2.13 step 4): the full one is stored and sent on "to'liqroq".
+QA_MORE_HINT = Msg("To'liq javob uchun: «to'liqroq»")
+QA_OPERATION = Msg("Javob")  # the `operation` of ERR_CALL_TIMED_OUT when an answer took too long
+QA_EMPTY_QUESTION = Msg("Savolni tushunmadim — matn yoki ovoz bilan qayta yozing.")
+QA_EMPTY_ANSWER = Msg("Javob bo'sh qaytdi. Savolni boshqacharoq qilib qayta so'rang.")
+# NFR-SEC-08: the personal session reported tools or MCP servers outside its allowlist; it is refused, never used.
+PERSONAL_TOOLS_MISMATCH = Msg(
+    "Shaxsiy yordamchi xavfsizlik tekshiruvidan o'tmadi: Claude sessiyasi ruxsat etilmagan vositalar bilan ochildi, "
+    "shuning uchun uni ishlatmadim. Claude CLI yangilangan bo'lishi mumkin — Mac'da `claude --version` ni tekshiring."
+)
+ERR_PERSONAL_TOOLS_MISMATCH = PERSONAL_TOOLS_MISMATCH
+ERR_QA_NOTHING_MORE = Msg("Oxirgi javob allaqachon to'liq edi — qo'shimcha matn yo'q.")
+
+
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(
     {code: entry for code in ErrorCode if isinstance(entry := globals().get(f"ERR_{code.name}"), Msg)}

@@ -45,6 +45,7 @@ Line format: `{"t": <seconds since connect>, "kind": ..., "data": ...}`; `tests/
 | `resume_missing.jsonl` | `resume=<unknown id>` | connect fails: `ResultError` "No conversation found with session ID" |
 | `assistant_report.jsonl` | the assistant pool (T12), `report` kind: two asks on one warm client, `effort=low`, a different owner-instructions block on each | custom system prompt, `tools: []`, `dontAsk`; the `UserPromptSubmit` hook on every turn with its `additionalContext`; per-turn cost from session totals |
 | `assistant_routing.jsonl` | the assistant pool, `routing` kind with an `output_format` JSON schema: two asks | `init.tools == ["StructuredOutput"]`; the `PreToolUse` hook for `StructuredOutput` (explicit allow under `dontAsk`); `result.structured_output`, `stop_reason: tool_use`, `num_turns: 2` |
+| `assistant_qa.jsonl` | the personal `qa` kind (T72): one conversation (`--session-id` = the conversation key), `--restricted`, `dontAsk`, tools WebSearch + WebFetch + the in-process `yordamchi_bridge` server; ask 1 calls `project_status`, ask 2 is plain, each with its own owner-instructions block | `init.tools == ["WebFetch","WebSearch","mcp__yordamchi_bridge__project_status"]` and `mcp_servers == [{"name":"yordamchi_bridge","status":"connected","source":"sdk"}]` under `--restricted` (S5); the explicit `PreToolUse` allow of the MCP tool; partial messages (`stream_event` `text_delta` / `input_json_delta`); the tool result; `UserPromptSubmit` `additionalContext` on both asks |
 
 ## Synthetic (`synthetic_*.jsonl`), written by hand in the recorded shapes
 
@@ -79,6 +80,11 @@ The two `assistant_*` recordings were captured on 2026-10-24 (CLI 2.1.310, haiku
 with a client factory that tees the raw stream, the hooks and the sent messages into this format; session cwds became
 `/tmp/yordamchi-fixture/sessions/<kind>` (also inside the transcript path slug). Their prompts and instructions are test
 data, not product prompts.
+
+`assistant_qa.jsonl` was captured the same way on 2026-10-24 (CLI 2.1.310, haiku) by
+`tests/integration/test_claude_assistant_qa.py::test_live_record_the_qa_stream --record-llm`, with
+`tests/fakes/claude_tee.py` (sanitised: `/Users/owner`, `/tmp/yordamchi-fixture/sessions/assistant`, init lists cut to
+three). Its tool result is the test's own data.
 
 Re-record with the live suite (`pytest -m live tests/integration/test_claude_* tests/contract/test_agent_runtime.py`)
 after a CLI or SDK upgrade, and re-check docs/SPIKES.md N1–N12.

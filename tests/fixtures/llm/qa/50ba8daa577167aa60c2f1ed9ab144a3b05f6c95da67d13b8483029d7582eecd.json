@@ -1,0 +1,15 @@
+{
+  "case": "history_amir_temur",
+  "category": "history",
+  "duration_ms": 12027,
+  "first_text_ms": 1143,
+  "forwarded": [],
+  "model": "sonnet",
+  "provider": "claude",
+  "question": "Amir Temur davlati qanday boshqarilgan? Qisqacha.",
+  "source": "recorded live by test_live_qa_eval --record-llm (claude 2.1.310, models.qa default)",
+  "system_prompt_sha256": "83bc963b9c3265290fbfe3f564ad38602fee231fe6b9158adf879457f554a9b7",
+  "text": "Amir Temur davlati markazlashgan, harbiy-monarxiya tizimida boshqarilgan: oliy hokimiyat amirning qo'lida bo'lgan, lekin u mahalliy an'ana va shariat bilan ham hisoblashgan.\n\nAsosiy jihatlar:\n• Markaziy boshqaruv: amir eng oliy hukmdor edi. Unga devonlar (vazirliklar) va vazirlar yordam bergan. Muhim masalalar qurultoyda (oliy kengashda) muhokama qilingan.\n• Hududiy boshqaruv: yerlar viloyatlarga bo'linib, ularni ko'pincha Temur o'g'illari, nabiralari yoki ishonchli amirlar boshqargan. Bu usul sadoqatni mustahkamlagan, ammo keyinchalik hokimiyat talashuviga ham sabab bo'lgan.\n• Harbiy tizim: qo'shin o'nlik, yuzlik, minglik va tumanlik tuzilmasiga bo'lingan (Chingizxon davridan qolgan an'ana). Qat'iy tartib va intizom bo'lgan.\n• Huquq: shariat bilan birga turkiy-mo'g'ul urf-odatlari (to'ra) ham ishlagan. Ulamo va sayyidlar hurmatga sazovor bo'lgan.\n• Iqtisod: soliqlar, hunarmandchilik va karvon savdosi rivojlantirilgan; Samarqand va boshqa shaharlar obod qilingan.\n\nMuhim eslatma: \"Temur tuzuklari\" nomli asar Temurning boshqaruv qoidalarini bayon qiladi, lekin olimlar orasida uning haqiqiyligi va keyingi davrda qayta ishlangani haqida munozara bor. Shuning uchun uni ehtiyotkorlik bilan tarixiy manba sifatida ishlatgan ma'qul. Umumiy tavsifga ishonchim yuqori, tafsilotlarda tarixchilar fikri farq qiladi.\n\n---OVOZ---\nAmir Temur davlati markazlashgan harbiy monarxiya edi. Oliy hokimiyat amirda bo'lgan, viloyatlarni ko'pincha uning farzandlari va ishonchli amirlar boshqargan. Qo'shin o'nlik va yuzlik tizimida tuzilgan. Huquqda shariat va turkiy urf-odatlar birga qo'llangan. Temur tuzuklarining haqiqiyligi haqida esa olimlar bahslashadi.",
+  "tool_calls": [],
+  "web_searches": 0
+}
