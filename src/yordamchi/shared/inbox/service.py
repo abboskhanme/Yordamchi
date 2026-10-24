@@ -1,29 +1,28 @@
 """Inbound intake (SPEC §3.2.1, §2.7, §4.6; UC-04; NFR-REL-05, NFR-SEC-03) — the reference feature (CONVENTIONS §4).
 
 `accept_update` is the one service call a Telegram handler makes (A7). In one unit of work it writes the
-`(bot, update_id)` idempotency key, moves every key into the vault and stores only the redacted payload; after the
-commit it acknowledges the owner. Later stages pick `received` rows up in `update_id` order with
-`list_received_updates` — the normal path and the restart path (SPEC §2.7) are the same query.
+`(bot, update_id)` idempotency key, moves every key into the vault, stores only the redacted payload and queues the
+ack in the outbox. Later stages pick `received` rows up in `update_id` order with `list_received_updates` — the
+normal path and the restart path (SPEC §2.7) are the same query.
 
-The ack: a message holding a key is deleted first (UC-04: ≤ 5 s), then the masked reply follows; the "seen" reaction
-and typing go out at the same time. Each Telegram call is bounded by `domain.ACK_TIMEOUT_S`. A failed ack is logged,
-never raised: the update is already durable. (T15 moves these calls into the durable outbox, priority 0.)
+The ack is priority-0 outbox rows written in that same transaction, so it is exactly as durable as the update: a
+crash after the commit still deletes a key message once the sender runs again. A message holding a key is deleted
+first (UC-04: ≤ 5 s); the masked reply waits for that delete and says "kalitni almashtiring" if it failed. Typing and
+the "seen" reaction go out of band. The sender (`outbox.service.run_sender`) makes every call, bounded and retried.
 """
 
-import asyncio
 import time
-from collections.abc import Awaitable, Collection
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 
 from yordamchi.core import redact
-from yordamchi.core.errors import DomainError, ExternalError
+from yordamchi.core.errors import DomainError
 from yordamchi.core.log import get_log
 from yordamchi.core.paths import BotName
 from yordamchi.persistence import bulk
 from yordamchi.persistence.uow import Session
 from yordamchi.ports.keystore import Keystore
-from yordamchi.ports.messenger import ChatAction
 from yordamchi.shared.access.domain import OwnerOrigin
 from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.inbox import domain, store
@@ -37,6 +36,8 @@ from yordamchi.shared.inbox.domain import (
     UpdateStatus,
 )
 from yordamchi.shared.inbox.models import InboundUpdate
+from yordamchi.shared.outbox import service as outbox
+from yordamchi.shared.outbox.domain import Kind, Op, op_key
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.vault import service as vault
@@ -54,11 +55,20 @@ class _Recorded:
 
 
 async def _record(
-    s: Session, keystore: Keystore, *, origin: OwnerOrigin, update: IncomingUpdate, scan: SecretScan, at: datetime
+    s: Session,
+    keystore: Keystore,
+    *,
+    origin: OwnerOrigin,
+    update: IncomingUpdate,
+    scan: SecretScan,
+    at: datetime,
+    reaction: str,
+    max_parts: int,
 ) -> _Recorded | None:
-    """Inside the caller's unit of work: the idempotency key, then the vault, then the redacted payload.
+    """Inside the caller's unit of work: the idempotency key, then the vault, then the redacted payload, then the ack.
 
-    Returns None when `(bot, update_id)` was already there: a redelivered update changes nothing.
+    Returns None when `(bot, update_id)` was already there: a redelivered update changes nothing and is not acked
+    again.
     """
     row_id = await store.add_inbound_update(
         s,
@@ -88,7 +98,41 @@ async def _record(
     content = domain.redacted_content(update, scan, by_value)
     payload = domain.payload_json(content, redact.scrubbed)
     await store.set_update_payload(s, row_id, payload=payload, status=status.value)
+    plan = domain.plan_ack(update, scan, status=status, stored=stored, vault_error=vault_error)
+    await _enqueue_ack(s, update, plan, reaction=reaction, max_parts=max_parts, at=at)
     return _Recorded(status=status, stored=stored, vault_error=vault_error)
+
+
+async def _enqueue_ack(
+    s: Session, update: IncomingUpdate, plan: AckPlan, *, reaction: str, max_parts: int, at: datetime
+) -> None:
+    """The ack as priority-0 outbox rows (SPEC §3.2.1 step 3), in the order the sender takes them: the delete, the
+    reply that waits for it, typing, the "seen" reaction."""
+    bot, chat_id, ref = update.bot, plan.chat_id, f"update-{update.update_id}"
+    if plan.delete_message and plan.message_id is not None:
+        await outbox.enqueue_delete(s, bot=bot, chat_id=chat_id, message_id=plan.message_id, ref=ref, at=at)
+        # Always queued: if the delete fails, the reply is at least "kalitni almashtiring".
+        await outbox.enqueue_text_after(
+            s,
+            bot=bot,
+            chat_id=chat_id,
+            after=op_key(Kind.ACK, ref, Op.DELETE),
+            text=domain.ack_reply(plan, deleted=True),
+            text_if_after_failed=domain.ack_reply(plan, deleted=False),
+            kind=Kind.ACK,
+            ref=ref,
+            at=at,
+        )
+    elif (reply := domain.ack_reply(plan, deleted=True)) is not None:
+        await outbox.enqueue_text(
+            s, bot=bot, chat_id=chat_id, text=reply, kind=Kind.ACK, ref=ref, at=at, max_parts=max_parts
+        )
+    if plan.typing:
+        await outbox.request_typing(s, bot=bot, chat_id=chat_id, ref=ref, at=at)
+    if plan.react and plan.message_id is not None:
+        await outbox.enqueue_reaction(
+            s, bot=bot, chat_id=chat_id, message_id=plan.message_id, emoji=reaction, ref=ref, at=at
+        )
 
 
 async def accept_update(deps: SharedDeps, origin: OwnerOrigin, update: IncomingUpdate) -> Accepted:
@@ -96,8 +140,9 @@ async def accept_update(deps: SharedDeps, origin: OwnerOrigin, update: IncomingU
 
     `origin` is the proof from `shared/access` that this is the owner's update; a mismatch is a wiring bug and
     raises `ValueError` before anything is written. A missing master key does not raise: the update is stored as
-    `failed` without its keys, the message is still deleted, and the owner is told what to fix. A failed ack call is
-    logged, never raised. Only a failure to write `secret-hashes.json` (a disk problem) raises, after the ack.
+    `failed` without its keys, the message is still deleted, and the owner is told what to fix. The ack is queued
+    with the update and sent by the outbox, so no Telegram call happens here. Only a failure to write
+    `secret-hashes.json` (a disk problem) raises, after the commit.
     """
     started = time.monotonic()
     domain.require_matching_origin(origin, update, deps.bot)
@@ -105,25 +150,24 @@ async def accept_update(deps: SharedDeps, origin: OwnerOrigin, update: IncomingU
     scan = domain.scan_secrets(update)  # in memory only: nothing is written while a key is still in the text
     now = deps.clock.now()
     async with deps.db.uow() as s:
-        recorded = await _record(s, deps.keystore, origin=origin, update=update, scan=scan, at=now)
+        recorded = await _record(
+            s,
+            deps.keystore,
+            origin=origin,
+            update=update,
+            scan=scan,
+            at=now,
+            reaction=snap[defaults.UI_SEEN_REACTION],
+            max_parts=snap[defaults.OUTBOX_MAX_PARTS],
+        )
     if recorded is None:
         log.info("update_duplicate", bot=deps.bot.value, update_id=update.update_id)
         return Accepted(update_id=update.update_id, duplicate=True)
     if recorded.vault_error is not None:
         log.warning("vault_unavailable", update_id=update.update_id, error_code=recorded.vault_error.code.value)
 
-    plan = domain.plan_ack(
-        update, scan, status=recorded.status, stored=recorded.stored, vault_error=recorded.vault_error
-    )
-    await _acknowledge(
-        deps,
-        plan,
-        reaction=snap[defaults.UI_SEEN_REACTION],
-        timeout=domain.ACK_TIMEOUT_S,
-        update_id=update.update_id,
-    )
     if recorded.stored:
-        # After the ack, which is time-bound: refresh secret-hashes.json for the pre-push scan.
+        # After the commit: refresh secret-hashes.json for the pre-push scan.
         await vault.publish_secrets(deps)
     log.info(
         "update_accepted",
@@ -142,43 +186,6 @@ async def accept_update(deps: SharedDeps, origin: OwnerOrigin, update: IncomingU
         secrets=recorded.stored,
         refused=scan.refused,
     )
-
-
-# --- ack ----------------------------------------------------------------------------------------------------------
-async def _attempt[T](call: Awaitable[T], *, name: str, update_id: int) -> T | None:
-    """One Telegram call of the ack. An `ExternalError` (network, rate limit, timeout) is logged and becomes None."""
-    try:
-        return await call
-    except ExternalError as error:
-        log.warning("ack_failed", call=name, update_id=update_id, error_code=error.code.value)
-        return None
-
-
-async def _delete_then_reply(deps: SharedDeps, plan: AckPlan, *, timeout: float, update_id: int) -> None:
-    deleted = False
-    if plan.delete_message and plan.message_id is not None:
-        result = await _attempt(
-            deps.messenger.delete(plan.chat_id, plan.message_id, timeout=timeout), name="delete", update_id=update_id
-        )
-        deleted = result is True
-        if not deleted:
-            log.warning("secret_message_kept", update_id=update_id)
-    reply = domain.ack_reply(plan, deleted=deleted)
-    if reply is not None:
-        sent = deps.messenger.send_text(plan.chat_id, reply, timeout=timeout)
-        await _attempt(sent, name="reply", update_id=update_id)
-
-
-async def _acknowledge(deps: SharedDeps, plan: AckPlan, *, reaction: str, timeout: float, update_id: int) -> None:
-    async with asyncio.TaskGroup() as group:
-        if plan.replies:
-            group.create_task(_delete_then_reply(deps, plan, timeout=timeout, update_id=update_id))
-        if plan.react and plan.message_id is not None:
-            seen = deps.messenger.react(plan.chat_id, plan.message_id, reaction, timeout=timeout)
-            group.create_task(_attempt(seen, name="react", update_id=update_id))
-        if plan.typing:
-            typing = deps.messenger.chat_action(plan.chat_id, ChatAction.TYPING, timeout=timeout)
-            group.create_task(_attempt(typing, name="typing", update_id=update_id))
 
 
 # --- the durable queue: read side ---------------------------------------------------------------------------------

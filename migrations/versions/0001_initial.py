@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 10:22:25.080981
+Create Date: 2026-10-24 10:41:55.804476
 """
 
 from collections.abc import Sequence
@@ -79,6 +79,55 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("bot", "key", name=op.f("pk_kv_state")),
     )
+    op.create_table(
+        "message_links",
+        sa.Column("bot", sa.String(length=16), nullable=False),
+        sa.Column("chat_id", sa.BigInteger(), nullable=False),
+        sa.Column("message_id", sa.BigInteger(), nullable=False),
+        sa.Column("outbox_id", sa.Integer(), nullable=False),
+        sa.Column("project_id", sa.String(length=64), nullable=True),
+        sa.Column("turn_id", sa.Integer(), nullable=True),
+        sa.Column("question_id", sa.Integer(), nullable=True),
+        sa.Column("decision_id", sa.Integer(), nullable=True),
+        sa.Column("kind", sa.String(length=16), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("bot", "chat_id", "message_id", name=op.f("pk_message_links")),
+    )
+    with op.batch_alter_table("message_links", schema=None) as batch_op:
+        batch_op.create_index("ix_message_links_outbox_id", ["outbox_id"], unique=False)
+
+    op.create_table(
+        "outbox_messages",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("bot", sa.String(length=16), nullable=False),
+        sa.Column("chat_id", sa.BigInteger(), nullable=False),
+        sa.Column("op", sa.String(length=16), nullable=False),
+        sa.Column("kind", sa.String(length=16), nullable=False),
+        sa.Column("payload_json", sa.Text(), nullable=False),
+        sa.Column("dedupe_key", sa.String(length=128), nullable=False),
+        sa.Column("coalesce_key", sa.String(length=128), nullable=True),
+        sa.Column("priority", sa.Integer(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("attempts", sa.Integer(), nullable=False),
+        sa.Column("next_attempt_at", sa.DateTime(), nullable=False),
+        sa.Column("last_error_code", sa.String(length=48), nullable=True),
+        sa.Column("reply_to_message_id", sa.BigInteger(), nullable=True),
+        sa.Column("disable_notification", sa.Boolean(), nullable=False),
+        sa.Column("project_id", sa.String(length=64), nullable=True),
+        sa.Column("turn_id", sa.Integer(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("sent_at", sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_outbox_messages")),
+        sa.UniqueConstraint("dedupe_key", name=op.f("uq_outbox_messages_dedupe_key")),
+    )
+    with op.batch_alter_table("outbox_messages", schema=None) as batch_op:
+        batch_op.create_index(
+            "ix_outbox_messages_bot_status_priority_next_attempt_at",
+            ["bot", "status", "priority", "next_attempt_at"],
+            unique=False,
+        )
+        batch_op.create_index("ix_outbox_messages_coalesce_key_status", ["coalesce_key", "status"], unique=False)
+
     op.create_table(
         "poll_offsets",
         sa.Column("bot", sa.String(length=16), nullable=False),
@@ -216,6 +265,15 @@ def downgrade() -> None:
     op.drop_table("setting_versions")
     op.drop_table("projects")
     op.drop_table("poll_offsets")
+    with op.batch_alter_table("outbox_messages", schema=None) as batch_op:
+        batch_op.drop_index("ix_outbox_messages_coalesce_key_status")
+        batch_op.drop_index("ix_outbox_messages_bot_status_priority_next_attempt_at")
+
+    op.drop_table("outbox_messages")
+    with op.batch_alter_table("message_links", schema=None) as batch_op:
+        batch_op.drop_index("ix_message_links_outbox_id")
+
+    op.drop_table("message_links")
     op.drop_table("kv_state")
     with op.batch_alter_table("health_events", schema=None) as batch_op:
         batch_op.drop_index("ix_health_events_bot_at")

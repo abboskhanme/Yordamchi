@@ -1,6 +1,9 @@
 """inbox.service on a real SQLite file with fakes: exactly-once intake, keys vaulted before any write, the delete and
 the masked reply, refused Claude tokens, the ack, the durable queue, the polling offset and retention
-(SPEC §3.2.1, §2.7, §4.2, §4.5, §4.6; UC-04; NFR-REL-05, NFR-SEC-02/03)."""
+(SPEC §3.2.1, §2.7, §4.2, §4.5, §4.6; UC-04; NFR-REL-05, NFR-SEC-02/03).
+
+The ack is queued in the outbox inside intake's transaction; `_accept` runs one sender pass after it, as
+`outbox.run_sender` would within 0.25 s."""
 
 import asyncio
 import json
@@ -16,10 +19,12 @@ from tests.factories import (
     UNKNOWN_FORMAT_KEY,
     Fakes,
     db_file_bytes,
+    drain_outbox,
     make_burst_row,
     make_owner_origin,
     make_update,
     origin_of,
+    send_outbox,
 )
 from tests.fakes.messenger import Request
 from yordamchi.core import redact
@@ -31,22 +36,26 @@ from yordamchi.dev.deps import DevDeps
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.ports.messenger import ChatAction
 from yordamchi.shared.audit import store as audit_store
-from yordamchi.shared.inbox import domain as inbox_domain
 from yordamchi.shared.inbox import service, store
 from yordamchi.shared.inbox.domain import Accepted, Attachment, IncomingUpdate, UpdateKind, UpdateStatus
 from yordamchi.shared.inbox.models import InboundUpdate
+from yordamchi.shared.outbox import domain as outbox_domain
+from yordamchi.shared.outbox import service as outbox
+from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.vault import domain as vault_domain
 from yordamchi.shared.vault import service as vault
 
 GOOGLE = FAKE_KEYS["google_api_key"]
-ACK_TIMEOUT = inbox_domain.ACK_TIMEOUT_S
+ACK_TIMEOUT = outbox_domain.DEFAULT_CONFIG.ack_timeout_s
 SEEN = defaults.UI_SEEN_REACTION.default
 
 
 async def _accept(deps: DevDeps | PersonalDeps, update: IncomingUpdate) -> Accepted:
-    return await service.accept_update(deps, origin_of(update), update)
+    accepted = await service.accept_update(deps, origin_of(update), update)
+    await send_outbox(deps)
+    return accepted
 
 
 async def _rows(deps: DevDeps | PersonalDeps) -> list[InboundUpdate]:
@@ -243,16 +252,32 @@ async def test_a_message_that_cannot_be_deleted_asks_to_rotate_the_key(dev_deps:
     assert str(reply.payload["text"]).endswith(S.SECRET_NOT_DELETED())
 
 
-async def test_a_failed_delete_call_is_reported_and_does_not_fail_intake(
+async def test_a_delete_call_that_keeps_failing_ends_in_the_rotate_advice(
     dev_deps: DevDeps, fakes: Fakes, caplog: pytest.LogCaptureFixture
 ) -> None:
-    fakes.messenger.fail_next("delete", CallTimedOut(operation="delete"))
+    for _ in range(outbox_domain.ACK_MAX_ATTEMPTS):
+        fakes.messenger.fail_next("delete", CallTimedOut(operation="delete"))
     with caplog.at_level(logging.WARNING):
         accepted = await _accept(dev_deps, make_update(12, text=f"kalit: {GOOGLE}"))
-    assert accepted.status is UpdateStatus.RECEIVED
+        assert accepted.status is UpdateStatus.RECEIVED
+        assert fakes.messenger.sent("send_text") == []  # the reply waits for the delete's outcome
+        await drain_outbox(dev_deps, fakes.clock, seconds=10)
     [reply] = fakes.messenger.sent("send_text")
     assert S.SECRET_NOT_DELETED() in str(reply.payload["text"])
-    assert {record.getMessage() for record in caplog.records} >= {"ack_failed", "secret_message_kept"}
+    assert {record.getMessage() for record in caplog.records} >= {"outbox_call_failed", "outbox_gave_up"}
+
+
+async def test_a_delete_call_that_fails_once_is_retried_and_the_reply_stays_plain(
+    dev_deps: DevDeps, fakes: Fakes
+) -> None:
+    fakes.messenger.fail_next("delete", CallTimedOut(operation="delete"))
+    update = make_update(19, text=f"kalit: {GOOGLE}")
+    accepted = await _accept(dev_deps, update)
+    await drain_outbox(dev_deps, fakes.clock, seconds=2)
+    [delete] = fakes.messenger.sent("delete")
+    assert delete.payload["message_id"] == update.message_id
+    [reply] = fakes.messenger.sent("send_text")
+    assert reply.payload["text"] == S.SECRETS_STORED(keys=f"google_api_key {accepted.secrets[0].masked}")
 
 
 async def test_without_a_master_key_the_update_fails_safely(dev_deps: DevDeps, fakes: Fakes, paths: Paths) -> None:
@@ -267,6 +292,36 @@ async def test_without_a_master_key_the_update_fails_safely(dev_deps: DevDeps, f
     assert len(fakes.messenger.sent("delete")) == 1  # the key still leaves the chat
     assert [request.payload["text"] for request in fakes.messenger.sent("send_text")] == [S.ERR_VAULT_KEY_MISSING()]
     assert fakes.messenger.sent("chat_action") == []  # nothing is pending
+
+
+# --- the ack is durable with the update (T15 closed the crash-after-commit gap) -------------------------------------
+async def test_a_crash_after_the_commit_still_deletes_the_key_message(dev_deps: DevDeps, fakes: Fakes) -> None:
+    update = make_update(26, text=f"kalit: {GOOGLE}")
+    accepted = await service.accept_update(dev_deps, origin_of(update), update)
+    assert fakes.messenger.requests == []  # the process dies here, before any ack call
+    await dev_deps.db.dispose()  # the next start is a new engine on the same file
+
+    assert await outbox.recover_queue(dev_deps) == 0
+    await send_outbox(dev_deps)
+    assert [request.method for request in fakes.messenger.requests] == ["delete", "send_text", "chat_action"]
+    assert fakes.messenger.sent("delete")[0].payload["message_id"] == update.message_id
+    assert fakes.messenger.sent("send_text")[0].payload["text"] == S.SECRETS_STORED(
+        keys=f"google_api_key {accepted.secrets[0].masked}"
+    )
+
+
+async def test_a_crash_during_the_delete_call_sends_it_again_after_the_restart(dev_deps: DevDeps, fakes: Fakes) -> None:
+    update = make_update(27, text=f"kalit: {GOOGLE}")
+    await service.accept_update(dev_deps, origin_of(update), update)
+    async with dev_deps.db.uow() as s:  # the dead sender had claimed the delete; whether it reached Telegram is unknown
+        delete_row = await outbox_store.find_outbox_message(s, "ack:update-27:delete")
+        assert delete_row is not None
+        assert await outbox_store.claim_message(s, delete_row.id, at=fakes.clock.now()) is not None
+    await dev_deps.db.dispose()
+
+    assert await outbox.recover_queue(dev_deps) == 1  # SPEC §2.7: sending → resent
+    await send_outbox(dev_deps)
+    assert [request.method for request in fakes.messenger.requests][:2] == ["delete", "send_text"]
 
 
 # --- the ack never fails intake -------------------------------------------------------------------------------------

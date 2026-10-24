@@ -78,6 +78,10 @@ ERR_VAULT_SECRET_NOT_FOUND = Msg("«{name}» degan kalit omborda yo'q.")
 # --- cost ---
 # --- access ---
 # --- outbox ---
+# The caption of a `.md` file that replaces a text longer than `outbox.max_parts` messages (NFR-CAP-03). `summary`
+# is the text's first line, so a project message still starts with the project name.
+OUTBOX_TEXT_IN_FILE = Msg("{summary} — to'liq matn ilovadagi faylda.")
+
 # --- burst ---
 # --- projects ---
 ERR_GIT_FAILED = Msg("git buyrug'i bajarilmadi ({operation}). Loyiha papkasi va uning git holatini tekshiring.")

@@ -37,7 +37,11 @@ from yordamchi.shared.burst import domain as burst_domain
 from yordamchi.shared.burst import store as burst_store
 from yordamchi.shared.burst.domain import BurstPart, BurstStatus, CloseReason, WindowSettings
 from yordamchi.shared.cost.domain import Provider, Usage
+from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.inbox.domain import Attachment, Content, IncomingUpdate, StoredUpdate, UpdateKind, UpdateStatus
+from yordamchi.shared.outbox import service as outbox_service
+from yordamchi.shared.outbox import store as outbox_store
+from yordamchi.shared.outbox.service import SenderState
 from yordamchi.shared.settings import defaults, store
 from yordamchi.shared.settings import domain as settings_domain
 from yordamchi.shared.settings.domain import Snapshot
@@ -350,6 +354,60 @@ def tg_inline_query(update_id: int, *, user_id: int) -> TelegramJson:
 
 
 # --- outbox ---
+async def send_outbox(deps: SharedDeps, state: SenderState | None = None) -> int:
+    """One pass of the outbox sender (`run_sender` makes one every 0.25 s): whatever was queued and is due goes."""
+    return await outbox_service.send_due(deps, state)
+
+
+async def drain_outbox(
+    deps: SharedDeps, clock: FakeClock, *, seconds: float, step_s: float = 0.5, state: SenderState | None = None
+) -> int:
+    """Passes of the sender across `seconds` of virtual time, `step_s` apart: retries, parked chats and spaced edits
+    get their turn. Pass the `state` of earlier passes to keep their rate windows. Returns the calls made."""
+    state = SenderState() if state is None else state
+    calls = await outbox_service.send_due(deps, state)
+    elapsed = 0.0
+    while elapsed < seconds:
+        await clock.advance(step_s)
+        elapsed += step_s
+        calls += await outbox_service.send_due(deps, state)
+    return calls
+
+
+async def add_outbox_row(
+    db: Database,
+    *,
+    payload: JsonValue,
+    at: datetime,
+    op: str = "send_text",
+    kind: str = "notice",
+    chat_id: int = DEV_GROUP_ID,
+    dedupe_key: str = "notice:raw:0",
+    bot: BotName = BotName.DEV,
+) -> int:
+    """Write an `outbox_messages` row directly: no payload check, no scrubbing (rows an older or buggy writer left)."""
+    async with db.uow() as s:
+        row_id = await outbox_store.add_outbox_message(
+            s,
+            bot=bot.value,
+            chat_id=chat_id,
+            op=op,
+            kind=kind,
+            payload=payload,
+            dedupe_key=dedupe_key,
+            coalesce_key=None,
+            priority=2,
+            next_attempt_at=at,
+            reply_to_message_id=None,
+            disable_notification=False,
+            project_id=None,
+            turn_id=None,
+            created_at=at,
+        )
+    assert row_id is not None
+    return row_id
+
+
 # --- burst ---
 _MIME: Final[dict[UpdateKind, str]] = {
     UpdateKind.PHOTO: "image/jpeg",
