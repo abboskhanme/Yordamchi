@@ -196,6 +196,44 @@ PUSH_BLOCKED_SECRET = Msg(
 ERR_DECISION_NOT_FOUND = Msg("#{decision_id} raqamli qaror topilmadi.")
 
 # --- voice ---
+# A voice note that was not transcribed stays in its burst as this marker (SPEC §3.2 step 5; UC-05 F).
+VOICE_NOT_UNDERSTOOD_MARKER = Msg("[ovoz tushunilmadi: {reason}]")
+# UC-05 F: the owner is told about every note that failed; {reason} is built from the STT_REASON_* entries.
+STT_FAILED = Msg("Ovozli xabarni matnga o'gira olmadim: {reason}. Matn bilan yozing yoki qayta yuboring.")
+STT_FAILED_NEEDS_KEY = Msg(
+    "Ovozli xabarni matnga o'gira olmadim: {reason}. Google (AIza…) yoki OpenRouter (sk-or-v1-…) kalitini chatga "
+    "yuboring — o'zim sozlayman."
+)
+STT_REASON_NO_KEY = Msg("ovoz uchun kalit yo'q")
+STT_REASON_NO_AUDIO = Msg("audio fayl yo'q")
+STT_REASON_DOWNLOAD = Msg("faylni Telegram'dan yuklab bo'lmadi")
+STT_REASON_NO_SPEECH = Msg("nutq eshitilmadi")
+STT_REASON_PROVIDER = Msg("{provider} — {problem}")
+STT_PROBLEM_QUOTA = Msg("kvota yoki balans tugagan")
+STT_PROBLEM_AUTH = Msg("kalit rad etildi")
+STT_PROBLEM_RATE_LIMITED = Msg("so'rovlar limitiga urildi")
+STT_PROBLEM_TIMEOUT = Msg("javob vaqtida kelmadi")
+STT_PROBLEM_UNAVAILABLE = Msg("javob bermayapti")
+# SPEC §3.2.11: after a new speech key, one line says what is active now ("Ovoz: OpenRouter (Gemini) ulandi.").
+SPEECH_GOOGLE = Msg("Google Gemini")
+SPEECH_OPENROUTER = Msg("OpenRouter (Gemini)")
+SPEECH_WITH_FALLBACK = Msg("{provider}, zaxira — {fallback}")
+SPEECH_CONNECTED = Msg("Ovoz: {providers} ulandi.")
+SPEECH_ACTIVE = Msg("Ovoz hozir: {providers}.")
+SPEECH_NONE = Msg("Ovoz: ishlaydigan kalit yo'q — ovozli xabarlarni matnga o'gira olmayman.")
+SPEECH_KEY_REJECTED = Msg("{provider} kaliti rad etildi — uni olib tashladim.")
+SPEECH_KEY_NO_MODEL = Msg("{provider} kaliti to'g'ri, lekin {model} modeli unga ochiq emas.")
+SPEECH_KEY_OUT_OF_QUOTA = Msg(
+    "{provider} kaliti to'g'ri, lekin kvota yoki balans tugagan — to'ldirilmaguncha ishlamaydi."
+)
+SPEECH_KEY_RATE_LIMITED = Msg("{provider} kaliti to'g'ri, lekin hozir so'rovlar limitida — birozdan so'ng ishlaydi.")
+SPEECH_KEY_UNCHECKED = Msg("{provider} kalitini hozir tekshirib bo'lmadi ({problem}) — baribir ishlataman.")
+SPEECH_FREE_TIER = Msg("{provider}: bepul tarif — limit tez tugashi mumkin.")
+# "bu so'zni to'g'ri yoz: …" (UC-05): the term applies from the next voice note.
+STT_TERM_ADDED = Msg("Endi «{term}» so'zini aynan shunday yozaman.")
+STT_TERM_KNOWN = Msg("«{term}» ro'yxatda bor — shunday yozaman.")
+ERR_STT_TERM_INVALID = Msg("So'z 1–{limit} belgi bo'lsin, bitta qatorda.")
+
 # --- routing ---
 # --- settings ---
 ERR_SETTING_UNKNOWN = Msg("«{key}» degan sozlama yo'q.")

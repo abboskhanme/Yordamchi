@@ -40,6 +40,8 @@ from yordamchi.core.errors import (
 
 VOCABULARY = ("BonviHR", "HRMentor", "BonviHR", "  ", "Yordamchi")
 INTERACTIONS = "/v1beta/interactions"
+MODE = "smart"  # the `stt.mode` default
+FALLBACK_MODEL = "google/gemini-3.5-transcribe"  # OpenRouter's; the Interactions API has no second path
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +64,14 @@ async def transcribe(
     transcriber: GeminiTranscriber, *, model: str = "gemini-3.5-transcribe", timeout: float = 8.0
 ) -> object:
     return await transcriber.transcribe(
-        make_ogg_opus(2000), mime="audio/ogg", languages=LANGUAGES, vocabulary=VOCABULARY, model=model, timeout=timeout
+        make_ogg_opus(2000),
+        mime="audio/ogg",
+        languages=LANGUAGES,
+        vocabulary=VOCABULARY,
+        model=model,
+        mode=MODE,
+        fallback_model=FALLBACK_MODEL,
+        timeout=timeout,
     )
 
 
@@ -72,7 +81,14 @@ async def test_transcribe_model_gets_hints_in_transcription_config(google: Googl
     audio = make_ogg_opus(2000)
     transcriber = adapter(google)
     transcript = await transcriber.transcribe(
-        audio, mime="audio/ogg", languages=LANGUAGES, vocabulary=VOCABULARY, model="gemini-3.5-transcribe", timeout=8
+        audio,
+        mime="audio/ogg",
+        languages=LANGUAGES,
+        vocabulary=VOCABULARY,
+        model="gemini-3.5-transcribe",
+        mode=MODE,
+        fallback_model=FALLBACK_MODEL,
+        timeout=8,
     )
     await transcriber.aclose()
 
@@ -109,13 +125,39 @@ async def test_vocabulary_is_capped_at_the_api_limit_of_1000(google: GoogleServe
     google.script(load("gemini", "interaction_transcribe_ok"))
     terms = [f"Term{index}" for index in range(1200)]
     await adapter(google).transcribe(
-        b"OggS", mime="audio/ogg", languages=(), vocabulary=terms, model="models/gemini-3.5-transcribe", timeout=8
+        b"OggS",
+        mime="audio/ogg",
+        languages=(),
+        vocabulary=terms,
+        model="models/gemini-3.5-transcribe",
+        mode=MODE,
+        fallback_model=FALLBACK_MODEL,
+        timeout=8,
     )
     [body] = google.bodies()
     config = body["generation_config"]["transcription_config"]
     assert config["custom_vocabulary"] == terms[:1000]
     assert "language_codes" not in config  # no hints → the model detects the language
     assert body["model"] == "gemini-3.5-transcribe"
+
+
+async def test_the_mode_comes_from_the_call_and_the_fallback_model_is_ignored(google: GoogleServer) -> None:
+    google.script(load("gemini", "interaction_transcribe_ok"))
+    transcript = await adapter(google).transcribe(
+        b"OggS",
+        mime="audio/ogg",
+        languages=LANGUAGES,
+        vocabulary=(),
+        model="gemini-3.5-transcribe",
+        mode="verbatim",
+        fallback_model="google/not-used",
+        timeout=8,
+    )
+    [body] = google.bodies()
+    assert body["generation_config"]["transcription_config"]["mode"] == "verbatim"
+    assert "google/not-used" not in str(body)
+    assert transcript.model == "gemini-3.5-transcribe"
+    assert transcript.cost_usd_micros is None  # Google reports no per-call cost
 
 
 async def test_general_model_gets_the_instruction_hints_and_minimal_thinking(google: GoogleServer) -> None:
@@ -126,6 +168,8 @@ async def test_general_model_gets_the_instruction_hints_and_minimal_thinking(goo
         languages=LANGUAGES,
         vocabulary=[f"T{index}" for index in range(300)],
         model="gemini-3.8-flash",
+        mode=MODE,
+        fallback_model=FALLBACK_MODEL,
         timeout=8,
     )
     [body] = google.bodies()
@@ -336,6 +380,8 @@ async def test_live_google_key_validates_and_transcribes_silence() -> None:
             languages=LANGUAGES,
             vocabulary=("BonviHR",),
             model="gemini-3.5-transcribe",
+            mode=MODE,
+            fallback_model=FALLBACK_MODEL,
             timeout=15,
         )
         assert isinstance(transcript.text, str)

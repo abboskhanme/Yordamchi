@@ -1,0 +1,409 @@
+"""Speech rules, pure (SPEC §3.2 step 5, §3.2.11; UC-05).
+
+A voice note becomes text in this order:
+1. `pick_stt` orders the providers that have a key in the vault and an adapter: under `auto` a direct Google key goes
+   first, because it spells names better, and OpenRouter is its fallback; `speech.stt_provider` can put either first.
+2. `build_vocabulary` lists the terms STT must spell exactly: the owner's own terms (`stt.extra_terms`, newest first),
+   then every name and alias the bot's registries hand in as `Named` entries (the dev bot's projects). `shared` cannot
+   import `dev` (C1), so the dev bot injects its registry; the personal bot has none yet.
+3. The service asks each provider in turn; `falls_back` says which failures move on to the next one.
+4. A note that failed stays in its burst as `marker(...)`, and the owner gets `failure_notice(...)` (UC-05 F).
+
+A new speech key (SPEC §3.2.11) is judged by `key_checked` / `key_failed`; `keys_to_retire` says which vault entries
+go, and `speech_status` is the one line the owner gets about what is active now.
+"""
+
+import itertools
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import StrEnum
+from typing import Final, Protocol
+
+from yordamchi.core import strings as S
+from yordamchi.core.errors import ErrorCode, SttTermInvalid
+from yordamchi.core.paths import BotName
+from yordamchi.core.text import BotText, join
+from yordamchi.ports.speech import SpeechKeyCheck, Transcript
+from yordamchi.shared.cost.domain import Provider, Usage
+from yordamchi.shared.settings import defaults
+from yordamchi.shared.settings.domain import Snapshot
+from yordamchi.shared.vault.domain import SecretRef
+
+GOOGLE: Final = "google"
+OPENROUTER: Final = "openrouter"
+STT_ORDER: Final = (GOOGLE, OPENROUTER)  # SPEC §3.2.11 step 3, STT under `auto`: Google → OpenRouter → none
+# The vault kind of each provider's key (the `core.redact` pattern); a second key of a kind is stored as `<kind>_2`.
+KEY_KINDS: Final[Mapping[str, str]] = {GOOGLE: "google_api_key", OPENROUTER: "openrouter_api_key"}
+VOCABULARY_LIMIT: Final = 1000  # Gemini `custom_vocabulary` takes ≤ 1,000 terms (SPEC §3.2 step 5)
+TERM_MAX_CHARS: Final = 80
+MAX_AUDIO_BYTES: Final = 20 * 1024 * 1024  # Telegram hands bots files of ≤ 20 MB
+VOICE_MIME: Final = "audio/ogg"  # a Telegram voice note is OGG/Opus
+# Bound on one notice to the owner. SPEC §4.3 has no key for it; T15's outbox takes these sends over.
+NOTICE_TIMEOUT_S: Final = 5.0
+USAGE_SOURCE: Final = "stt"
+TEXT_KEEP: Final = timedelta(days=7)  # SPEC §4.2 `transcripts`: "text 7 d"
+ROW_KEEP: Final = timedelta(days=30)  # "row 30 d"
+
+
+class SttStatus(StrEnum):
+    PENDING = "pending"  # the job started; a restart runs it again
+    DONE = "done"
+    FAILED = "failed"
+
+
+TERMINAL: Final = frozenset({SttStatus.DONE, SttStatus.FAILED})
+
+
+class FailReason(StrEnum):
+    """Why a voice note has no transcript. Stored in `transcripts.error_code`, except `PROVIDER`, which stores the
+    last provider's `ErrorCode` instead."""
+
+    NO_KEY = "stt_no_key"  # no speech key in the vault (or no adapter for it)
+    NO_AUDIO = "stt_no_audio"  # the part carries no file
+    DOWNLOAD = "stt_download_failed"  # Telegram did not hand the file over
+    NO_SPEECH = "stt_no_speech"  # the provider answered with an empty transcript
+    PROVIDER = "stt_provider_failed"  # every provider tried failed: `SttResult.failed` says how
+
+
+# --- providers ------------------------------------------------------------------------------------------------------
+# A failure the next provider may not share moves the note on to it (SPEC §3.2.11 step 6). A timeout does not: the
+# note's time budget (UC-05: 5 s) is already spent, and OpenRouter's Gemini runs on the same Google backend.
+FALLBACK_CODES: Final = frozenset(
+    {
+        ErrorCode.AUTH_FAILED,
+        ErrorCode.QUOTA_EXHAUSTED,
+        ErrorCode.RATE_LIMITED,
+        ErrorCode.PROVIDER_UNAVAILABLE,
+        ErrorCode.NOT_INSTALLED,  # OpenRouter without ffmpeg
+    }
+)
+
+
+def pick_stt(preference: str, available: Iterable[str]) -> tuple[str, ...]:
+    """The STT providers to try for one note, in order. `preference` is `speech.stt_provider`: a named provider goes
+    first and the other stays as its fallback; `auto` (or anything else) is Google, then OpenRouter. Only providers
+    in `available` (a key in the vault and an adapter) are listed; none → ()."""
+    usable = set(available)
+    first = (preference,) if preference in STT_ORDER else ()
+    order = (*first, *(provider for provider in STT_ORDER if provider not in first))
+    return tuple(provider for provider in order if provider in usable)
+
+
+def falls_back(code: ErrorCode) -> bool:
+    return code in FALLBACK_CODES
+
+
+def stt_model(provider: str, snap: Snapshot) -> str:
+    """The model setting of `provider`'s STT path."""
+    return snap[defaults.STT_GOOGLE_MODEL] if provider == GOOGLE else snap[defaults.STT_OPENROUTER_MODEL]
+
+
+# --- vocabulary -----------------------------------------------------------------------------------------------------
+class Named(Protocol):
+    """Something the owner calls by name. `dev.projects.domain.Project` is one as it is: its folder name and aliases."""
+
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def aliases(self) -> Sequence[str]: ...
+
+
+def build_vocabulary(
+    owner_terms: Sequence[str], named: Iterable[Named], *, limit: int = VOCABULARY_LIMIT
+) -> tuple[str, ...]:
+    """The terms STT must spell exactly (UC-05), most important first, because prompt-based providers read only the
+    first 200: the owner's own terms, newest first (he added each one after a misspelling), then each name followed by
+    its aliases, in the order given. One line each, single spaces, de-duplicated without regard to case (the first
+    spelling wins), at most `limit`."""
+    candidates = itertools.chain(reversed(owner_terms), *((entry.id, *entry.aliases) for entry in named))
+    seen: set[str] = set()
+    terms: list[str] = []
+    for raw in candidates:
+        term = " ".join(raw.split())
+        key = term.casefold()
+        if not term or key in seen:
+            continue
+        seen.add(key)
+        terms.append(term)
+        if len(terms) == limit:
+            break
+    return tuple(terms)
+
+
+_TERM_WRAPPERS: Final = " \"'`«»“”„‘’"
+_TERM_TAIL: Final = ".,;:!?"
+
+
+def normalised_term(raw: str) -> str:
+    """The term the owner asked for ("bu so'zni to'g'ri yoz: «BonviHR»."): one line, single spaces, without wrapping
+    quotes or a final full stop. Raises `SttTermInvalid` when nothing is left or it is longer than `TERM_MAX_CHARS`."""
+    term = " ".join(raw.split()).strip(_TERM_WRAPPERS).rstrip(_TERM_TAIL).strip(_TERM_WRAPPERS)
+    if not term or len(term) > TERM_MAX_CHARS:
+        raise SttTermInvalid(limit=TERM_MAX_CHARS)
+    return term
+
+
+def with_term(terms: Sequence[str], term: str, *, limit: int = VOCABULARY_LIMIT) -> list[str] | None:
+    """`stt.extra_terms` with `term` as its newest entry, or None when that exact spelling is already there. Another
+    spelling of the same term is replaced; past `limit`, the oldest terms go."""
+    if term in terms:
+        return None
+    kept = [existing for existing in terms if existing.casefold() != term.casefold()]
+    return [*kept, term][-limit:]
+
+
+# --- one note's outcome ---------------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class Attempt:
+    """One provider's failed try at a note."""
+
+    provider: str
+    code: ErrorCode
+
+
+@dataclass(frozen=True, slots=True)
+class SttResult:
+    """What became of one voice note. `transcript` is the provider's answer, when one came back (it may be empty)."""
+
+    update_id: int
+    text: str | None = field(default=None, repr=False)
+    reason: FailReason | None = None
+    failed: tuple[Attempt, ...] = ()  # providers that failed first, in the order tried
+    transcript: Transcript | None = field(default=None, repr=False)
+
+    @property
+    def ok(self) -> bool:
+        return self.reason is None
+
+    @property
+    def status(self) -> SttStatus:
+        return SttStatus.DONE if self.ok else SttStatus.FAILED
+
+    @property
+    def provider(self) -> str | None:
+        """The provider that answered, else the last one that failed."""
+        if self.transcript is not None:
+            return self.transcript.provider
+        return self.failed[-1].provider if self.failed else None
+
+    @property
+    def error_code(self) -> str | None:
+        if self.reason is FailReason.PROVIDER and self.failed:
+            return self.failed[-1].code.value
+        return None if self.reason is None else self.reason.value
+
+
+def transcribed(update_id: int, transcript: Transcript, *, failed: Sequence[Attempt] = ()) -> SttResult:
+    """A provider answered. An empty transcript (silence, noise) is a failure the owner hears about."""
+    text = transcript.text.strip()
+    if not text:
+        return SttResult(update_id, reason=FailReason.NO_SPEECH, failed=tuple(failed), transcript=transcript)
+    return SttResult(update_id, text=text, failed=tuple(failed), transcript=transcript)
+
+
+_LABELS: Final[Mapping[str, S.Msg]] = {GOOGLE: S.SPEECH_GOOGLE, OPENROUTER: S.SPEECH_OPENROUTER}
+_PROBLEMS: Final[Mapping[ErrorCode, S.Msg]] = {
+    ErrorCode.QUOTA_EXHAUSTED: S.STT_PROBLEM_QUOTA,
+    ErrorCode.AUTH_FAILED: S.STT_PROBLEM_AUTH,
+    ErrorCode.RATE_LIMITED: S.STT_PROBLEM_RATE_LIMITED,
+    ErrorCode.CALL_TIMED_OUT: S.STT_PROBLEM_TIMEOUT,
+}
+_REASONS: Final[Mapping[FailReason, S.Msg]] = {
+    FailReason.NO_KEY: S.STT_REASON_NO_KEY,
+    FailReason.NO_AUDIO: S.STT_REASON_NO_AUDIO,
+    FailReason.DOWNLOAD: S.STT_REASON_DOWNLOAD,
+    FailReason.NO_SPEECH: S.STT_REASON_NO_SPEECH,
+}
+
+
+def provider_label(provider: str) -> BotText:
+    return _LABELS[provider]()
+
+
+def problem_text(code: ErrorCode) -> BotText:
+    return _PROBLEMS.get(code, S.STT_PROBLEM_UNAVAILABLE)()
+
+
+def reason_text(result: SttResult) -> BotText:
+    """Why the note failed, plainly: each provider that failed and how, or the one reason there was."""
+    if result.reason is FailReason.PROVIDER:
+        lines = (
+            S.STT_REASON_PROVIDER(provider=provider_label(attempt.provider), problem=problem_text(attempt.code))
+            for attempt in result.failed
+        )
+        return join(lines, "; ")
+    if result.reason is None:
+        msg = f"note {result.update_id} was transcribed"
+        raise ValueError(msg)
+    return _REASONS[result.reason]()
+
+
+def marker(result: SttResult) -> BotText:
+    """The text a failed note keeps in its burst (`[ovoz tushunilmadi: …]`)."""
+    return S.VOICE_NOT_UNDERSTOOD_MARKER(reason=reason_text(result))
+
+
+def failure_notice(result: SttResult) -> BotText:
+    """The owner's message about a failed note. When a key would fix it, it says which keys work."""
+    rejected = bool(result.failed) and all(attempt.code is ErrorCode.AUTH_FAILED for attempt in result.failed)
+    needs_key = result.reason is FailReason.NO_KEY or (result.reason is FailReason.PROVIDER and rejected)
+    entry = S.STT_FAILED_NEEDS_KEY if needs_key else S.STT_FAILED
+    return entry(reason=reason_text(result))
+
+
+@dataclass(frozen=True, slots=True)
+class Notice:
+    chat_id: int
+    reply_to: int | None
+
+
+def notice_target(snap: Snapshot, message_id: int | None) -> Notice:
+    """Where the owner hears about a failed note. The dev bot serves one group, so the notice replies to the note
+    there. A burst part does not carry its chat (pending wiring), and the personal bot also serves an optional group,
+    so it writes to the owner's private chat without a reply."""
+    if snap.bot is BotName.DEV:
+        return Notice(chat_id=snap[defaults.ACCESS_DEV_GROUP_ID], reply_to=message_id)
+    return Notice(chat_id=snap[defaults.ACCESS_OWNER_ID], reply_to=None)
+
+
+def usage_of(transcript: Transcript) -> Usage:
+    """The `usage_records` row of one answered STT call. A call is paid when the provider reported a cost above 0;
+    Google reports none, so its calls record 0 until the P2 caps (T51) price them."""
+    cost = transcript.cost_usd_micros or 0
+    return Usage(
+        source=USAGE_SOURCE,
+        provider=Provider(transcript.provider),
+        model=transcript.model,
+        is_paid_api=cost > 0,
+        cost_usd_micros=cost,
+        duration_ms=transcript.latency_ms,
+        units={"audio_ms": transcript.audio_ms, **transcript.units},
+    )
+
+
+# --- speech keys (SPEC §3.2.11) -------------------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class SpeechKey:
+    provider: str
+    name: str  # its vault name: `google_api_key`, `google_api_key_2`, …
+
+
+def provider_of_kind(kind: str) -> str | None:
+    return next((provider for provider, key_kind in KEY_KINDS.items() if key_kind == kind), None)
+
+
+def speech_keys(secrets: Iterable[SecretRef]) -> tuple[SpeechKey, ...]:
+    """The speech keys among `secrets`, once each, in the given order."""
+    found: dict[str, SpeechKey] = {}
+    for ref in secrets:
+        provider = provider_of_kind(ref.kind)
+        if provider is not None and ref.name not in found:
+            found[ref.name] = SpeechKey(provider=provider, name=ref.name)
+    return tuple(found.values())
+
+
+def current_keys(secrets: Iterable[SecretRef]) -> dict[str, str]:
+    """provider → the vault name of the key in use: the newest active secret of its kind."""
+    keys: dict[str, str] = {}
+    for ref in sorted(secrets, key=lambda ref: ref.id):
+        provider = provider_of_kind(ref.kind)
+        if provider is not None:
+            keys[provider] = ref.name
+    return keys
+
+
+class KeyVerdict(StrEnum):
+    ACTIVE = "active"  # it works: used from the next voice note; older keys of its kind are retired
+    REJECTED = "rejected"  # the provider refused it: removed from the vault, never used
+    NO_MODEL = "no_model"  # valid, but the configured STT model is not open to it
+    OUT_OF_QUOTA = "out_of_quota"  # valid, but its quota or credit is used up
+    RATE_LIMITED = "rate_limited"  # valid, but rate limited right now
+    UNCHECKED = "unchecked"  # no answer now (network, timeout): kept and used
+
+
+@dataclass(frozen=True, slots=True)
+class KeyOutcome:
+    key: SpeechKey
+    verdict: KeyVerdict
+    model: str  # the STT model it was checked for
+    is_free_tier: bool = False
+    error_code: ErrorCode | None = None
+
+
+_ERROR_VERDICTS: Final[Mapping[ErrorCode, KeyVerdict]] = {
+    ErrorCode.AUTH_FAILED: KeyVerdict.REJECTED,
+    ErrorCode.QUOTA_EXHAUSTED: KeyVerdict.OUT_OF_QUOTA,
+    ErrorCode.RATE_LIMITED: KeyVerdict.RATE_LIMITED,
+}
+
+
+def key_checked(key: SpeechKey, check: SpeechKeyCheck, *, model: str) -> KeyOutcome:
+    """The provider answered the check. A spent OpenRouter limit (`limit_remaining` ≤ 0) counts as out of quota."""
+    if model not in check.available_models:
+        verdict = KeyVerdict.NO_MODEL
+    elif check.limit_remaining_usd is not None and check.limit_remaining_usd <= 0:
+        verdict = KeyVerdict.OUT_OF_QUOTA
+    else:
+        verdict = KeyVerdict.ACTIVE
+    return KeyOutcome(key=key, verdict=verdict, model=model, is_free_tier=check.is_free_tier is True)
+
+
+def key_failed(key: SpeechKey, code: ErrorCode, *, model: str) -> KeyOutcome:
+    return KeyOutcome(key=key, verdict=_ERROR_VERDICTS.get(code, KeyVerdict.UNCHECKED), model=model, error_code=code)
+
+
+def keys_to_retire(outcome: KeyOutcome, active: Iterable[SecretRef]) -> tuple[str, ...]:
+    """Vault names to remove after `outcome`: a rejected key itself; for a working key, every older key of its kind,
+    so exactly one key per provider is in use. Any other outcome keeps everything."""
+    if outcome.verdict is KeyVerdict.REJECTED:
+        return (outcome.key.name,)
+    if outcome.verdict is KeyVerdict.ACTIVE:
+        kind = KEY_KINDS[outcome.key.provider]
+        return tuple(ref.name for ref in active if ref.kind == kind and ref.name != outcome.key.name)
+    return ()
+
+
+def _outcome_line(outcome: KeyOutcome) -> BotText | None:
+    provider = provider_label(outcome.key.provider)
+    match outcome.verdict:
+        case KeyVerdict.ACTIVE:
+            return S.SPEECH_FREE_TIER(provider=provider) if outcome.is_free_tier else None
+        case KeyVerdict.REJECTED:
+            return S.SPEECH_KEY_REJECTED(provider=provider)
+        case KeyVerdict.NO_MODEL:
+            return S.SPEECH_KEY_NO_MODEL(provider=provider, model=outcome.model)
+        case KeyVerdict.OUT_OF_QUOTA:
+            return S.SPEECH_KEY_OUT_OF_QUOTA(provider=provider)
+        case KeyVerdict.RATE_LIMITED:
+            return S.SPEECH_KEY_RATE_LIMITED(provider=provider)
+        case KeyVerdict.UNCHECKED:
+            code = outcome.error_code or ErrorCode.PROVIDER_UNAVAILABLE
+            return S.SPEECH_KEY_UNCHECKED(provider=provider, problem=problem_text(code))
+
+
+def speech_status(outcomes: Sequence[KeyOutcome], order: Sequence[str]) -> BotText:
+    """The one line after new speech keys: what is active now (the STT order), then what is wrong with a key or worth
+    knowing about it (a free tier runs out fast). Never silent: a rejected key and no working key both say so."""
+    if not order:
+        status = S.SPEECH_NONE()
+    else:
+        providers = provider_label(order[0])
+        if len(order) > 1:
+            providers = S.SPEECH_WITH_FALLBACK(provider=providers, fallback=provider_label(order[1]))
+        connected = any(outcome.verdict is KeyVerdict.ACTIVE for outcome in outcomes)
+        status = (S.SPEECH_CONNECTED if connected else S.SPEECH_ACTIVE)(providers=providers)
+    details = [line for outcome in outcomes if (line := _outcome_line(outcome)) is not None]
+    return join([status, *details], " ")
+
+
+# --- retention ------------------------------------------------------------------------------------------------------
+def text_cutoff(now: datetime) -> datetime:
+    """A finished transcript's text is nulled once `created_at` is strictly older than this."""
+    return now - TEXT_KEEP
+
+
+def row_cutoff(now: datetime) -> datetime:
+    """A finished transcript row is deleted once `created_at` is strictly older than this."""
+    return now - ROW_KEEP

@@ -2,7 +2,7 @@
 
 Request shape copied from OvozYoz `engines/segment.py` (google-genai 2.33.0, STACK):
 - a transcription model (`gemini-3.5-transcribe`) gets `generation_config.transcription_config` with
-  `language_codes`, `custom_vocabulary` (≤ 1,000 terms) and `mode`;
+  `language_codes`, `custom_vocabulary` (≤ 1,000 terms) and `mode` (the `stt.mode` setting, per call);
 - any other Gemini model gets the instruction, the hints in the prompt (first 200 terms) and minimal thinking,
   falling back to `low` or none when the model rejects the level;
 - `store: False` always: voice notes are not kept by the provider.
@@ -58,8 +58,6 @@ PROVIDER: Final = "google"
 KEY_KIND: Final = "google_api_key"
 PATH_INTERACTIONS: Final = "interactions"
 KEY_CHECK_OPERATION: Final = "speech_key_check"
-# `stt.mode` exists as a setting, but the Transcriber port does not carry it yet (pending wiring); this is its default.
-TRANSCRIPTION_MODE: Final = "smart"
 _THINKING_FIRST: Final = "minimal"
 _THINKING_FALLBACK: Final = "low"
 
@@ -97,13 +95,15 @@ def build_request(
     languages: Sequence[str],
     vocabulary: Sequence[str],
     model: str,
+    mode: str,
     thinking: str | None = _THINKING_FIRST,
 ) -> dict[str, Any]:
-    """The `interactions.create` keyword arguments (OvozYoz `SegmentEngine.build_request`)."""
+    """The `interactions.create` keyword arguments (OvozYoz `SegmentEngine.build_request`). `mode` applies to
+    transcription models only."""
     part = {"type": "audio", "data": base64.b64encode(audio).decode("ascii"), "mime_type": normalize_mime(mime, audio)}
     model_id = clean_model_id(model)
     if is_transcribe_model(model_id):
-        config: dict[str, Any] = {"mode": TRANSCRIPTION_MODE}
+        config: dict[str, Any] = {"mode": mode}
         codes = [code.strip() for code in languages if code.strip()]
         if codes:
             config["language_codes"] = codes
@@ -265,8 +265,11 @@ class GeminiTranscriber:
         languages: Sequence[str],
         vocabulary: Sequence[str],
         model: str,
+        mode: str,
+        fallback_model: str,
         timeout: float,
     ) -> Transcript:
+        del fallback_model  # the Interactions API has one path; there is nothing to fall back to
         started = time.monotonic()
         key = await resolve_key(self._api_key, provider=PROVIDER)
         model_id = clean_model_id(model)
@@ -277,7 +280,14 @@ class GeminiTranscriber:
             attempts += 1
             client = await self._client_for(key)
             return await self._create(
-                client, audio, mime=mime, languages=languages, vocabulary=vocabulary, model=model_id, timeout=timeout
+                client,
+                audio,
+                mime=mime,
+                languages=languages,
+                vocabulary=vocabulary,
+                model=model_id,
+                mode=mode,
+                timeout=timeout,
             )
 
         try:
@@ -313,6 +323,7 @@ class GeminiTranscriber:
         languages: Sequence[str],
         vocabulary: Sequence[str],
         model: str,
+        mode: str,
         timeout: float,
     ) -> str:
         """One logical attempt. A rejected thinking level is retried at once with the fallback (not a failure)."""
@@ -320,7 +331,7 @@ class GeminiTranscriber:
         while True:
             thinking = self._thinking.get(model, _THINKING_FIRST)
             request = build_request(
-                audio, mime=mime, languages=languages, vocabulary=vocabulary, model=model, thinking=thinking
+                audio, mime=mime, languages=languages, vocabulary=vocabulary, model=model, mode=mode, thinking=thinking
             )
             started = time.monotonic()
             try:

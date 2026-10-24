@@ -38,6 +38,7 @@ from yordamchi.persistence.engine import open_database
 from yordamchi.persistence.uow import Database, Session
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.ports.agent import ToolCall
+from yordamchi.ports.speech import Transcript
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.burst import domain as burst_domain
 from yordamchi.shared.burst import store as burst_store
@@ -52,6 +53,8 @@ from yordamchi.shared.settings import defaults, store
 from yordamchi.shared.settings import domain as settings_domain
 from yordamchi.shared.settings.domain import Snapshot
 from yordamchi.shared.settings.models import SettingVersion
+from yordamchi.shared.vault import service as vault_service
+from yordamchi.shared.vault.domain import NewSecret, SecretRef
 
 # --- core ---
 # Fake bootstrap values. The token has the real shape, so redaction tests exercise the real pattern.
@@ -691,6 +694,48 @@ async def make_decision(
 
 
 # --- voice ---
+# A second key of each speech kind (fake, real shape), for "a newer key replaces the old one".
+SECOND_SPEECH_KEYS: Final[dict[str, str]] = {
+    "google_api_key": "AIza" + "SyZ9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J",
+    "openrouter_api_key": "sk-or-v1-" + "fedcba9876543210" * 4,
+}
+
+
+async def store_secret(
+    db: Database, keystore: InMemoryKeystore, kind: str, value: str, *, bot: BotName = BotName.DEV, update_id: int = 1
+) -> SecretRef:
+    """A secret the owner pasted, stored the way intake stores it (one unit of work, assigned to `bot`)."""
+    origin = make_owner_origin(bot, update_id=update_id)
+    async with db.uow() as s:
+        [ref] = await vault_service.add_secrets(
+            s, keystore, origin=origin, secrets=[NewSecret(kind=kind, value=value)], at=DEFAULT_START
+        )
+    return ref
+
+
+def make_transcript(
+    text: str = "BonviHR'da login sahifasini tuzat",
+    *,
+    provider: str = "google",
+    model: str = "gemini-3.5-transcribe",
+    audio_ms: int = 60_000,
+    latency_ms: int = 1_800,
+    cost_usd_micros: int | None = None,
+    units: Mapping[str, int] | None = None,
+) -> Transcript:
+    """A provider's answer for one voice note (a 60 s note by default)."""
+    return Transcript(
+        text=text,
+        provider=provider,
+        provider_path="chat_completions" if provider == "openrouter" else "interactions",
+        model=model,
+        audio_ms=audio_ms,
+        latency_ms=latency_ms,
+        cost_usd_micros=cost_usd_micros,
+        units=dict(units or {}),
+    )
+
+
 # --- routing ---
 # --- settings ---
 async def add_setting_row(

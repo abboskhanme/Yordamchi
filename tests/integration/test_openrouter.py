@@ -30,7 +30,7 @@ from tests.integration.stt_harness import (
     slow,
     streamed_wav,
 )
-from yordamchi.adapters.openrouter.stt import FALLBACK_TRANSCRIPTION_MODEL, OpenRouterTranscriber
+from yordamchi.adapters.openrouter.stt import OpenRouterTranscriber, usage_of
 from yordamchi.core import retry
 from yordamchi.core.errors import (
     AuthFailed,
@@ -48,6 +48,8 @@ TRANSCRIPTIONS = "/api/v1/audio/transcriptions"
 KEY = "/api/v1/key"
 MODEL = "google/gemini-3.8-flash"
 VOCABULARY = ("BonviHR", "HRMentor")
+MODE = "smart"  # Gemini's transcription_config mode; OpenRouter ignores it
+FALLBACK_MODEL = "google/gemini-3.5-transcribe"  # the `stt.openrouter_fallback_model` default
 
 
 @pytest.fixture(autouse=True)
@@ -72,7 +74,14 @@ def adapter(server: OpenRouterServer, ffmpeg: Path | None, key: str = OPENROUTER
 
 async def transcribe(transcriber: OpenRouterTranscriber, *, timeout: float = 8.0) -> Transcript:
     return await transcriber.transcribe(
-        make_ogg_opus(1500), mime="audio/ogg", languages=LANGUAGES, vocabulary=VOCABULARY, model=MODEL, timeout=timeout
+        make_ogg_opus(1500),
+        mime="audio/ogg",
+        languages=LANGUAGES,
+        vocabulary=VOCABULARY,
+        model=MODEL,
+        mode=MODE,
+        fallback_model=FALLBACK_MODEL,
+        timeout=timeout,
     )
 
 
@@ -114,13 +123,22 @@ async def test_chat_path_sends_wav_with_hints_in_the_prompt(server: OpenRouterSe
     assert transcript.provider_path == "chat_completions"
     assert transcript.model == MODEL
     assert transcript.audio_ms == 1500
+    assert transcript.cost_usd_micros == 410  # usage.cost 0.00041 USD, converted once, never kept as a float
+    assert transcript.units == {"input_tokens": 1210, "output_tokens": 31}
 
 
 async def test_wav_input_needs_no_ffmpeg(server: OpenRouterServer) -> None:
     server.script(CHAT, load("openrouter", "chat_ok"))
     wav = make_wav(700)
     transcript = await adapter(server, None).transcribe(
-        wav, mime="audio/wav", languages=(), vocabulary=(), model=MODEL, timeout=8
+        wav,
+        mime="audio/wav",
+        languages=(),
+        vocabulary=(),
+        model=MODEL,
+        mode=MODE,
+        fallback_model=FALLBACK_MODEL,
+        timeout=8,
     )
     [request] = server.seen
     text_part, audio_part = request.json["messages"][1]["content"]
@@ -156,12 +174,38 @@ async def test_a_route_without_audio_falls_back_to_the_transcriptions_endpoint(
     transcript = await transcribe(adapter(server, ffmpeg))
     assert [request.path for request in server.seen] == [CHAT, TRANSCRIPTIONS]
     fallback = server.seen[1].json
-    assert fallback["model"] == FALLBACK_TRANSCRIPTION_MODEL
+    assert fallback["model"] == FALLBACK_MODEL
     assert fallback["input_audio"]["format"] == "wav"
     assert set(fallback) == {"model", "input_audio"}  # the endpoint takes no hints
     assert transcript.provider_path == "audio_transcriptions"
-    assert transcript.model == FALLBACK_TRANSCRIPTION_MODEL
+    assert transcript.model == FALLBACK_MODEL
     assert transcript.text.startswith("Bugun")
+    assert transcript.cost_usd_micros == 40  # usage.cost 4e-05 USD
+    assert transcript.units == {"input_tokens": 64, "output_tokens": 32}
+
+
+async def test_the_fallback_model_comes_from_the_call(server: OpenRouterServer, ffmpeg: Path) -> None:
+    server.script(CHAT, load("openrouter", "error_404_no_audio_endpoint"))
+    server.script(TRANSCRIPTIONS, load("openrouter", "transcriptions_ok"))
+    transcript = await adapter(server, ffmpeg).transcribe(
+        make_ogg_opus(1500),
+        mime="audio/ogg",
+        languages=LANGUAGES,
+        vocabulary=VOCABULARY,
+        model=MODEL,
+        mode=MODE,
+        fallback_model="openai/whisper-next",
+        timeout=8,
+    )
+    assert server.seen[1].json["model"] == "openai/whisper-next"
+    assert transcript.model == "openai/whisper-next"
+
+
+def test_usage_without_a_readable_cost_reports_none() -> None:
+    assert usage_of({"usage": {"cost": "free", "prompt_tokens": 7}}) == (None, {"input_tokens": 7})
+    assert usage_of({"usage": {"cost": -1, "completion_tokens": True}}) == (None, {})
+    assert usage_of({"choices": []}) == (None, {})
+    assert usage_of(None) == (None, {})
 
 
 async def test_a_model_rejecting_reasoning_is_asked_again_without_it_and_remembered(
@@ -331,7 +375,14 @@ async def test_live_openrouter_key_validates_and_transcribes_silence() -> None:
         check = await transcriber.validate_key(key, models=(MODEL,), timeout=10)
         assert check.ok
         transcript = await transcriber.transcribe(
-            make_wav(1000), mime="audio/wav", languages=LANGUAGES, vocabulary=("BonviHR",), model=MODEL, timeout=20
+            make_wav(1000),
+            mime="audio/wav",
+            languages=LANGUAGES,
+            vocabulary=("BonviHR",),
+            model=MODEL,
+            mode=MODE,
+            fallback_model=FALLBACK_MODEL,
+            timeout=20,
         )
         assert isinstance(transcript.text, str)
     finally:

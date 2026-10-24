@@ -6,7 +6,9 @@ OpenRouter's `/audio/transcriptions` takes no vocabulary and only one ISO-639-1 
   exactly: <≤ 200 terms>", plus `input_audio{data: base64 WAV 16 kHz mono, format: "wav"}`;
 - `reasoning: {effort: "minimal", exclude: true}`, dropped for a model that rejects it;
 - a 400/404/415/422 on that path (the model or route cannot take the audio) falls back to `/audio/transcriptions`
-  with `google/gemini-3.5-transcribe` and no hints; `Transcript.provider_path` says which path answered.
+  with the call's `fallback_model` (`stt.openrouter_fallback_model`, default `google/gemini-3.5-transcribe`) and no
+  hints; `Transcript.provider_path` says which path answered;
+- `usage.cost` (USD, a JSON number) becomes `Transcript.cost_usd_micros`, and the token counts its `units`.
 
 Telegram voice is OGG/Opus; OpenRouter's documented `ogg` input is Vorbis and support varies by provider, so ffmpeg
 (`DATA/bin/ffmpeg`, through `core.proc`) converts it to WAV first, as SPEC §3.2.11 says.
@@ -23,6 +25,7 @@ import base64
 import json
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Final
@@ -54,6 +57,7 @@ from yordamchi.core.errors import (
     RateLimited,
 )
 from yordamchi.core.log import get_log
+from yordamchi.core.money import usd_to_micros
 from yordamchi.core.retry import retrying
 from yordamchi.ports.speech import SpeechKeyCheck, Transcript
 
@@ -65,14 +69,19 @@ BASE_URL: Final = "https://openrouter.ai/api/v1"
 PATH_CHAT: Final = "chat_completions"
 PATH_TRANSCRIPTIONS: Final = "audio_transcriptions"
 KEY_CHECK_OPERATION: Final = "speech_key_check"
-# SPEC §3.2.11 names this model for the hint-less fallback; it is not a setting yet (pending wiring).
-FALLBACK_TRANSCRIPTION_MODEL: Final = "google/gemini-3.5-transcribe"
 FALLBACK_STATUSES: Final = frozenset({400, 404, 415, 422})
 FFMPEG: Final = "ffmpeg"
 WAV_SAMPLE_RATE: Final = 16_000
 # ffmpeg needs no inherited environment; nothing of the bot's reaches it.
 FFMPEG_ENV: Final[Mapping[str, str]] = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
 _REASONING: Final = {"effort": "minimal", "exclude": True}
+# OpenRouter `usage` counters → `Transcript.units` names (chat completions, then /audio/transcriptions).
+_UNIT_NAMES: Final = {
+    "prompt_tokens": "input_tokens",
+    "completion_tokens": "output_tokens",
+    "input_tokens": "input_tokens",
+    "output_tokens": "output_tokens",
+}
 
 
 class _UseTranscriptionsEndpoint(Exception):
@@ -126,7 +135,7 @@ def chat_payload(
     return payload
 
 
-def transcriptions_payload(wav_b64: str, *, model: str = FALLBACK_TRANSCRIPTION_MODEL) -> dict[str, Any]:
+def transcriptions_payload(wav_b64: str, *, model: str) -> dict[str, Any]:
     return {"model": model, "input_audio": {"data": wav_b64, "format": "wav"}}
 
 
@@ -214,6 +223,30 @@ def _decimal(value: object) -> Decimal | None:
         return Decimal(str(value))
     except InvalidOperation:
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class _Answer:
+    """One successful exchange: the cleaned transcript and what the response said it cost."""
+
+    text: str = field(repr=False)
+    cost_usd_micros: int | None = None
+    units: Mapping[str, int] = field(default_factory=dict)
+
+
+def usage_of(body: object) -> tuple[int | None, dict[str, int]]:
+    """`usage.cost` of a 200 body in micro-USD (None when absent or unreadable), and its token counts."""
+    usage = body.get("usage") if isinstance(body, dict) else None
+    if not isinstance(usage, dict):
+        return None, {}
+    cost = _decimal(usage.get("cost"))
+    micros = usd_to_micros(cost) if cost is not None and cost.is_finite() and cost >= 0 else None
+    units = {
+        name: count
+        for raw, name in _UNIT_NAMES.items()
+        if isinstance(count := usage.get(raw), int) and not isinstance(count, bool) and count >= 0
+    }
+    return micros, units
 
 
 class OpenRouterTranscriber:
@@ -310,9 +343,12 @@ class OpenRouterTranscriber:
         languages: Sequence[str],
         vocabulary: Sequence[str],
         model: str,
+        mode: str,
+        fallback_model: str,
         timeout: float,
     ) -> Transcript:
         del mime  # the bytes decide: WAV goes as it is, anything else through ffmpeg
+        del mode  # Gemini's transcription_config mode; neither OpenRouter path takes one
         started = time.monotonic()
         deadline = started + timeout
         key = await resolve_key(self._api_key, provider=PROVIDER)
@@ -323,25 +359,25 @@ class OpenRouterTranscriber:
             wav = await self._to_wav(audio, timeout=timeout)
             wav_b64 = base64.b64encode(wav).decode("ascii")
 
-            async def chat_attempt() -> str:
+            async def chat_attempt() -> _Answer:
                 nonlocal attempts
                 attempts += 1
                 return await self._chat(
                     key, wav_b64, languages=languages, vocabulary=vocabulary, model=model, timeout=timeout
                 )
 
-            async def transcriptions_attempt() -> str:
+            async def transcriptions_attempt() -> _Answer:
                 nonlocal attempts
                 attempts += 1
-                return await self._transcriptions(key, wav_b64, timeout=timeout)
+                return await self._transcriptions(key, wav_b64, model=fallback_model, timeout=timeout)
 
             try:
-                text = await retrying(
+                answer = await retrying(
                     chat_attempt, timeout=_remaining(deadline, STT_OPERATION), operation=STT_OPERATION
                 )
             except _UseTranscriptionsEndpoint:
-                path, used_model = PATH_TRANSCRIPTIONS, FALLBACK_TRANSCRIPTION_MODEL
-                text = await retrying(
+                path, used_model = PATH_TRANSCRIPTIONS, fallback_model
+                answer = await retrying(
                     transcriptions_attempt, timeout=_remaining(deadline, STT_OPERATION), operation=STT_OPERATION
                 )
         except ExternalError as error:
@@ -357,12 +393,14 @@ class OpenRouterTranscriber:
             )
             raise
         return Transcript(
-            text=text,
+            text=answer.text,
             provider=PROVIDER,
             provider_path=path,
             model=used_model,
             audio_ms=wav_duration_ms(wav),
             latency_ms=int((time.monotonic() - started) * 1000),
+            cost_usd_micros=answer.cost_usd_micros,
+            units=answer.units,
         )
 
     async def _chat(
@@ -374,7 +412,7 @@ class OpenRouterTranscriber:
         vocabulary: Sequence[str],
         model: str,
         timeout: float,
-    ) -> str:
+    ) -> _Answer:
         while True:
             reasoning = self._reasoning.get(model, True)
             payload = chat_payload(
@@ -397,10 +435,10 @@ class OpenRouterTranscriber:
                 raise translate_status(status, body, headers)
             text = clean_transcript(chat_text(body, headers))
             self._log_finished(PATH_CHAT, model, body, headers, duration_ms, len(text))
-            return text
+            cost, units = usage_of(body)
+            return _Answer(text=text, cost_usd_micros=cost, units=units)
 
-    async def _transcriptions(self, key: str, wav_b64: str, *, timeout: float) -> str:
-        model = FALLBACK_TRANSCRIPTION_MODEL
+    async def _transcriptions(self, key: str, wav_b64: str, *, model: str, timeout: float) -> _Answer:
         started = time.monotonic()
         status, headers, body = await self._request(
             "POST",
@@ -422,7 +460,8 @@ class OpenRouterTranscriber:
             raise ProviderUnavailable(provider=PROVIDER, retryable=False)
         text = clean_transcript(raw_text)
         self._log_finished(PATH_TRANSCRIPTIONS, model, body, headers, duration_ms, len(text))
-        return text
+        cost, units = usage_of(body)
+        return _Answer(text=text, cost_usd_micros=cost, units=units)
 
     @staticmethod
     def _log_attempt_failed(

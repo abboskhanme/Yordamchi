@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 11:05:02.914967
+Create Date: 2026-10-24 11:07:05.383282
 """
 
 from collections.abc import Sequence
@@ -199,6 +199,24 @@ def upgrade() -> None:
         sa.UniqueConstraint("key", "version", name=op.f("uq_setting_versions_key_version")),
     )
     op.create_table(
+        "transcripts",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("bot", sa.String(length=16), nullable=False),
+        sa.Column("update_id", sa.BigInteger(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("text", sa.Text(), nullable=True),
+        sa.Column("provider", sa.String(length=16), nullable=True),
+        sa.Column("provider_path", sa.String(length=32), nullable=True),
+        sa.Column("model", sa.String(length=96), nullable=True),
+        sa.Column("audio_ms", sa.Integer(), nullable=True),
+        sa.Column("latency_ms", sa.Integer(), nullable=True),
+        sa.Column("error_code", sa.String(length=32), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("done_at", sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_transcripts")),
+        sa.UniqueConstraint("bot", "update_id", name=op.f("uq_transcripts_bot_update_id")),
+    )
+    op.create_table(
         "usage_records",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("bot", sa.String(length=16), nullable=False),
@@ -292,6 +310,7 @@ def downgrade() -> None:
         batch_op.drop_index("ix_usage_records_bot_at")
 
     op.drop_table("usage_records")
+    op.drop_table("transcripts")
     op.drop_table("setting_versions")
     op.drop_table("projects")
     op.drop_table("poll_offsets")

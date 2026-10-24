@@ -44,6 +44,7 @@ class ErrorCode(StrEnum):
     # --- gate ---
     DECISION_NOT_FOUND = "decision_not_found"
     # --- voice ---
+    STT_TERM_INVALID = "stt_term_invalid"
     # --- routing ---
     # --- settings ---
     SETTING_UNKNOWN = "setting_unknown"
@@ -218,6 +219,13 @@ class DecisionNotFound(DomainError):
 
 
 # --- voice ---
+class SttTermInvalid(DomainError):
+    """A term for the STT vocabulary ("bu so'zni to'g'ri yoz: …") is empty or longer than `limit` characters."""
+
+    def __init__(self, *, limit: int) -> None:
+        super().__init__(ErrorCode.STT_TERM_INVALID, limit=limit)
+
+
 # --- routing ---
 # --- settings ---
 class SettingUnknown(DomainError):

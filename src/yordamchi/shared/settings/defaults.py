@@ -601,6 +601,15 @@ STT_OPENROUTER_MODEL = Setting(
     bots=BOTH,
     doc="OpenRouter chat model used for STT with hints.",
 )
+STT_OPENROUTER_FALLBACK_MODEL = Setting(
+    "stt.openrouter_fallback_model",
+    str,
+    "google/gemini-3.5-transcribe",
+    check=MODEL_ID,
+    group=Group.SPEECH,
+    bots=BOTH,
+    doc="OpenRouter /audio/transcriptions model, used without hints when the chat path refuses the audio.",
+)
 TTS_GOOGLE_MODEL = Setting(
     "tts.google_model",
     str,

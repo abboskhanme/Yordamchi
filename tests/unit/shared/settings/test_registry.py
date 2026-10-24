@@ -42,7 +42,8 @@ SAMPLE_BOOTSTRAP = defaults.bootstrap_values(owner_id=424242, dev_group_id=-1001
 SPEC_KEYS = """
 persona.dev_tone persona.personal persona.personal_verbosity prompt.dev_executor_extra prompt.personal_extra
 voice.enabled voice.name voice.style voice.gender voice.language_code voice.max_words voice.max_s
-speech.stt_provider speech.tts_provider speech.video_provider stt.google_model stt.openrouter_model tts.google_model
+speech.stt_provider speech.tts_provider speech.video_provider stt.google_model stt.openrouter_model
+stt.openrouter_fallback_model tts.google_model
 tts.openrouter_model tts.edge_voice stt.mode stt.split_over_s lang.reply stt.languages stt.extra_terms
 models.routing models.report models.report_effort models.settings models.qa models.qa_effort models.coding
 models.coding_effort models.investigation models.fallback_text routing.min_confidence routing.min_margin
