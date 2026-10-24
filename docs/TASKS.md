@@ -189,8 +189,8 @@ a kept live test and a decision line (pass, or the SPEC §11 fallback).
 
 | ID | Task | Owner | Deps | Par | Creates | Shared | AC | Done when | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| T36 | Fault suite: 50 × `kill -9`, outbound network fault, sleep/wake, restart notice | test-backend | T34 | yes | `tests/fault/` | — | NFR-REL-03/04/05/06/07, UC-06 | 0 silent drops, 0 double deliveries, dup ≤ 2 % | in progress (2026-10-24) |
-| T37 | Load: 15 projects × 10 min | test-backend | T34 | yes | `tests/fault/test_load.py` | — | NFR-CAP-01/02 | 0 lost, every result delivered | in progress (2026-10-24) |
+| T36 | Fault suite: 50 × `kill -9`, outbound network fault, sleep/wake, restart notice | test-backend | T34 | yes | `tests/fault/` | — | NFR-REL-03/04/05/06/07, UC-06 | 0 silent drops, 0 double deliveries, dup ≤ 2 % | **DONE** 2026-10-24: 50/50 exactly once across 12 kills, 64 kill points; 5 bugs fixed; BUG-1 (offline backlog joined into one burst) and BUG-2 (an echo that never left the Mac dropped) are strict xfails |
+| T37 | Load: 15 projects × 10 min | test-backend | T34 | yes | `tests/fault/test_load.py` | — | NFR-CAP-01/02 | 0 lost, every result delivered | **DONE** 2026-10-24: 15 projects × 10 min, 0 lost; report p90 3.3 s (after priority 0 + group reserve) |
 | T38 | STT mixed-language live eval + S7 | test-backend | T13, T19, X03, X04 | yes | `tests/eval/stt/`, `tests/live/test_spike_s7.py` | — | UC-05 (each configured provider) | meets thresholds; S7 decision | **BLOCKED** (X03, X04) |
 | T39 | Live e2e P1: stranger/leave/privacy, push without asking, account switch, CLI smoke, live interrupt | test-e2e | T34, X01, X02, X07 | yes | `tests/live/` | — | UC-01, NFR-SEC-11, NFR-SEC-04 (next turn on new account ≤ 60 s), NFR-REL-08, UC-03 | all green on the test bot | **BLOCKED** (X01, X02, X07) |
 | T40 | Migration tests: `0001` on empty `dev.db` + `personal.db`, `alembic check`, one head; save `p1_release.db` | test-migration | T34 | yes | `tests/migrations/`, `tests/migrations/fixtures/p1_release.db` | — | SPEC §12 alembic rows | green | **DONE** 2026-10-24 (found the rebuild FK cascade; fixed in `migrations/env.py`) |
