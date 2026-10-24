@@ -62,3 +62,22 @@ after the tasks writing the same files have merged. Remove an item once it is do
 - [ ] T34 `app.py`: `ClaudeAgentRuntime(cli_path=default_cli_path(home), search_path=proc.build_search_path(paths, login_path), githooks_dir=paths.githooks)`. The startup `os.environ` scrub is still required, because the SDK merges the inherited env.
 - [ ] Prompts: move `guard.SUBAGENT_QUESTION_MESSAGE` (an English constant in the adapter) into `prompts/dev/`.
 - [ ] STACK §8 re-check list: re-verify the private SDK API in `adapters/claude/control.py` (`_query.receive_messages`, `_send_control_request`, `_initialization_result["pid"]`) and the `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS` opt-in on every SDK or CLI upgrade.
+
+## From T16 (burst)
+- [ ] T34 `app.py`:
+  - run `burst.service.run_bursts(deps, wake=…, notify=…)` under `core.aio.forever`; it does the §2.7 recovery itself;
+  - set `wake` after each `accept_update`;
+  - `notify` must not block: it wakes the router and starts STT jobs for `events.transcribe`;
+  - the router reads `list_closed_bursts` and calls `mark_burst_routed/merged/cancelled(s, …)`;
+  - retention calls `burst.service.apply_retention(deps)`.
+- [ ] T19:
+  - after each STT result, call `record_transcript(deps, update_id=…, text=…, ok=…)`, then `wake`; when `ok=False`, the text is the "ovoz tushunilmadi" marker;
+  - after a restart, `recover_bursts` lists the voice notes still waiting;
+  - optionally add AUDIO to `TRANSCRIBED_KINDS`.
+- [ ] T20 / T24:
+  - call `decide_dev_follow_up` before routing asks;
+  - `RunningTurn` needs `message_ids` (from `message_links`), `media_group_ids` and `last_part_at`;
+  - pre-parse uses `burst.domain.interrupt_of` / `TurnInput.interrupt`, the single interrupt-word list.
+- [ ] Future FKs to `bursts.id` (turns, deliveries, route_decisions, answers) must be `ON DELETE SET NULL` or left out. Bursts are deleted after 30 days, while those rows live 90–400 days.
+- [ ] T27: the eval runner replays `tests/eval/burst/cases.yaml` (32 dev cases; the format is described at the top of that file).
+- [ ] T46 QOLLANMA: a line on how "kut" and "to'xta" behave.
