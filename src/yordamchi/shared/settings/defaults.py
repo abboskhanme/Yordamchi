@@ -964,6 +964,54 @@ SCHEDULE_SERVER_CHECK_MIN = Setting(
 MODELS_INVESTIGATION = _claude_model(
     "models.investigation", "opus", bots=DEV, doc="Model of read-only investigation sessions."
 )
+SERVERS_LOG_PATHS = Setting(
+    "servers.log_paths",
+    list[str],
+    [],
+    check=Regex(
+        r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?:/[A-Za-z0-9._/@+-]+",
+        description="alias:/yo'l, masalan bonvi-srv:/var/log/syslog",
+    ),
+    group=Group.SERVERS,
+    bots=DEV,
+    doc="Logs whose recent error lines each server check reports, as <alias>:<absolute path>.",
+)
+SERVERS_DISK_WARN_PCT = Setting(
+    "servers.disk_warn_pct",
+    int,
+    90,
+    check=Range(50, 99),
+    group=Group.SERVERS,
+    bots=DEV,
+    doc="A server disk this full (Use%) is a problem: flagged in reports, alerted once.",
+)
+SERVERS_MEMORY_WARN_PCT = Setting(
+    "servers.memory_warn_pct",
+    int,
+    90,
+    check=Range(50, 99),
+    group=Group.SERVERS,
+    bots=DEV,
+    doc="Server memory this much in use (total minus available) is a problem: flagged, alerted once.",
+)
+TIMEOUTS_SERVER_COMMAND_S = Setting(
+    "timeouts.server_command_s",
+    float,
+    30.0,
+    check=Range(5, 120),
+    group=Group.TIMEOUTS,
+    bots=DEV,
+    doc="One read-only remote command of a server check, the SSH connection included.",
+)
+TIMEOUTS_SERVER_CHECK_S = Setting(
+    "timeouts.server_check_s",
+    float,
+    150.0,
+    check=Range(30, 170),
+    group=Group.TIMEOUTS,
+    bots=DEV,
+    doc="One host's whole check; hosts run in parallel, so an on-demand answer comes within 3 min (UC-15).",
+)
 
 # --- health ---
 SCHEDULE_HEARTBEAT_EDIT_MIN = Setting(

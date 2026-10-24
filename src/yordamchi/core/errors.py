@@ -56,6 +56,8 @@ class ErrorCode(StrEnum):
     # --- questions ---
     # --- digest ---
     # --- servers ---
+    SERVER_JUMP_ONLY = "server_jump_only"
+    SERVER_NOT_WATCHED = "server_not_watched"
     # --- health ---
     # --- wiring (bots) ---
 
@@ -267,5 +269,20 @@ class TurnNotFound(DomainError):
 # --- questions ---
 # --- digest ---
 # --- servers ---
+class ServerJumpOnly(DomainError):
+    """The host is in `gate.jump_only_hosts` (the Windows host with production 1C): a jump, never a target, so it is
+    neither watched nor checked."""
+
+    def __init__(self, *, host: str) -> None:
+        super().__init__(ErrorCode.SERVER_JUMP_ONLY, host=host)
+
+
+class ServerNotWatched(DomainError):
+    """The owner named a server that is not in `servers.hosts`. `hosts` is the comma-separated list that is."""
+
+    def __init__(self, *, host: str, hosts: str) -> None:
+        super().__init__(ErrorCode.SERVER_NOT_WATCHED, host=host, hosts=hosts)
+
+
 # --- health ---
 # --- wiring (bots) ---

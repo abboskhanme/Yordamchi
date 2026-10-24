@@ -14,6 +14,8 @@ from functools import partial
 from pathlib import Path
 from typing import Final
 
+from sqlalchemy import select
+
 from tests.fakes.agent import FakeAgentRuntime
 from tests.fakes.assistant import FakeAssistant
 from tests.fakes.clock import DEFAULT_START, FakeClock
@@ -42,6 +44,8 @@ from yordamchi.dev.questions import domain as questions_domain
 from yordamchi.dev.questions import store as questions_store
 from yordamchi.dev.questions.domain import QuestionStatus
 from yordamchi.dev.routing.domain import Activity, ActivityKind, Intent
+from yordamchi.dev.servers import domain as servers_domain
+from yordamchi.dev.servers.models import ServerCheck
 from yordamchi.dev.turns import store as turns_store
 from yordamchi.dev.turns.domain import DeliveryMode, DeliverySource, TurnKind, TurnRequest, TurnStatus, TurnSummary
 from yordamchi.dev.turns.models import Turn
@@ -52,6 +56,7 @@ from yordamchi.persistence.uow import Database, Session
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.ports.agent import ToolCall
 from yordamchi.ports.git import Commit, GitStatus
+from yordamchi.ports.remote_shell import RemoteResult
 from yordamchi.ports.speech import Transcript
 from yordamchi.shared.access.domain import Arrival, ChatKind, EventType, OwnerOrigin
 from yordamchi.shared.burst import domain as burst_domain
@@ -1145,6 +1150,76 @@ def make_server_check(host: str = "web", *, at: datetime, ok: bool = True, summa
 
 
 # --- servers ---
+SERVER_HOST: Final = "bonvi-srv"  # the Bonvi VM: reached through the jump-only Windows host (BONVI_SERVER.md)
+JUMP_HOST: Final = "server"  # `gate.jump_only_hosts` default: production 1C, never a target
+SAMPLE_UPTIME: Final = " 10:15:01 up 12 days,  3:04,  1 user,  load average: 0.52, 0.48, 0.40\n"
+SAMPLE_DF: Final = (
+    "Filesystem      Size  Used Avail Use% Mounted on\n"
+    "tmpfs           1.2G  1.6M  1.2G   1% /run\n"
+    "/dev/sda2       147G  118G   22G  85% /\n"
+    "tmpfs           5.9G     0  5.9G   0% /dev/shm\n"
+    "/dev/sdb1       880G   70G  766G   9% /srv/data\n"
+    "overlay         147G  118G   22G  85% /var/lib/docker/overlay2/3f2a/merged\n"
+    "/dev/loop0       64M   64M     0 100% /snap/core20/2318\n"
+)
+SAMPLE_FREE: Final = (
+    "               total        used        free      shared  buff/cache   available\n"
+    "Mem:           11950        5123        1234         123        5600        6500\n"
+    "Swap:           2047           0        2047\n"
+)
+SAMPLE_CONTAINERS: Final = (
+    ("1a2b3c4d5e6f", "hrmentor-api:latest", '"uvicorn app:app --h…"', "2 hours ago", "Up 2 hours (healthy)",
+     "127.0.0.1:8290->80/tcp", "hrmentor-api-1"),
+    ("2b3c4d5e6f7a", "postgres:16", '"docker-entrypoint.s…"', "3 days ago", "Up 3 days", "5432/tcp",
+     "hrmentor-postgres-1"),
+)  # fmt: skip
+
+
+def docker_ps_table(rows: tuple[tuple[str, ...], ...]) -> str:
+    """`docker ps` output as the docker CLI pads it (Go tabwriter: each column as wide as its widest cell + 3)."""
+    header = ("CONTAINER ID", "IMAGE", "COMMAND", "CREATED", "STATUS", "PORTS", "NAMES")
+    table = [header, *rows]
+    widths = [max(len(row[index]) for row in table) for index in range(len(header) - 1)]
+    lines = [
+        "".join(cell.ljust(width + 3) for cell, width in zip(row, widths, strict=False)) + row[-1] for row in table
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def remote_ok(host: str, stdout: str, *, exit_code: int = 0) -> RemoteResult:
+    return RemoteResult(host=host, exit_code=exit_code, stdout=stdout, stderr="", duration_ms=40)
+
+
+def script_healthy_server(
+    shell: FakeRemoteShell,
+    host: str = SERVER_HOST,
+    *,
+    df: str = SAMPLE_DF,
+    containers: tuple[tuple[str, ...], ...] = SAMPLE_CONTAINERS,
+    failed_units: str = "",
+) -> None:
+    """Every probe of a check answers like a healthy Ubuntu VM (`domain.plan_probes` commands)."""
+    shell.respond(host, servers_domain.UPTIME_COMMAND, remote_ok(host, SAMPLE_UPTIME))
+    shell.respond(host, servers_domain.DISK_COMMAND, remote_ok(host, df))
+    shell.respond(host, servers_domain.MEMORY_COMMAND, remote_ok(host, SAMPLE_FREE))
+    shell.respond(host, servers_domain.CONTAINERS_COMMAND, remote_ok(host, docker_ps_table(containers)))
+    shell.respond(host, servers_domain.UNITS_COMMAND, remote_ok(host, failed_units))
+
+
+def df_with_root_at(pct: int) -> str:
+    """`SAMPLE_DF` with `/` at `pct` percent."""
+    return SAMPLE_DF.replace(" 85% /\n", f" {pct}% /\n", 1)
+
+
+async def list_server_checks(db: Database, host: str | None = None) -> list[ServerCheck]:
+    """Every `server_checks` row (of one host), oldest first."""
+    query = select(ServerCheck).order_by(ServerCheck.id)
+    if host is not None:
+        query = query.where(ServerCheck.host == host)
+    async with db.read() as s:
+        return list((await s.scalars(query)).all())
+
+
 # --- health ---
 HEALTH_VERSION: Final = "2026.10.24-abcdef0"
 HEALTH_SDK_VERSION: Final = "0.2.173"

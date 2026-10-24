@@ -70,6 +70,17 @@ SPEC_KEYS.append("gate.shim_grant_window_s")
 SPEC_KEYS.extend(["timeouts.settings_s", "assistant.warm_clients", "models.routing_effort"])
 # SPEC §5.6 (revised after T22) names the scheduler's pressure threshold inline (T24).
 SPEC_KEYS.append("guard.max_pressure_level")
+# SPEC §3.2.4 server checks (T31): log paths, the "disk ≥ 90 %" style thresholds, and the bounds the T22 wiring note
+# asks for (one command; one host's check within UC-15's 3 min).
+SPEC_KEYS.extend(
+    [
+        "servers.log_paths",
+        "servers.disk_warn_pct",
+        "servers.memory_warn_pct",
+        "timeouts.server_command_s",
+        "timeouts.server_check_s",
+    ]
+)
 
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")

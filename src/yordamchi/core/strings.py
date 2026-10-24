@@ -514,6 +514,55 @@ REPORT_SERVERS = Msg("Serverlar: {hosts}")
 REPORT_SERVER_OK = Msg("{host} ✓ ({age} oldin)")
 REPORT_SERVER_FAILED = Msg("{host} ✗ {summary} ({age} oldin)")
 # --- servers ---
+# UC-15, SPEC §3.2.4: a status answer is one line per host (each starts with the host), then the freshness line.
+SERVERS_NONE = Msg("Kuzatiladigan server yo'q. Qo'shish uchun ayting, masalan: «bonvi-srv serverini kuzat».")
+SERVERS_CHECKING = Msg("Tekshiryapman (~{minutes} daqiqa): {hosts}.")
+SERVERS_HOST_OK = Msg("{host}: hammasi joyida · {details}")
+SERVERS_HOST_PROBLEMS = Msg("{host}: muammo — {issues} · {details}")
+SERVERS_HOST_UNREACHABLE = Msg("{host}: ulanib bo'lmadi — {reason}")
+SERVERS_HOST_UNCHECKED = Msg("{host}: hali tekshirilmagan")
+SERVERS_HOST_JUMP_ONLY = Msg("{host}: faqat o'tish (jump) uchun — unda buyruq ishlatmayman, tekshirmayman")
+SERVERS_HOST_REFUSED = Msg("{host}: gate hech bir tekshiruv buyrug'iga ruxsat bermadi (gate.readonly_remote_commands)")
+SERVERS_LOAD = Msg("yuklama {load}")
+SERVERS_DISK = Msg("disk {pct}% ({mount})")
+SERVERS_MEMORY = Msg("xotira {pct}%")
+SERVERS_CONTAINERS = Msg("{count} ta konteyner")
+SERVERS_NO_DETAILS = Msg("ma'lumot olinmadi")
+SERVERS_FRESHNESS = Msg("Ma'lumot: {minutes} daqiqa oldin")
+SERVERS_FRESH_NOW = Msg("Ma'lumot: hozirgina")
+# The problems a check flags; each is alerted once (SPEC §3.2.4).
+SERVERS_ISSUE_UNREACHABLE = Msg("server javob bermayapti")
+SERVERS_ISSUE_DISK = Msg("disk {mount} {pct}% to'lgan")
+SERVERS_ISSUE_MEMORY = Msg("xotira {pct}% band")
+SERVERS_ISSUE_UNIT = Msg("{unit} xizmati ishdan chiqqan (failed)")
+SERVERS_ISSUE_DOCKER_DOWN = Msg("Docker javob bermayapti (docker ps xato bilan tugadi)")
+SERVERS_ISSUE_CONTAINER_DOWN = Msg("«{name}» konteyneri to'xtagan")
+SERVERS_ISSUE_CONTAINER_RESTARTING = Msg("«{name}» konteyneri qayta-qayta ishga tushyapti")
+SERVERS_ISSUE_CONTAINER_UNHEALTHY = Msg("«{name}» konteyneri sog'lom emas (unhealthy)")
+SERVERS_ISSUE_LOG = Msg("{path} log'ida {count} ta xato qatori")
+SERVERS_ALERT = Msg("{host} serverida muammo: {issues}.")
+# Why a host did not answer, keyed by `ErrorCode` value (adapters/ssh/translate.py maps ssh failures to these).
+SERVERS_REASONS: Final[Mapping[str, Msg]] = MappingProxyType(
+    {
+        "provider_unavailable": Msg("javob bermayapti (tarmoqni tekshiring)"),
+        "call_timed_out": Msg("vaqtida javob bermadi"),
+        "auth_failed": Msg("kalit yoki login rad etildi"),
+        "not_installed": Msg("Mac'da ssh topilmadi"),
+    }
+)
+SERVERS_REASON_UNKNOWN = Msg("noma'lum xato")
+# The owner names the servers by chat (`servers.hosts`, `~/.ssh/config` aliases).
+SERVERS_HOST_ADDED = Msg(
+    "{host}: kuzatuvga oldim — har {minutes} daqiqada faqat o'qiydigan buyruqlar bilan tekshiraman."
+)
+SERVERS_HOST_KNOWN = Msg("{host} allaqachon kuzatilyapti.")
+SERVERS_HOST_REMOVED = Msg("{host}: kuzatuvdan chiqardim.")
+SERVERS_NONE_LISTED = Msg("hech biri")
+ERR_SERVER_JUMP_ONLY = Msg(
+    "{host} faqat o'tish (jump) uchun belgilangan — unda hech qanday buyruq ishlatmayman, kuzatmayman ham."
+)
+ERR_SERVER_NOT_WATCHED = Msg("{host} kuzatiladigan serverlar ro'yxatida yo'q. Ro'yxatda: {hosts}.")
+
 # --- health ---
 HEALTH_ONLINE = Msg("Onlayn: {time}")
 HEALTH_RESTARTED = Msg("Qayta ishga tushdim ({reason}). Uzilib qolgan ishlar: {interrupted} — davom ettiraymi?")

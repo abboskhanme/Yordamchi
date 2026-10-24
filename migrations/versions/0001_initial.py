@@ -1,7 +1,7 @@
 """initial
 
 Revision ID: 0001
-Create Date: 2026-10-24 13:08:37.284613
+Create Date: 2026-10-24 13:26:44.832987
 """
 
 from collections.abc import Sequence
@@ -185,6 +185,20 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_projects")),
         sa.UniqueConstraint("path", name=op.f("uq_projects_path")),
     )
+    op.create_table(
+        "server_checks",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("host", sa.String(length=253), nullable=False),
+        sa.Column("at", sa.DateTime(), nullable=False),
+        sa.Column("ok", sa.Boolean(), nullable=False),
+        sa.Column("summary_json", sa.Text(), nullable=False),
+        sa.Column("error_code", sa.String(length=64), nullable=True),
+        sa.Column("duration_ms", sa.Integer(), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_server_checks")),
+    )
+    with op.batch_alter_table("server_checks", schema=None) as batch_op:
+        batch_op.create_index("ix_server_checks_host_at", ["host", "at"], unique=False)
+
     op.create_table(
         "setting_versions",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -566,6 +580,10 @@ def downgrade() -> None:
     op.drop_table("usage_records")
     op.drop_table("transcripts")
     op.drop_table("setting_versions")
+    with op.batch_alter_table("server_checks", schema=None) as batch_op:
+        batch_op.drop_index("ix_server_checks_host_at")
+
+    op.drop_table("server_checks")
     op.drop_table("projects")
     op.drop_table("poll_offsets")
     with op.batch_alter_table("outbox_messages", schema=None) as batch_op:
