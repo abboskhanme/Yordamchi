@@ -1131,6 +1131,8 @@ never called; the check script asserts the command list is empty.
 
 P2–P4 follow the same pattern: features run in parallel, then wiring last.
 
+**Panel** (Telegram Mini App for the dev bot, owner request 2026-10-25): its own SPEC, `docs/MINIAPP_SPEC.md` (units M0–T2, §9 there; it amends §2.1 for the loopback web server and the Cloudflare tunnel).
+
 **Shared files are sequential** (one unit edits them at a time, merged in order):
 - `core/strings.py`, `core/errors.py`, `shared/settings/defaults.py`;
 - `migrations/versions/*` (one Alembic head);
