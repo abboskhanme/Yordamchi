@@ -163,7 +163,7 @@ async def _transcribe(deps: SharedDeps, snap: Snapshot, part: BurstPart, named: 
                 model=domain.stt_model(provider, snap),
                 mode=snap[defaults.STT_MODE],
                 fallback_model=snap[defaults.STT_OPENROUTER_FALLBACK_MODEL],
-                timeout=timeout,
+                timeout=domain.stt_timeout(snap, attachment.duration_s),
             )
         except ExternalError as error:
             failed.append(Attempt(provider=provider, code=error.code))

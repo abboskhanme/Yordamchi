@@ -19,13 +19,15 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final
+from types import SimpleNamespace
+from typing import Any, Final, cast
 
 import aiohttp
 import httpx
 import pytest
 from aiohttp import web
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from yordamchi.core import keychain, redact
@@ -155,6 +157,92 @@ async def google_server() -> AsyncIterator[GoogleServer]:
         yield server
     finally:
         await server.aclose()
+
+
+# --- Google Live (a fake `client.aio.live`; the SDK's WebSocket is never opened) ---------------------------------
+type LiveEvent = genai_types.LiveServerMessage | BaseException
+
+
+def live_final(text: str) -> genai_types.LiveServerMessage:
+    return genai_types.LiveServerMessage(
+        server_content=genai_types.LiveServerContent(input_transcription=genai_types.Transcription(text=text))
+    )
+
+
+def live_interim(text: str) -> genai_types.LiveServerMessage:
+    return genai_types.LiveServerMessage(
+        server_content=genai_types.LiveServerContent(interim_input_transcription=genai_types.Transcription(text=text))
+    )
+
+
+def live_done() -> genai_types.LiveServerMessage:
+    return genai_types.LiveServerMessage(server_content=genai_types.LiveServerContent(generation_complete=True))
+
+
+def live_closed(code: int, reason: str) -> genai_errors.APIError:
+    """What the SDK raises when the server closes the session (`live.py` `_receive`)."""
+    return genai_errors.APIError(code, reason, None)
+
+
+@dataclass
+class LiveSessionLog:
+    model: str
+    config: dict[str, Any]
+    sent: list[dict[str, object]] = field(default_factory=list)
+
+
+class _FakeLiveSession:
+    def __init__(self, log: LiveSessionLog, events: list[LiveEvent], *, fail_send: BaseException | None) -> None:
+        self._log, self._events, self._fail_send = log, events, fail_send
+
+    async def send_realtime_input(self, **kwargs: object) -> None:
+        if self._fail_send is not None:
+            raise self._fail_send
+        self._log.sent.append(kwargs)
+
+    async def receive(self) -> AsyncIterator[genai_types.LiveServerMessage]:
+        for event in self._events:
+            if isinstance(event, BaseException):
+                raise event
+            yield event
+        await asyncio.Event().wait()  # a real session stays open until the server's idle close
+
+
+@dataclass
+class LiveServer:
+    """One scripted session per `connect`, in order; the last one repeats. `sessions` logs what each one got."""
+
+    scripts: deque[list[LiveEvent]] = field(default_factory=deque)
+    sessions: list[LiveSessionLog] = field(default_factory=list)
+    keys: list[str] = field(default_factory=list)
+    connect_error: BaseException | None = None
+    send_error: BaseException | None = None
+
+    def script(self, *sessions: list[LiveEvent]) -> None:
+        self.scripts.extend(sessions)
+
+    @asynccontextmanager
+    async def connect(self, *, model: str, config: dict[str, Any]) -> AsyncIterator[_FakeLiveSession]:
+        if self.connect_error is not None:
+            raise self.connect_error
+        log = LiveSessionLog(model=model, config=copy.deepcopy(config))
+        self.sessions.append(log)
+        events = self.scripts.popleft() if len(self.scripts) > 1 else self.scripts[0]
+        yield _FakeLiveSession(log, events, fail_send=self.send_error)
+
+    def client_factory(self, key: str) -> genai.Client:
+        self.keys.append(key)
+        live = self
+
+        class _Aio:
+            def __init__(self) -> None:
+                self.live = live
+                self.interactions = SimpleNamespace(sdk_configuration=SimpleNamespace(retry_config=object()))
+
+            async def aclose(self) -> None:
+                return None
+
+        return cast(genai.Client, SimpleNamespace(aio=_Aio()))
 
 
 # --- OpenRouter (aiohttp server on a unix socket) ------------------------------------------------------------------

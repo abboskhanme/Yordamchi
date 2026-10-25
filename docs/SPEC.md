@@ -282,6 +282,11 @@ same-user processes; the gate's forbidden rules keep the executor away from the 
      aliases + integration names + `stt.extra_terms` (≤ 1,000; the first 200 for prompt-based providers);
    - a voice note ≥ `stt.split_over_s = 20` is split at silences (ffmpeg `silencedetect`) and the segments
      are transcribed in parallel, in order (OvozYoz);
+   - one call is bounded by `timeouts.stt_s` + `timeouts.stt_per_audio_s` × the note's seconds;
+   - a Google model with a `live` part (`gemini-3.5-transcribe-live`, the default since 2026-10-25: no daily
+     request cap on the owner's key) goes over the Live API: ffmpeg → 16 kHz PCM, one session with the server's
+     VAD off (`activity_start`, the audio, `activity_end`), the final `input_transcription` until
+     `generation_complete`; `transcripts.provider_path = "live"`. Any other model uses the Interactions API;
    - failure → `transcripts.status=failed`, the part stays in the burst as `[ovoz tushunilmadi: <reason>]`.
 6. Close → `TurnInput(parts in order)` → `bots/dev/intents.preparse` (deterministic: §6). Unresolved →
    `routing.service.route_burst` (§3.2.6).
@@ -532,10 +537,10 @@ turn, and at park time, into `digests.handoff_note` (≤ 4,000 chars).
    30 days. Nothing is account-bound, so the rotation AC holds by construction.
 
 **3.2.11 Speech keys: Gemini direct or OpenRouter (owner decision 2026-10-23)**
-1. Intake recognises `AIza[0-9A-Za-z_-]{35}` → `google_api_key` and `sk-or-v1-[0-9a-f]{64}` →
-   `openrouter_api_key`, in either bot.
+1. Intake recognises `AIza[0-9A-Za-z_-]{35}` and the newer `AQ.[A-Za-z0-9_-]{40,120}` → `google_api_key`, and
+   `sk-or-v1-[0-9a-f]{64}` → `openrouter_api_key`, in either bot.
 2. `voice.service.configure_key` validates, ≤ 10 s:
-   - Google: `models.get` for `stt.google_model = "gemini-3.5-transcribe"` and `tts.google_model =
+   - Google: `models.get` for `stt.google_model = "gemini-3.5-transcribe-live"` and `tts.google_model =
      "gemini-3.8-flash-tts"`;
    - OpenRouter: `GET https://openrouter.ai/api/v1/key` (`limit`, `usage`, `is_free_tier`), then the model
      endpoints for `stt.openrouter_model` and `tts.openrouter_model`.
@@ -755,7 +760,7 @@ touches a row in a non-terminal state.
   | ROUTING / PROJECTS | `routing.min_confidence` (0.75), `routing.min_margin` (0.2), `routing.context_window_min` (15), `projects.root` ("~/Documents/Projects"), `projects.aliases` ({}), `projects.descriptions` ({}), `projects.archived` ([]), `projects.unarchived` ([]), `projects.excluded` ([]; never registered, listed, routed or opened), `executor.default` ("claude"), `executor.per_project` ({}) |
   | DECISIONS | `gate.ask_classes` (all 12 classes, §5.7; `removes_items`), `gate.secret_scan_enabled` (true; `disables`), `gate.approval_ttl_min` (120; `increases`), `gate.hook_timeout_s` (15), `gate.readonly_remote_commands` (§5.7; `weakens=always` on add), `gate.jump_only_hosts` (["server"]; `removes_items`), `gate.git_hosts` (["github.com"]), `gate.http_write_allow_hosts` ([]; `weakens=always` on add), `gate.temp_roots` (["/tmp", "/private/tmp", "/private/var/folders"]) |
   | BURST | `burst.after_complete_text_s` (1.2), `burst.after_text_s` (2.0), `burst.after_media_s` (10.0), `burst.album_gap_s` (1.5), `burst.after_voice_s` (2.0), `burst.hold_max_s` (120), `burst.max_total_s` (30), `burst.merge_min_confidence` (0.85) |
-  | TIMEOUTS | `timeouts.routing_s` (2.5), `timeouts.report_s` (3.5), `timeouts.stt_s` (8), `timeouts.tts_s` (15), `timeouts.integration_validate_s` (25), `timeouts.session_open_s` (60), `questions.hold_process_min` (30), `park.grace_s` (15) |
+  | TIMEOUTS | `timeouts.routing_s` (2.5), `timeouts.report_s` (3.5), `timeouts.stt_s` (8), `timeouts.stt_per_audio_s` (0.5, added per second of audio), `timeouts.tts_s` (15), `timeouts.integration_validate_s` (25), `timeouts.session_open_s` (60), `questions.hold_process_min` (30), `park.grace_s` (15) |
   | SCHEDULES | `schedule.heartbeat_edit_min` (5), `schedule.digest_active_poll_s` (120), `schedule.digest_idle_poll_min` (60), `schedule.server_check_min` (30), `schedule.cost_summary_at` ("", off), `schedule.quiet_hours` ("", e.g. "23:00-07:00" → `disable_notification`), `schedule.retention_at` ("04:30"), `ui.timezone` ("Asia/Tashkent") |
   | CAPS | `caps.google_monthly_usd` (40), `caps.openrouter_monthly_usd` (10), `caps.openai_monthly_usd` (10), `caps.warn_pct` (80) — all `increases`; `turns.max_concurrent` (15; `increases`), `turns.max_wall_min` (60), `turns.max_steps` (200), `turns.max_same_failure` (5) (`increases`), `guard.min_free_disk_gb` (10), `guard.block_disk_gb` (3) |
   | LIMITS | `text.max_chars` (3500), `text.max_lines` (40), `outbox.max_parts` (3), `outbox.progress_edit_s` (5), `media.retention_days` (7) |

@@ -192,11 +192,14 @@ Bir nechta savol bo'lsa — har biriga alohida qatorda javob yozing. Ko'p tanlov
 
 ## 8. Kalitlar
 
-- Gemini (`AIza…`) yoki OpenRouter (`sk-or-v1-…`) kalitini guruhga oddiy xabar qilib tashlang.
+- Gemini (`AIza…` yoki `AQ.…`) yoki OpenRouter (`sk-or-v1-…`) kalitini guruhga oddiy xabar qilib tashlang.
 - Bot:
   1. xabaringizni o'chiradi;
   2. kalitni shifrlab saqlaydi: "Kalit shifrlab saqlandi: …";
   3. ovoz holatini aytadi, masalan: "Ovoz: OpenRouter (Gemini) ulandi."
+- Gemini kaliti bo'lsa ovozli xabarlar `gemini-3.5-transcribe-live` modeli bilan matnga o'giriladi
+  (Google'ning eng yangi transkripsiya modeli; kunlik so'rov limiti yo'q). Boshqa model kerak bo'lsa:
+  `sozlama: stt.google_model gemini-3.5-transcribe`.
 - Xabarni o'chira olmasa: "Xabaringizni o'chira olmadim … Kalit chatda qoldi — kalitni
   almashtiring." Bunda kalitni albatta yangisiga almashtiring.
 - Claude login tokenini bot qabul qilmaydi — akkauntlarni ClaudeManager boshqaradi.
@@ -268,7 +271,7 @@ Shaxsiy chatda yozing yoki ovozli xabar yuboring — guruh shart emas. Bot faqat
 - **Sozlamalar so'z bilan**: "javoblaring qisqaroq bo'lsin", "ovozingni erkakka o'zgartir", "ovozni o'chir",
   "sozlama: …", "oldingi holatiga qaytar". Himoyani susaytiradigan o'zgarish (masalan qimmat model) uchun
   bot bitta savol beradi — `ha` yoki `yo'q` deb javob bering.
-- **Kalit**: Gemini (`AIza…`) yoki OpenRouter (`sk-or-v1-…`) kalitini **shu chatga** bir marta yuboring —
+- **Kalit**: Gemini (`AIza…` yoki `AQ.…`) yoki OpenRouter (`sk-or-v1-…`) kalitini **shu chatga** bir marta yuboring —
   bot xabarni o'chiradi, kalitni saqlaydi va ovozni sozlaydi. Shaxsiy bot dev botning kalitlarini
   ko'rmaydi: ovozli savollar, video tahlili va zaxira model uchun kalit shu yerda kerak. Kalitsiz ham
   matnli savol-javob ishlaydi, ovozli xulosa esa bepul Edge ovozi bilan keladi.

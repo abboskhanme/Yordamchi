@@ -299,7 +299,9 @@ def build(boot: Boot, clock: Clock) -> "DevApp":
         remote_shell=OpenSshRemoteShell(ssh=SSH_BINARY, path=boot.ssh_path),
     )
     ffmpeg = paths.bin / "ffmpeg"
-    google = GeminiTranscriber(api_key=partial(voice.read_speech_key, deps, "google"))
+    google = GeminiTranscriber(
+        api_key=partial(voice.read_speech_key, deps, "google"), ffmpeg=ffmpeg if ffmpeg.exists() else None
+    )
     openrouter = OpenRouterTranscriber(
         api_key=partial(voice.read_speech_key, deps, "openrouter"), ffmpeg=ffmpeg if ffmpeg.exists() else None
     )

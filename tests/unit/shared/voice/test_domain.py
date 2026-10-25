@@ -110,6 +110,21 @@ def test_each_provider_uses_its_own_model_setting() -> None:
     assert domain.stt_model(OPENROUTER, snap) == snap[defaults.STT_OPENROUTER_MODEL]
 
 
+def test_the_google_default_is_the_live_transcription_model() -> None:
+    """Owner, 2026-10-25: the newest, strongest Live model with no daily cap on his key."""
+    assert make_default_snapshot()[defaults.STT_GOOGLE_MODEL] == "gemini-3.5-transcribe-live"
+
+
+def test_a_longer_note_gets_a_longer_call_bound() -> None:
+    snap = make_default_snapshot()
+    base, per_s = snap[defaults.TIMEOUTS_STT_S], snap[defaults.TIMEOUTS_STT_PER_AUDIO_S]
+    assert (base, per_s) == (8.0, 0.5)
+    assert domain.stt_timeout(snap, None) == base  # Telegram did not say: the short-note bound
+    assert domain.stt_timeout(snap, 0) == base
+    assert domain.stt_timeout(snap, 120) == base + 60  # a measured live call takes ~0.25 s per second of audio
+    assert domain.stt_timeout(snap, -5) == base
+
+
 # --- vocabulary -----------------------------------------------------------------------------------------------------
 def test_vocabulary_puts_the_owners_newest_terms_first_then_names_and_aliases() -> None:
     named = [_Entry("BonviHR", ("hr", "bonvi")), _Entry("HRMentor")]

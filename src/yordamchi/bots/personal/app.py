@@ -358,7 +358,7 @@ def _keyed_adapters(read_key: Callable[[str], Awaitable[str]], ffmpeg: Path | No
     from yordamchi.adapters.openrouter.video import OpenRouterMediaAnalyzer
 
     google_key, openrouter_key = partial(read_key, "google"), partial(read_key, "openrouter")
-    google_stt = GeminiTranscriber(api_key=google_key)
+    google_stt = GeminiTranscriber(api_key=google_key, ffmpeg=ffmpeg)
     openrouter_stt = OpenRouterTranscriber(api_key=openrouter_key, ffmpeg=ffmpeg)
     openrouter_tts = OpenRouterSynthesizer(api_key=openrouter_key, ffmpeg=ffmpeg)
     google_tts = GeminiSynthesizer(api_key=google_key, ffmpeg=ffmpeg)

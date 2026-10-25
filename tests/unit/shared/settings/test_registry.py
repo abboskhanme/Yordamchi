@@ -139,6 +139,8 @@ SPEC_KEYS.append("ui.progress_steps")
 SPEC_KEYS.append("ui.progress_tick_s")  # owner, 2026-10-25: the running time moves even through a long quiet step
 # Owner, 2026-10-25: the personal bot's streaming draft looked like a bug on the phone (space kept, a stale answer).
 SPEC_KEYS.append("qa.live_drafts")
+# Owner, 2026-10-25: STT on a Live model; a long note gets time in proportion to its length.
+SPEC_KEYS.append("timeouts.stt_per_audio_s")
 # Owner, 2026-10-24: OvozYoz is a code sample only; the dev bot must never register or open it.
 SPEC_KEYS.append("projects.excluded")
 

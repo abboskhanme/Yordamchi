@@ -208,7 +208,8 @@ async def test_the_call_carries_this_jobs_settings(
     assert call.mode == "verbatim"
     assert call.model == snap[defaults.STT_GOOGLE_MODEL]
     assert call.fallback_model == snap[defaults.STT_OPENROUTER_FALLBACK_MODEL]
-    assert call.timeout == snap[defaults.TIMEOUTS_STT_S]
+    # a 60 s note: the short-note bound plus its per-second share (a Live model hears it at ~4x real time)
+    assert call.timeout == snap[defaults.TIMEOUTS_STT_S] + 60 * snap[defaults.TIMEOUTS_STT_PER_AUDIO_S]
     assert (call.mime, call.audio_bytes) == ("audio/ogg", 4100)
     download = fakes.messenger.sent("download")[0].payload
     assert (download["file_id"], download["max_bytes"]) == ("file-1", domain.MAX_AUDIO_BYTES)
@@ -306,7 +307,7 @@ async def test_a_timeout_fails_at_once_without_a_fallback(
 ) -> None:
     await _keys(deps, fakes, "google_api_key", "openrouter_api_key")
     part = await _voice_note(deps, fakes)
-    timeout = (await settings.snapshot(deps))[defaults.TIMEOUTS_STT_S]
+    timeout = domain.stt_timeout(await settings.snapshot(deps), 60)  # the note is 60 s long
     google.script("kech", latency_s=timeout + 1)
     async with asyncio.TaskGroup() as group:
         job = group.create_task(_transcribe(deps, part, loop))

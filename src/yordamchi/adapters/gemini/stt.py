@@ -7,6 +7,9 @@ Request shape copied from OvozYoz `engines/segment.py` (google-genai 2.33.0, STA
   falling back to `low` or none when the model rejects the level;
 - `store: False` always: voice notes are not kept by the provider.
 
+A Live model (`gemini-3.5-transcribe-live`, the default since 2026-10-25) goes through `live_stt` instead: the note is
+converted to 16 kHz PCM by ffmpeg and sent over one Live session (`provider_path = "live"`).
+
 Telegram voice notes are OGG/Opus, which the API takes as `audio/ogg`, so the bytes go in as they are.
 
 Failure handling (SPEC §3.2.11 step 6): 400 `API_KEY_INVALID`, 401 and 403 → `AuthFailed`; 429 / `RESOURCE_EXHAUSTED`
@@ -19,6 +22,7 @@ import asyncio
 import base64
 import time
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from typing import Any, Final
 
 import httpx
@@ -26,6 +30,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai._gaos.lib import compat_errors as interaction_errors  # the Interactions API error classes
 
+from yordamchi.adapters.gemini import live_stt
 from yordamchi.adapters.speech_common import (
     STT_INSTRUCTION,
     STT_OPERATION,
@@ -221,11 +226,18 @@ def translate_error(  # noqa: PLR0911  # one mapping table, read top to bottom
 
 # --- the adapter ---------------------------------------------------------------------------------------------------
 class GeminiTranscriber:
-    """`Transcriber` on a direct Google key. `api_key` is the key or a callable returning the vault's current one."""
+    """`Transcriber` on a direct Google key. `api_key` is the key or a callable returning the vault's current one.
 
-    def __init__(self, *, api_key: ApiKey, client_factory: ClientFactory = default_client) -> None:
+    `ffmpeg` is the static binary from the installer (`DATA/bin/ffmpeg`); only a Live model needs it (PCM input), and
+    `None` there is `NotInstalled`, which falls back to the next provider.
+    """
+
+    def __init__(
+        self, *, api_key: ApiKey, client_factory: ClientFactory = default_client, ffmpeg: Path | None = None
+    ) -> None:
         self._api_key = api_key
         self._client_factory = client_factory
+        self._ffmpeg = ffmpeg
         self._client: tuple[str, genai.Client] | None = None
         self._client_lock = asyncio.Lock()
         # Per model: the thinking level it accepted last (None: send none). A general model that rejects
@@ -273,6 +285,8 @@ class GeminiTranscriber:
         started = time.monotonic()
         key = await resolve_key(self._api_key, provider=PROVIDER)
         model_id = clean_model_id(model)
+        live = live_stt.is_live_model(model_id)
+        path = live_stt.PATH_LIVE if live else PATH_INTERACTIONS
         attempts = 0
 
         async def attempt() -> str:
@@ -291,12 +305,28 @@ class GeminiTranscriber:
             )
 
         try:
-            text = await retrying(attempt, timeout=timeout, operation=STT_OPERATION)
+            if live:
+                pcm = await live_stt.to_pcm(audio, ffmpeg=self._ffmpeg, timeout=timeout)
+
+                async def live_attempt() -> str:
+                    nonlocal attempts
+                    attempts += 1
+                    client = await self._client_for(key)
+                    return await live_stt.transcribe_pcm(
+                        client, pcm, model=model_id, languages=languages, vocabulary=vocabulary, mode=mode
+                    )
+
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise CallTimedOut(operation=STT_OPERATION)
+                text = await retrying(live_attempt, timeout=remaining, operation=STT_OPERATION)
+            else:
+                text = await retrying(attempt, timeout=timeout, operation=STT_OPERATION)
         except ExternalError as error:
             log.warning(
                 "stt_call_failed",
                 provider=PROVIDER,
-                provider_path=PATH_INTERACTIONS,
+                provider_path=path,
                 model=model_id,
                 code=error.code.value,
                 retryable=error.retryable,
@@ -308,7 +338,7 @@ class GeminiTranscriber:
         return Transcript(
             text=text,
             provider=PROVIDER,
-            provider_path=PATH_INTERACTIONS,
+            provider_path=path,
             model=model,
             audio_ms=audio_duration_ms(audio, mime),
             latency_ms=latency_ms,

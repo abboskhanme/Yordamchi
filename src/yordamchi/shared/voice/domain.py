@@ -101,6 +101,13 @@ def stt_model(provider: str, snap: Snapshot) -> str:
     return snap[defaults.STT_GOOGLE_MODEL] if provider == GOOGLE else snap[defaults.STT_OPENROUTER_MODEL]
 
 
+def stt_timeout(snap: Snapshot, duration_s: int | None) -> float:
+    """The bound of one transcription call: `timeouts.stt_s` plus `timeouts.stt_per_audio_s` per second of audio
+    (Telegram's `duration`; unknown counts as 0), so a two-minute note is not cut off at the short-note bound."""
+    seconds = max(duration_s or 0, 0)
+    return snap[defaults.TIMEOUTS_STT_S] + seconds * snap[defaults.TIMEOUTS_STT_PER_AUDIO_S]
+
+
 # --- vocabulary -----------------------------------------------------------------------------------------------------
 class Named(Protocol):
     """Something the owner calls by name. `dev.projects.domain.Project` is one as it is: its folder name and aliases."""

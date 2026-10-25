@@ -14,10 +14,13 @@ from tests.integration.stt_harness import (
     OPENROUTER_BASE,
     OPENROUTER_KEY,
     GoogleServer,
+    LiveServer,
     OpenRouterServer,
     Recording,
     fake_ffmpeg,
     google_server,
+    live_done,
+    live_final,
     live_key,
     load,
     make_wav,
@@ -254,6 +257,21 @@ class TestGeminiTranscriber(TranscriberContract, TranscriberFailureContract, Tra
 
         google.script(hang)
         return GeminiTranscriber(api_key=GOOGLE_KEY, client_factory=google.client_factory)
+
+
+class TestGeminiLiveTranscriber(TranscriberContract):
+    """The same adapter on a Live model (`gemini-3.5-transcribe-live`, the default since 2026-10-25)."""
+
+    @pytest.fixture
+    def transcriber(self, tmp_path: Path) -> Transcriber:
+        server = LiveServer()
+        server.script([live_final("salom"), live_done()])
+        ffmpeg = fake_ffmpeg(tmp_path / "bin", output=bytes(32_000))
+        return GeminiTranscriber(api_key=GOOGLE_KEY, client_factory=server.client_factory, ffmpeg=ffmpeg)
+
+    @pytest.fixture
+    def model(self) -> str:
+        return "gemini-3.5-transcribe-live"
 
 
 @pytest.mark.usefixtures("_instant_backoff")

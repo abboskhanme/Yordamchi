@@ -656,11 +656,11 @@ SPEECH_TTS_PROVIDER = Setting(
 STT_GOOGLE_MODEL = Setting(
     "stt.google_model",
     str,
-    "gemini-3.5-transcribe",
+    "gemini-3.5-transcribe-live",
     check=MODEL_ID,
     group=Group.SPEECH,
     bots=BOTH,
-    doc="Gemini transcription model.",
+    doc="Gemini transcription model; a `-live` one goes over the Live API (owner decision 2026-10-25: no daily cap).",
 )
 STT_OPENROUTER_MODEL = Setting(
     "stt.openrouter_model",
@@ -751,6 +751,15 @@ TIMEOUTS_STT_S = Setting(
     group=Group.TIMEOUTS,
     bots=BOTH,
     doc="One transcription call.",
+)
+TIMEOUTS_STT_PER_AUDIO_S = Setting(
+    "timeouts.stt_per_audio_s",
+    float,
+    0.5,
+    check=Range(0, 5),
+    group=Group.TIMEOUTS,
+    bots=BOTH,
+    doc="Seconds added to one transcription call per second of audio: a Live model hears a note at ~4x real time.",
 )
 TIMEOUTS_TTS_S = Setting(
     "timeouts.tts_s",
