@@ -41,6 +41,8 @@ Telefonda o'qish uchun. Qo'shtirnoq ichidagi bot javoblari — botning aynan o'z
 - Bot xabaringizni o'qiganini ✓✓ bilan ko'rsatadi: 👀 ni bir lahzaga qo'yib, darhol olib tashlaydi, xabarda
   reaksiya qolmaydi (Telegram'da botlar uchun boshqa yo'l yo'q). O'chirish: `sozlama: ui.read_mark o'chir`.
   Reaksiya doim qolsin desangiz: `sozlama: ui.seen_reaction 👀`. "kut"ga 👌 qo'yiladi.
+- Guruhda loyihaga aloqasi yo'q savol ham bersangiz bo'ladi — masalan «Python'da decorator nima?», «bu gapni inglizchaga tarjima qil: …», «1250 ning 12 foizi qancha?». Bot oddiy yordamchi kabi javob beradi va hech qaysi loyihada ish boshlamaydi.
+- Savol aniq bir loyiha haqida bo'lsa, loyiha nomini ayting yoki o'sha loyihaning xabariga javob (reply) qiling: «BonviHR'da decorator qanday ishlatilgan?».
 - **Oddiy gap**: `salom`, `qandaysan?`, `rahmat` — bot oddiy javob beradi, loyiha yoki holat haqida hech narsa
   qo'shmaydi. `nima qila olasan?` yoki `/yordam` — bot nimalar qila olishini ro'yxat qilib ko'rsatadi.
 - **Ovozli xabar** o'zbek, rus va inglizcha aralash bo'lsa ham tushuniladi. Bot uni matnga
