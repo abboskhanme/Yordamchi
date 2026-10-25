@@ -700,6 +700,28 @@ def test_a_rerun_reuses_the_release_and_restarts_instead_of_reloading(rig: Rig) 
     assert not any(call[1:2] == ("sync",) for call in rig.mac.calls)  # the built release is reused as it is
 
 
+def test_a_failed_kickstart_starts_the_job_afresh_instead_of_leaving_it_down(rig: Rig) -> None:
+    """2026-10-25: the old supervisor's watchdog brought the stopped dev bot back during an update, `kickstart -k`
+    then failed, and the installer gave up with the dev bot down."""
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
+    assert rig.install() == 0
+    failed: list[tuple[str, ...]] = []
+
+    def runner(argv: Sequence[str], *, cwd: Path | None = None, timeout: float) -> Completed:
+        call = tuple(str(part) for part in argv)
+        if Path(call[0]).name == "launchctl" and call[1:3] == ("kickstart", "-k") and not failed:
+            failed.append(call)
+            return Completed(1)
+        return rig.mac.runner(argv, cwd=cwd, timeout=timeout)
+
+    installer = rig.installer()
+    installer.run_cmd = runner
+    assert installer.install() == 0, rig.out.getvalue()
+    assert failed
+    assert {"uz.yordamchi.dev", "uz.yordamchi.supervisor"} <= rig.mac.loaded
+    assert all(step.status is not Status.FAILED for step in installer.steps)
+
+
 def test_existing_databases_are_backed_up_before_migrating(rig: Rig) -> None:
     rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
     db = rig.paths.db_file(BotName.DEV)

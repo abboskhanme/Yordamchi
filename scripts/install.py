@@ -1124,6 +1124,15 @@ class Installer:
             if loaded and process not in self.changed_plists:
                 ok = self.run([self.tools.launchctl, "kickstart", "-k", target], timeout=TIMEOUT_LAUNCHCTL_S).ok
                 how = "kickstart -k"
+                if not ok:
+                    # The job was in transition: the running supervisor's watchdog may have brought a bot this run
+                    # stopped back up meanwhile (2026-10-25: the dev bot stayed down). Start it afresh.
+                    self.run([self.tools.launchctl, "bootout", target], timeout=TIMEOUT_LAUNCHCTL_S)
+                    ok = self.run(
+                        [self.tools.launchctl, "bootstrap", f"gui/{self.options.uid}", plist],
+                        timeout=TIMEOUT_LAUNCHCTL_S,
+                    ).ok
+                    how = "kickstart -k failed; bootout + bootstrap"
             else:
                 if loaded:
                     self.run([self.tools.launchctl, "bootout", target], timeout=TIMEOUT_LAUNCHCTL_S)
