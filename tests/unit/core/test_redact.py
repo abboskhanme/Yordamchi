@@ -27,6 +27,16 @@ SAMPLES = {
 }
 
 
+def test_the_newer_google_key_format_is_a_google_key() -> None:
+    """2026-10-25: the owner's AI Studio key starts with `AQ.`; not seen as a key, it would reach the model and the
+    inbox in plaintext."""
+    secret = "AQ." + "Ab8RN6fakeOwUgP2LVQ-9RXhpulBgV0tZwyi8_GW0tGo5cnZmFk"
+    hits = redact.find_secrets(f"ovoz uchun gemini key: {secret}")
+    assert [(hit.kind, hit.value) for hit in hits] == [("google_api_key", secret)]
+    assert secret not in redact.scrubbed(f"key: {secret}")
+    assert redact.find_secrets("AQ.short and AQ.") == []
+
+
 @pytest.mark.parametrize(("kind", "secret"), sorted(SAMPLES.items()))
 def test_each_known_format_is_detected_and_masked(kind: str, secret: str) -> None:
     text = f"mana kalit: {secret} — saqlab qo'y"

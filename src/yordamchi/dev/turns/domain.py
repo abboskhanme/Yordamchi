@@ -757,6 +757,14 @@ def minutes_of(seconds: float) -> int:
     return max(0, round(seconds / 60))
 
 
+def elapsed_text(seconds: float) -> str:
+    """A turn's running time as a clock (owner, 2026-10-25): `0:45`, `4:12`, `1:04:12`. Numbers only."""
+    total = max(0, int(seconds))
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
 def checking_text(project: str) -> BotText:
     """ "BonviHR · Tekshiryapman (~3 daqiqa)": an investigation turn's first word, its wall clock as the estimate."""
     return S.CHECKING(project=project, minutes=minutes_of(INVESTIGATION_WALL.total_seconds()))
@@ -786,10 +794,38 @@ def result_text(
     return join(lines)
 
 
-def progress_text(project: str, *, seconds: float, steps: int, latest: Sequence[str]) -> BotText:
-    """`BonviHR · ishlayapti 4 daq · 12 qadam` plus at most three latest steps (SPEC §6.2)."""
+_READING_TOOLS: Final = frozenset({"Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "NotebookRead"})
+_WRITING_TOOLS: Final = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+_TEST_WORDS: Final = ("test", "make check", "lint", "mypy", "ruff", "eslint", "tsc")
+
+
+def phase_of(latest: Sequence[str]) -> BotText:
+    """What the turn is doing now, in two words, from its latest step (`progress_line`): reading, writing code,
+    testing, committing, running something, or just working. Never the command, file or code itself."""
+    line = next((step for step in reversed(latest) if step), "")
+    tool, colon, _ = line.partition(": ")
+    tool = tool if colon else line if line in _READING_TOOLS | _WRITING_TOOLS | {"Bash"} else ""
+    lowered = line.lower()
+    if tool in _READING_TOOLS:
+        return S.PHASE_READING()
+    if tool in _WRITING_TOOLS:
+        return S.PHASE_WRITING()
+    if tool == "Bash":
+        if "git commit" in lowered or "git push" in lowered:
+            return S.PHASE_COMMITTING()
+        return S.PHASE_TESTING() if any(word in lowered for word in _TEST_WORDS) else S.PHASE_RUNNING()
+    return S.PHASE_WORKING()
+
+
+def progress_text(
+    project: str, *, seconds: float, steps: int, latest: Sequence[str], detail: int = PROGRESS_LINES
+) -> BotText:
+    """`BonviHR · ishlayapti 4 daq · 12 qadam` plus at most `detail` latest steps (SPEC §6.2); with `detail` 0
+    (`ui.progress_steps`, the default since 2026-10-25) only `BonviHR · ✍️ Kod yozyapman… · ⏱ 4:12`."""
+    if detail <= 0:
+        return S.TURN_PROGRESS_PLAIN(project=project, phase=phase_of(latest), elapsed=elapsed_text(seconds))
     head = S.TURN_PROGRESS(project=project, minutes=minutes_of(seconds), steps=steps)
-    lines = [S.TURN_PROGRESS_STEP(step=step) for step in latest[-PROGRESS_LINES:] if step]
+    lines = [S.TURN_PROGRESS_STEP(step=step) for step in latest[-min(detail, PROGRESS_LINES) :] if step]
     return join([head, *lines])
 
 

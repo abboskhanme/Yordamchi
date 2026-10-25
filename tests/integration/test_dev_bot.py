@@ -10,6 +10,7 @@ import asyncio
 import json
 import shutil
 from pathlib import Path
+from typing import Final
 
 from tests.factories import (
     DEV_GROUP_ID,
@@ -43,6 +44,9 @@ FINAL = (
 )
 SCREENSHOT = b"\x89PNG fake screenshot"
 VOICE = b"OggS fake voice"
+
+# The live line of a working turn as the owner sees it (`ui.progress_steps` 0 since 2026-10-25).
+LIVE_LINE: Final = " · ⏱ "
 
 
 def result(text: str = FINAL) -> TurnResult:
@@ -125,7 +129,7 @@ async def test_the_scripted_conversation_runs_end_to_end_on_fakes() -> None:  # 
         await bot.within(30, lambda: bool(bot.posted("→ BonviHR")), what="routed with the project named")
         echo = bot.posted("→ BonviHR")[0]
         assert echo.startswith("Ovoz: «tugmasi bosilmayapti")  # the voice echo names the project (UC-05)
-        await bot.within(10, lambda: bool(bot.posted("BonviHR · ishlayapti")), what="the progress line")
+        await bot.within(10, lambda: bool(bot.posted(LIVE_LINE)), what="the progress line")
         sent = bot.fakes.agents.sends[0][1]
         assert "BonviHR'da login sahifasini tuzat" in sent.text
         assert "tugmasi bosilmayapti" in sent.text
@@ -155,7 +159,7 @@ async def test_the_scripted_conversation_runs_end_to_end_on_fakes() -> None:  # 
         [final] = bot.posted("BonviHR · Natija:")
         assert final.splitlines()[0] == "BonviHR · Natija: Login sahifasidagi xato tuzatildi."
         assert "Commit: a1b2c3d · push: bajarildi (origin/main)" in final.splitlines()
-        progress = [r for r in bot.requests("sendMessage") if "BonviHR · ishlayapti" in visible(r)]
+        progress = [r for r in bot.requests("sendMessage") if LIVE_LINE in visible(r)]
         assert len(progress) == 1  # one progress message, edited in place
         assert not bot.posted("Muhim qaror")
         assert not bot.posted("Savol:")

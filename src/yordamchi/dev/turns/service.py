@@ -177,6 +177,7 @@ class _Live:
     seed_prompt: str = "dev/turns_renewed"  # how the note is introduced: a lost transcript, or the owner's new session
     retired: bool = False  # "yangi sessiya": no new turn goes in; it closes once its turn is over
     last_active: datetime | None = None
+    shown_at: datetime | None = None  # the live line was last posted or edited: `ui.progress_tick_s` counts from here
     failure: str | None = None
     closing: bool = False
     gone: bool = False
@@ -721,12 +722,51 @@ async def _tend_working(deps: DevDeps, state: TurnsState, snap: Snapshot, now: d
             state.spawn(f"turn_runaway_{row.id}", _pause_runaway(deps, state, live, row.id, reason, limits))
         elif pending[row.id]:
             state.spawn(f"turn_deliver_{row.id}", _deliver_pending(deps, state, live))
+        elif _progress_due(live, snap, now):
+            state.spawn(f"turn_tick_{row.id}", _refresh_progress(deps, live, row.id, snap, now))
     idle_after = snap[defaults.SESSIONS_IDLE_CLOSE_MIN] * 60
     for live in list(state.live.values()):
         idle = live.turn_id is None and not live.closing and not live.gone
         if idle and (live.retired or _seconds(live.last_active or now, now) >= idle_after):
             why = "new_session" if live.retired else "idle"
             state.spawn(f"turns_close_{live.agent_session_id}", _close_live(deps, state, live, reason=why))
+
+
+async def _first_progress(
+    s: Session, deps: DevDeps, snap: Snapshot, live: _Live, *, turn_id: int, steps: int, since: datetime, now: datetime
+) -> None:
+    """The live line as the turn starts running; `ui.progress_tick_s` counts from it."""
+    text = domain.progress_text(
+        live.project_id,
+        seconds=_seconds(since, now),
+        steps=steps,
+        latest=(),
+        detail=snap[defaults.UI_PROGRESS_STEPS],
+    )
+    await _show(s, deps, snap, turn_id=turn_id, project_id=live.project_id, text=text)
+    live.shown_at = now
+
+
+def _progress_due(live: _Live, snap: Snapshot, now: datetime) -> bool:
+    """`ui.progress_tick_s` passed since the live line last changed: a long quiet step still shows its clock."""
+    tick = snap[defaults.UI_PROGRESS_TICK_S]
+    if not tick or live.started_at is None or is_hidden(live.project_id):
+        return False
+    return live.shown_at is None or _seconds(live.shown_at, now) >= tick
+
+
+async def _refresh_progress(deps: DevDeps, live: _Live, turn_id: int, snap: Snapshot, now: datetime) -> None:
+    """The live line again with the clock moved on (owner, 2026-10-25: the running time is the progress he sees)."""
+    live.shown_at = now
+    text = domain.progress_text(
+        live.project_id,
+        seconds=_seconds(live.started_at or now, now),
+        steps=live.total_steps,
+        latest=live.recent,
+        detail=snap[defaults.UI_PROGRESS_STEPS],
+    )
+    async with deps.db.uow() as s:
+        await _show(s, deps, snap, turn_id=turn_id, project_id=live.project_id, text=text)
 
 
 async def _retry_limits(deps: DevDeps, state: TurnsState, now: datetime) -> None:
@@ -963,8 +1003,7 @@ async def _start_turn(deps: DevDeps, state: TurnsState, turn_id: int) -> None:
             agent_session_id=live.agent_session_id,
         )
         if moved:
-            text = domain.progress_text(project.id, seconds=_seconds(started_at, now), steps=row.steps, latest=())
-            await _show(s, deps, snap, turn_id=turn_id, project_id=project.id, text=text)
+            await _first_progress(s, deps, snap, live, turn_id=turn_id, steps=row.steps, since=started_at, now=now)
     if not moved:  # stopped while its session opened
         if live.turn_id == turn_id:
             _detach(live, now)
@@ -1458,9 +1497,14 @@ async def _on_progress(deps: DevDeps, state: TurnsState, live: _Live, event: Pro
             )
         await store.set_turn(s, turn_id, steps=live.total_steps)
         text = domain.progress_text(
-            live.project_id, seconds=_seconds(live.started_at, now), steps=live.total_steps, latest=live.recent
+            live.project_id,
+            seconds=_seconds(live.started_at, now),
+            steps=live.total_steps,
+            latest=live.recent,
+            detail=snap[defaults.UI_PROGRESS_STEPS],
         )
         await _show(s, deps, snap, turn_id=turn_id, project_id=live.project_id, text=text)
+        live.shown_at = now
         if snap[defaults.ACK_TYPING_FOR_WORK] and not is_hidden(live.project_id):
             # The owner asked to see "typing…" while work runs: each step renews it (≤ 60 s past the last one).
             ref = f"turn-{turn_id}-step-{live.total_steps}"

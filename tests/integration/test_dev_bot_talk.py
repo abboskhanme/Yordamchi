@@ -15,6 +15,8 @@ Same harness as `test_dev_bot.py`: every loop of the real app on `FakeClock` tim
 recording session.
 """
 
+from typing import Final
+
 import pytest
 
 from tests.factories import make_default_snapshot, make_owner_origin
@@ -41,6 +43,9 @@ SCREENSHOT = b"\x89PNG fake screenshot"
 DEFAULTS = make_default_snapshot()
 HOLD = DEFAULTS[defaults.UI_HOLD_REACTION]
 READ_MARK = DEFAULTS[defaults.UI_READ_MARK]
+
+# The live line of a working turn as the owner sees it (`ui.progress_steps` 0 since 2026-10-25).
+LIVE_LINE: Final = " · ⏱ "
 
 
 def route_reply(intent: str, project: str | None, confidence: float = 0.95) -> dict[str, JsonValue]:
@@ -243,7 +248,7 @@ async def test_a_coding_instruction_is_acked_by_its_route_line_then_the_progress
         first, later = (ToolStep("Read", {"file_path": f"src/{n}.py"}, tool_use_id=f"t{n}") for n in range(2))
         bot.fakes.agents.script_turn(first, Pause(), later, Pause())
         instruction = await bot.say("BonviHR'da login sahifasini tuzat")
-        await bot.within(20, lambda: bool(bot.posted("BonviHR · ishlayapti")), what="the progress line")
+        await bot.within(20, lambda: bool(bot.posted(LIVE_LINE)), what="the progress line")
         await bot.advance(2)
         await bot.fakes.agents.release(bot.fakes.agents.sends[-1][0])  # the work goes on: no typing comes back
         await bot.advance(30)
@@ -329,7 +334,7 @@ async def test_typing_for_work_switched_on_shows_typing_while_the_turn_works() -
         first, later = (ToolStep("Read", {"file_path": f"src/{n}.py"}, tool_use_id=f"t{n}") for n in range(2))
         bot.fakes.agents.script_turn(first, Pause(), later, Pause())
         await bot.say("BonviHR'da login sahifasini tuzat")
-        await bot.within(20, lambda: bool(bot.posted("BonviHR · ishlayapti")), what="the progress line")
+        await bot.within(20, lambda: bool(bot.posted(LIVE_LINE)), what="the progress line")
         await bot.advance(2)  # "→ BonviHR" and the progress line are out
         progress = len(bot.requests())
         await bot.fakes.agents.release(bot.fakes.agents.sends[-1][0])  # the work goes on: one more step

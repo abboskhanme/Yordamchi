@@ -44,7 +44,7 @@ async def test_a_text_question_gets_the_text_first_then_a_voice_summary() -> Non
         methods = bot.methods()
         text_at = next(i for i, r in enumerate(bot.session.requests) if "kubitlar bilan" in str(r.params.get("text")))
         assert "sendChatAction" in methods[:text_at]  # "yozmoqda…" while it is written (the owner's typing rule)
-        assert "sendMessageDraft" in methods[:text_at]  # the answer streams into the DM as it is written
+        assert "sendMessageDraft" not in methods  # qa.live_drafts is off (owner, 2026-10-25): the whole answer at once
         assert text_at < methods.index("sendVoice")  # the voice never comes before the text (UC-30)
         [text] = bot.posted("Kvant kompyuter kubitlar")
         assert "---OVOZ---" not in text

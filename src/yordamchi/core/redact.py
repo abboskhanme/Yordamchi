@@ -92,6 +92,9 @@ PATTERNS: Final[tuple[SecretPattern, ...]] = (
     SecretPattern("openrouter_api_key", re.compile(r"sk-or-v1-[0-9a-f]{64}")),
     SecretPattern("openai_api_key", re.compile(r"sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}")),
     SecretPattern("google_api_key", re.compile(r"AIza[0-9A-Za-z_-]{35}")),
+    # Google's newer key format, which AI Studio issues and the Gemini API accepts as `x-goog-api-key` (the owner's
+    # own key, 2026-10-25): stored under the same kind, so speech and video read it as a Google key.
+    SecretPattern("google_api_key", re.compile(r"(?<![A-Za-z0-9_.-])AQ\.[A-Za-z0-9_-]{40,120}(?![A-Za-z0-9_-])")),
     SecretPattern("github_pat", re.compile(r"github_pat_[A-Za-z0-9_]{22,255}")),
     SecretPattern("github_token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36,255}")),
     SecretPattern("slack_token", re.compile(r"xox[abprs]-[A-Za-z0-9-]{10,}")),

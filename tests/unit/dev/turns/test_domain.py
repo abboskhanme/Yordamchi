@@ -499,3 +499,32 @@ def test_only_photos_and_images_sent_as_files_reach_the_agent_as_images() -> Non
     assert domain.image_suffix(UpdateKind.DOCUMENT, "application/pdf") is None
     assert domain.image_suffix(UpdateKind.VIDEO, "video/mp4") is None
     assert domain.image_suffix(UpdateKind.VOICE, "audio/ogg") is None
+
+
+@pytest.mark.parametrize(
+    ("latest", "phase"),
+    [
+        ((), S.PHASE_WORKING()),
+        (("Read: src/app/login.py",), S.PHASE_READING()),
+        (("Grep: def login",), S.PHASE_READING()),
+        (("Edit: src/app/login.py",), S.PHASE_WRITING()),
+        (("Bash: uv run pytest -q",), S.PHASE_TESTING()),
+        (("Bash: make check",), S.PHASE_TESTING()),
+        (("Bash: git commit -m fix",), S.PHASE_COMMITTING()),
+        (("Bash: ls -la",), S.PHASE_RUNNING()),
+        (("Edit: a.py", "Testlar o'tdi, endi commit qilaman."), S.PHASE_WORKING()),
+    ],
+)
+def test_the_phase_names_what_the_turn_does_never_the_command(latest: tuple[str, ...], phase: str) -> None:
+    assert domain.phase_of(latest) == phase
+
+
+@pytest.mark.parametrize(("seconds", "text"), [(0, "0:00"), (45.9, "0:45"), (252, "4:12"), (3852, "1:04:12")])
+def test_the_running_time_reads_as_a_clock(seconds: float, text: str) -> None:
+    assert domain.elapsed_text(seconds) == text
+
+
+def test_the_plain_live_line_has_no_steps() -> None:
+    plain = domain.progress_text("BonviHR", seconds=252, steps=12, latest=("Bash: make test",), detail=0)
+    assert plain == S.TURN_PROGRESS_PLAIN(project="BonviHR", phase=S.PHASE_TESTING(), elapsed="4:12")
+    assert "make test" not in plain

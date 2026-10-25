@@ -20,6 +20,7 @@ from tests.factories import (
     add_setting_row,
     list_replies,
     make_default_snapshot,
+    make_owner_origin,
     make_qa_question,
     make_synthesizers,
     with_fallback,
@@ -45,6 +46,7 @@ from yordamchi.ports.assistant import AssistantReply, AssistantRequest
 from yordamchi.shared.cost import store as cost_store
 from yordamchi.shared.outbox.models import OutboxMessage
 from yordamchi.shared.settings import defaults
+from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings import store as settings_store
 
 PERSONA_KEY = defaults.PERSONA_PERSONAL.key
@@ -238,9 +240,18 @@ async def test_voice_off_marks_the_answer_off(personal_deps: PersonalDeps, perso
 
 
 # --- drafts --------------------------------------------------------------------------------------------------------
+async def test_by_default_no_draft_is_sent_only_the_whole_answer(personal_deps: PersonalDeps, fakes: Fakes) -> None:
+    """Owner, 2026-10-25: the streaming draft kept empty space and a stale half answer on the phone."""
+    fakes.assistant.reply_with("qa", reply(QA_REPLY))
+    await service.answer(personal_deps, make_qa_question())
+    assert fakes.messenger.sent("send_draft") == []
+
+
 async def test_drafts_stream_in_the_private_chat_and_never_show_the_voice_script(
     personal_deps: PersonalDeps, fakes: Fakes
 ) -> None:
+    origin = make_owner_origin(BotName.PERSONAL, update_id=950)
+    await settings.record_version(personal_deps, origin, defaults.QA_LIVE_DRAFTS, True, reason="change")
     fakes.assistant.reply_with("qa", reply(QA_REPLY))
     await service.answer(personal_deps, make_qa_question())
     drafts = fakes.messenger.sent("send_draft")
@@ -252,6 +263,8 @@ async def test_drafts_stream_in_the_private_chat_and_never_show_the_voice_script
 
 
 async def test_a_group_gets_no_draft(personal_deps: PersonalDeps, fakes: Fakes) -> None:
+    origin = make_owner_origin(BotName.PERSONAL, update_id=951)
+    await settings.record_version(personal_deps, origin, defaults.QA_LIVE_DRAFTS, True, reason="change")
     fakes.assistant.reply_with("qa", reply(QA_REPLY))
     await service.answer(personal_deps, make_qa_question(chat_id=DEV_GROUP_ID))
     assert fakes.messenger.sent("send_draft") == []

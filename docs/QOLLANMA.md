@@ -58,7 +58,9 @@ Telefonda o'qish uchun. Qo'shtirnoq ichidagi bot javoblari — botning aynan o'z
 
 - Ko'rsatma, qo'shimcha va tuzatishlarni oddiy gap bilan yozing. Ish ketayotganda yozgan
   qo'shimchangiz o'sha ishga qo'shiladi.
-- Ish paytida bitta "jonli" qator yangilanib turadi: "{loyiha} · ishlayapti 4 daq · 12 qadam".
+- Ish paytida bitta "jonli" qator yangilanib turadi: "{loyiha} · ✍️ Kod yozyapman… · ⏱ 4:12" — bot nima
+  qilayotgani va qancha vaqt o'tgani; kod va buyruqlar ko'rsatilmaydi. Batafsil qadamlar kerak bo'lsa:
+  `sozlama: ui.progress_steps 3`.
 - Oxirida natija alohida xabar bo'lib keladi: Natija, Fayllar, Testlar, Commit, Vaqt.
 - **Commit va push avtomatik.** Natijada ko'rinadi:
   - "Commit: {sha} · push: bajarildi ({upstream})"

@@ -628,6 +628,7 @@ async def _answer(
         every_s=snap[defaults.QA_DRAFT_INTERVAL_S],
         timeout_s=snap[defaults.TIMEOUTS_QA_DRAFT_S],
         max_chars=snap[defaults.TEXT_MAX_CHARS],
+        off=not snap[defaults.QA_LIVE_DRAFTS],
     )
     streamed = await _stream(deps, snap, request, drafts)
     reply, fallback, header = streamed.reply, False, None

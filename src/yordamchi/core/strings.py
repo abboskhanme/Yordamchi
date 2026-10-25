@@ -291,8 +291,8 @@ VOICE_NOT_UNDERSTOOD_MARKER = Msg("[ovoz tushunilmadi: {reason}]")
 # UC-05 F: the owner is told about every note that failed; {reason} is built from the STT_REASON_* entries.
 STT_FAILED = Msg("Ovozli xabarni matnga o'gira olmadim: {reason}. Matn bilan yozing yoki qayta yuboring.")
 STT_FAILED_NEEDS_KEY = Msg(
-    "Ovozli xabarni matnga o'gira olmadim: {reason}. Google (AIza…) yoki OpenRouter (sk-or-v1-…) kalitini chatga "
-    "yuboring — o'zim sozlayman."
+    "Ovozli xabarni matnga o'gira olmadim: {reason}. Google (AIza… yoki AQ.…) yoki OpenRouter (sk-or-v1-…) "
+    "kalitini chatga yuboring — o'zim sozlayman."
 )
 STT_REASON_NO_KEY = Msg("ovoz uchun kalit yo'q")
 STT_REASON_NO_AUDIO = Msg("audio fayl yo'q")
@@ -440,6 +440,15 @@ ERR_TURN_NOT_FOUND = Msg("#{turn_id} raqamli topshiriq topilmadi.")
 # The one live progress line per project (SPEC §6.2, UC-11): edited at most every `outbox.progress_edit_s`.
 TURN_PROGRESS = Msg("**{project}** · ishlayapti {minutes} daq · {steps} qadam")
 TURN_PROGRESS_STEP = Msg("• {step}")
+# `ui.progress_steps` 0 (owner, 2026-10-25: "o'zgargan kodlarni chiqarmasdan", just a few words): what the turn is
+# doing now, never a command, a file or code.
+TURN_PROGRESS_PLAIN = Msg("**{project}** · {phase} · ⏱ {elapsed}")
+PHASE_WORKING = Msg("⏳ Ishlayapman…")
+PHASE_READING = Msg("🔎 O'rganyapman…")
+PHASE_WRITING = Msg("✍️ Kod yozyapman…")
+PHASE_TESTING = Msg("🧪 Tekshiryapman…")
+PHASE_COMMITTING = Msg("📦 Commit qilyapman…")
+PHASE_RUNNING = Msg("⚙️ Bajarilmoqda…")
 TURN_PROGRESS_FINISHED = Msg("**{project}** · tugadi · {minutes} daq · {steps} qadam")
 TURN_PROGRESS_STOPPED = Msg("**{project}** · to'xtatildi · {minutes} daq · {steps} qadam")
 TURN_PROGRESS_PAUSED = Msg("**{project}** · to'xtab turibdi · {minutes} daq · {steps} qadam")
@@ -1079,8 +1088,8 @@ ERR_MEDIA_TOO_LONG = Msg(
 )
 ERR_MEDIA_VIDEO_OFF = Msg("Video tahlili o'chirilgan. Yoqish uchun: «video tahlilini yoq».")
 ERR_MEDIA_NO_VIDEO_KEY = Msg(
-    "Videoni ko'rish uchun kalit yo'q. Google (AIza…) yoki OpenRouter (sk-or-v1-…) kalitini chatga yuboring — o'zim "
-    "sozlayman."
+    "Videoni ko'rish uchun kalit yo'q. Google (AIza… yoki AQ.…) yoki OpenRouter (sk-or-v1-…) kalitini chatga "
+    "yuboring — o'zim sozlayman."
 )
 ERR_MEDIA_NO_ANSWER = Msg(
     "Videoni ko'rdim, lekin tushunarli xulosa chiqmadi. Qayta urinib ko'ring yoki savolni aniqroq bering."

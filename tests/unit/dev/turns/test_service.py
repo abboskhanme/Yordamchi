@@ -71,6 +71,7 @@ from yordamchi.shared.outbox import service as outbox_service
 from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.models import OutboxMessage
 from yordamchi.shared.settings import defaults
+from yordamchi.shared.settings import service as settings
 
 PROJECT = "BonviHR"
 OTHER = "HRMentor"
@@ -275,6 +276,8 @@ async def test_every_project_message_starts_with_the_project_name(
 async def test_progress_is_one_message_per_turn_edited_at_most_every_five_seconds(
     dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
 ) -> None:
+    origin = make_owner_origin(update_id=901)  # the detailed line: its steps are what this test reads
+    await settings.record_version(dev_deps, origin, defaults.UI_PROGRESS_STEPS, 3, reason="change")
     steps = [Progress(kind="tool_start", tool_name="Bash", summary=f"step {n}") for n in range(4)]
     fakes.agents.script_turn(*steps, Pause())
     await start(dev_deps, state)
@@ -291,6 +294,31 @@ async def test_progress_is_one_message_per_turn_edited_at_most_every_five_second
     assert "• Bash: step 3" in text_of(sends[0])
     edits = [message for message in progress if message.op == "edit_text" and message.status == "pending"]
     assert len(edits) <= 1  # older pending edits are superseded (coalesced)
+
+
+async def test_by_default_the_live_line_says_what_the_turn_does_and_its_clock_never_its_commands(
+    dev_deps: DevDeps, fakes: Fakes, folders: dict[str, Path], state: TurnsState
+) -> None:
+    """Owner, 2026-10-25: "o'zgargan kodlarni chiqarmasdan … Bajarilmoqda, Ishlayapman" and the running time."""
+    fakes.agents.script_turn(Progress(kind="tool_start", tool_name="Edit", summary="src/app/login.py"), Pause())
+    await start(dev_deps, state)
+
+    async def writing() -> bool:
+        return any(S.PHASE_WRITING() in text for text in await texts(dev_deps, "progress"))
+
+    await until(writing, what="the writing phase")
+    latest = (await texts(dev_deps, "progress"))[-1]
+    assert "login.py" not in latest
+    assert "Edit" not in latest
+    assert "⏱ 0:" in latest
+
+    fakes.clock.set(fakes.clock.now() + timedelta(seconds=95))  # a long quiet step: no event for 95 s
+    await service.schedule_turns(dev_deps, state)
+
+    async def ticked() -> bool:
+        return any("⏱ 1:35" in text for text in await texts(dev_deps, "progress"))
+
+    await until(ticked, what="the clock moved without a new step")
 
 
 async def test_the_session_follows_the_coding_options_of_spec_5_3(

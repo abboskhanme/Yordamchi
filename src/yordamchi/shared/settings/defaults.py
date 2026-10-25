@@ -113,6 +113,24 @@ UI_SEEN_REACTION = Setting(
     bots=BOTH,
     doc="Reaction put on each owner message as the 'seen' ack (SPEC §3.2.1); empty: none.",
 )
+UI_PROGRESS_STEPS = Setting(
+    "ui.progress_steps",
+    int,
+    0,  # owner, 2026-10-25: "o'zgargan kodlarni chiqarmasdan", a few words such as "Ishlayapman" are enough
+    check=Range(0, 3),
+    group=Group.PERSONA,
+    bots=DEV,
+    doc="Latest steps (commands, files) under a working turn's live line; 0: only what it is doing, in two words.",
+)
+UI_PROGRESS_TICK_S = Setting(
+    "ui.progress_tick_s",
+    int,
+    30,  # owner, 2026-10-25: show the running time; the scheduler checks every 15 s
+    check=Range(0, 600),
+    group=Group.PERSONA,
+    bots=DEV,
+    doc="Edit a working turn's live line this often even with no new step, so its clock moves; 0: only on steps.",
+)
 UI_READ_MARK = Setting(
     "ui.read_mark",
     str,
@@ -1232,6 +1250,14 @@ MODELS_FALLBACK_TEXT = Setting(
     group=Group.MODELS,
     bots=PERSONAL,
     doc="'zaxira model' used while Claude is unavailable.",
+)
+QA_LIVE_DRAFTS = Setting(
+    "qa.live_drafts",
+    bool,
+    False,  # owner, 2026-10-25: on the phone the streaming draft kept empty space and a stale half answer on screen
+    group=Group.PERSONA,
+    bots=PERSONAL,
+    doc="Show the answer while it is written (Telegram's sendMessageDraft); off: 'typing…', then the whole answer.",
 )
 QA_DRAFT_INTERVAL_S = Setting(
     "qa.draft_interval_s",
