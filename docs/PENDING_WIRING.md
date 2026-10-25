@@ -445,3 +445,14 @@ The outbox now renders a Markdown subset (`**bold**`, `` `code` ``, `#` title li
       before the ask; a link inside a question is the assistant's (`WebFetch`, or `analyze_video` for a video).
 - [ ] T78: the UC-30 eval drives `qa.service` directly; an eval over the whole pipeline (media first, then the ask)
       can reuse `tests/integration/personal_bot_harness.py`.
+
+## From the owner's first day of live use (2026-10-25)
+- [ ] A coding turn in the Yordamchi project itself commits straight onto `main` (the working tree is on `main`; the
+      gate blocks only a push or merge into it). Commit 6b350e0 (live STT) landed that way, and the session told the
+      owner "the new version installs itself within a minute", which nothing does until the self-update wiring (T58).
+      Run Yordamchi turns on a branch and route them through the supervisor's tested merge, and make the executor
+      prompt for the SELF project say how its change reaches the bots.
+- [ ] A message that is only a long random token (no keyword, unknown format) is routed as work: the owner's `AQ.…`
+      Google key reached a coding session, both DBs and Telegram progress lines before its format was known
+      (masked in both DBs by hand; the owner rotates the key). Treat a bare high-entropy token as a secret to refuse
+      and ask about, never as an instruction.
