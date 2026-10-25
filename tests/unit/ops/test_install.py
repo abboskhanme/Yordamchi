@@ -722,6 +722,36 @@ def test_a_failed_kickstart_starts_the_job_afresh_instead_of_leaving_it_down(rig
     assert all(step.status is not Status.FAILED for step in installer.steps)
 
 
+def test_a_job_still_unloading_after_bootout_is_waited_for_before_it_is_started_again(rig: Rig) -> None:
+    """2026-10-25: `bootout` returns before launchd lets the job go; `kickstart` and `bootstrap` meanwhile failed and
+    the dev bot stayed down after two updates."""
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
+    assert rig.install() == 0
+    lingering: dict[str, int] = {}
+
+    def runner(argv: Sequence[str], *, cwd: Path | None = None, timeout: float) -> Completed:
+        call = tuple(str(part) for part in argv)
+        if Path(call[0]).name == "launchctl":
+            label = call[2].rsplit("/", 1)[-1]
+            if call[1] == "bootout":
+                lingering[label] = 3  # still listed for three more looks
+            elif call[1] == "print" and lingering.get(label, 0) > 0:
+                lingering[label] -= 1
+                return Completed(0)
+            elif call[1] in {"bootstrap", "kickstart"} and lingering.get(Path(call[-1]).stem, 0) > 0:
+                return Completed(5)  # "Bootstrap failed: 5: Input/output error" while it unloads
+        return rig.mac.runner(argv, cwd=cwd, timeout=timeout)
+
+    paused: list[float] = []
+    installer = rig.installer()
+    installer.run_cmd = runner
+    installer.pause = paused.append
+    assert installer.install() == 0, rig.out.getvalue()
+    assert paused  # it waited for launchd instead of failing
+    assert "uz.yordamchi.dev" in rig.mac.loaded
+    assert all(step.status is not Status.FAILED for step in installer.steps)
+
+
 def test_existing_databases_are_backed_up_before_migrating(rig: Rig) -> None:
     rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
     db = rig.paths.db_file(BotName.DEV)

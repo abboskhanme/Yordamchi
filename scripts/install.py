@@ -103,6 +103,8 @@ TIMEOUT_UV_S: Final = 1800.0
 TIMEOUT_DOWNLOAD_S: Final = 300.0
 TIMEOUT_MIGRATE_S: Final = 300.0
 TIMEOUT_LAUNCHCTL_S: Final = 45.0
+UNLOAD_WAIT_S: Final = 20.0  # launchd lets a booted-out job go within a few seconds
+UNLOAD_POLL_S: Final = 0.5
 TIMEOUT_CHECK_S: Final = 120.0
 TIMEOUT_KEYCHAIN_S: Final = 15.0
 
@@ -529,6 +531,7 @@ class Installer:
         pins: Mapping[str, Pin | None] = FFMPEG_PINS,
         machine: str = "",
         stamp: Callable[[], str] = lambda: time.strftime("%Y%m%dT%H%M%S"),
+        pause: Callable[[float], None] = time.sleep,
     ) -> None:
         self.options = options
         self.paths = Paths.defaults(options.home)
@@ -542,6 +545,7 @@ class Installer:
         self.pins = pins
         self.machine = machine or f"{sys.platform}/{platform.machine()}"
         self.stamp = stamp
+        self.pause = pause
         self.steps: list[Step] = []
         self.releases = Releases()
         self.stopped: list[ProcessName] = []
@@ -1003,13 +1007,22 @@ class Installer:
     def _loaded(self, process: ProcessName) -> bool:
         return self.run([self.tools.launchctl, "print", self._target(process)], timeout=TIMEOUT_LAUNCHCTL_S).ok
 
+    def _stop(self, process: ProcessName) -> None:
+        """`bootout`, then wait until launchd has really let the job go: bootout returns before the job is gone, and a
+        `bootstrap` or `kickstart` meanwhile fails (2026-10-25: the dev bot stayed down after two updates)."""
+        self.run([self.tools.launchctl, "bootout", self._target(process)], timeout=TIMEOUT_LAUNCHCTL_S)
+        waited = 0.0
+        while self._loaded(process) and waited < UNLOAD_WAIT_S:
+            self.pause(UNLOAD_POLL_S)
+            waited += UNLOAD_POLL_S
+
     def stop_bots(self) -> None:
         if self.dry:
             self.record("stop bots", Status.DRY_RUN, "launchctl is never called in a dry run")
             return
         for process in ("dev", "personal"):
             if self._loaded(process):
-                self.run([self.tools.launchctl, "bootout", self._target(process)], timeout=TIMEOUT_LAUNCHCTL_S)
+                self._stop(process)
                 self.stopped.append(process)
         self.record("stop bots", Status.DONE if self.stopped else Status.UNCHANGED, f"stopped {self.stopped or '-'}")
 
@@ -1125,9 +1138,8 @@ class Installer:
                 ok = self.run([self.tools.launchctl, "kickstart", "-k", target], timeout=TIMEOUT_LAUNCHCTL_S).ok
                 how = "kickstart -k"
                 if not ok:
-                    # The job was in transition: the running supervisor's watchdog may have brought a bot this run
-                    # stopped back up meanwhile (2026-10-25: the dev bot stayed down). Start it afresh.
-                    self.run([self.tools.launchctl, "bootout", target], timeout=TIMEOUT_LAUNCHCTL_S)
+                    # The job was in transition (still unloading, or brought back meanwhile): start it afresh.
+                    self._stop(process)
                     ok = self.run(
                         [self.tools.launchctl, "bootstrap", f"gui/{self.options.uid}", plist],
                         timeout=TIMEOUT_LAUNCHCTL_S,
@@ -1135,7 +1147,7 @@ class Installer:
                     how = "kickstart -k failed; bootout + bootstrap"
             else:
                 if loaded:
-                    self.run([self.tools.launchctl, "bootout", target], timeout=TIMEOUT_LAUNCHCTL_S)
+                    self._stop(process)
                 self.run([self.tools.launchctl, "enable", target], timeout=TIMEOUT_LAUNCHCTL_S)
                 ok = self.run(
                     [self.tools.launchctl, "bootstrap", f"gui/{self.options.uid}", plist], timeout=TIMEOUT_LAUNCHCTL_S
