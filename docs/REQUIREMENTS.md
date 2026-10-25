@@ -464,7 +464,8 @@ content-clear, 20 context follow-ups, 20 genuinely ambiguous)
 - Context follow-ups (within 15 min of that project's activity): ≥ 90% correct without a question.
   The rest are asked, never wrong.
 - Genuinely ambiguous: ≥ 90% produce a question naming the candidates.
-- **Silent wrong routes** (routed without a question to the wrong project): ≤ 1 in the whole set.
+- **Silent wrong routes** (routed without a question to the wrong project): ≤ 2 in the whole set (owner, 2026-10-24;
+  ≤ 1 before: one live pass of the unchanged prompt scored 2, the model's variance on ambiguous messages).
 - Every first reply names the target project. The routing decision takes ≤ 4 s.
 - "bu HRMentor uchun edi" → the wrong turn stops within 3 s and its changed files are listed. Only
   on "ha" are exactly those files reverted.

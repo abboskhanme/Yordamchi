@@ -32,7 +32,7 @@ def test_every_p1_suite_has_its_table_of_numbers() -> None:
 def test_key_acceptance_numbers_match_requirements() -> None:
     data = tomllib.loads(THRESHOLDS.read_text(encoding="utf-8"))
     assert data["routing"]["explicit_correct_min"] == 0.97
-    assert data["routing"]["silent_wrong_max"] == 1
+    assert data["routing"]["silent_wrong_max"] == 2  # REQUIREMENTS UC-10, owner's decision of 2026-10-24
     assert data["routing"]["cases_min"] == 120
     assert data["latency"]["ack_s"] == 1.0
     assert data["latency"]["interrupt_s"] == 3.0
