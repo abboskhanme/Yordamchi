@@ -12,6 +12,10 @@ from yordamchi.core.json_value import JsonValue
 from yordamchi.ports.assistant import Assistant, AssistantDelta, AssistantReply, AssistantRequest
 
 TIMEOUT = 5.0
+# A probe runs a fake `claude` script written fresh into tmp_path; macOS scans a new executable on its first run
+# (XProtect), which took over 5 s while a VM loaded the Mac (2026-10-25). The bound is the harness's, not a latency
+# claim: the production probe timeout is a setting.
+PROBE_TIMEOUT = 30.0
 LIVE_TIMEOUT = 60.0
 REQUEST = AssistantRequest(
     kind="report", system_prompt="system text", prompt="HRMentor qanday?", model="sonnet", settings_version=3
@@ -43,7 +47,7 @@ class AssistantContract:
         raise NotImplementedError
 
     async def test_probe_reports_a_status(self, assistant: Assistant) -> None:
-        assert (await assistant.probe(timeout=TIMEOUT)).installed
+        assert (await assistant.probe(timeout=PROBE_TIMEOUT)).installed
 
     async def test_ask_returns_text_and_names_the_provider(self, assistant: Assistant) -> None:
         reply = await assistant.ask(REQUEST, timeout=TIMEOUT)

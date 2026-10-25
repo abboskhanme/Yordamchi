@@ -68,6 +68,10 @@ from yordamchi.ports.agent import (
 )
 
 TIMEOUT = 5.0
+# A probe runs a fake `claude` script written fresh into tmp_path; macOS scans a new executable on its first run
+# (XProtect), which took over 5 s while a VM loaded the Mac (2026-10-25). The bound is the harness's, not a latency
+# claim: the production probe timeout is a setting.
+PROBE_TIMEOUT = 30.0
 SEARCH_PATH = "/opt/yordamchi/shims:/Users/owner/.local/bin:/usr/bin:/bin"
 LEAKY_BASE = {
     "HOME": "/Users/owner",
@@ -975,7 +979,7 @@ async def test_probe_reads_version_and_login(
 ) -> None:
     runtime = ClaudeAgentRuntime(cli_path=_fake_cli(tmp_path, auth), search_path="/usr/bin:/bin")
 
-    status = await runtime.probe(timeout=TIMEOUT)
+    status = await runtime.probe(timeout=PROBE_TIMEOUT)
 
     assert (status.installed, status.version) == (True, "2.1.310")
     assert (status.logged_in, status.auth_method, status.missing) == (logged_in, method, missing)
@@ -983,7 +987,7 @@ async def test_probe_reads_version_and_login(
 
 async def test_probe_without_the_binary_reports_not_installed(tmp_path: Path) -> None:
     runtime = ClaudeAgentRuntime(cli_path=tmp_path / "missing", search_path="/usr/bin:/bin")
-    status = await runtime.probe(timeout=TIMEOUT)
+    status = await runtime.probe(timeout=PROBE_TIMEOUT)
     assert (status.installed, status.missing) == (False, ("claude",))
 
 

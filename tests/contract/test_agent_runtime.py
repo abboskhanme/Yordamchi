@@ -24,6 +24,10 @@ from yordamchi.ports.agent import (
 )
 
 TIMEOUT = 5.0
+# A probe runs a fake `claude` script written fresh into tmp_path; macOS scans a new executable on its first run
+# (XProtect), which took over 5 s while a VM loaded the Mac (2026-10-25). The bound is the harness's, not a latency
+# claim: the production probe timeout is a setting.
+PROBE_TIMEOUT = 30.0
 LIVE_TIMEOUT = 90.0
 
 
@@ -51,7 +55,7 @@ class AgentRuntimeContract:
         raise NotImplementedError
 
     async def test_probe_reports_install_and_login(self, runtime: AgentRuntime) -> None:
-        status = await runtime.probe(timeout=TIMEOUT)
+        status = await runtime.probe(timeout=PROBE_TIMEOUT)
         assert status.installed
         assert status.auth_method == "claude.ai"
 

@@ -41,6 +41,10 @@ from yordamchi.core.json_value import JsonValue
 from yordamchi.ports.assistant import AssistantDelta, AssistantReply, AssistantRequest
 
 TIMEOUT = 5.0
+# A probe runs a fake `claude` script written fresh into tmp_path; macOS scans a new executable on its first run
+# (XProtect), which took over 5 s while a VM loaded the Mac (2026-10-25). The bound is the harness's, not a latency
+# claim: the production probe timeout is a setting.
+PROBE_TIMEOUT = 30.0
 SEARCH_PATH = "/Users/owner/.local/bin:/usr/bin:/bin"
 CLI = Path("/Users/owner/.local/bin/claude")
 BASE_ENV = {"HOME": "/Users/owner", "PATH": "/elsewhere", "CLAUDECODE": "1", "CLAUDE_CODE_SESSION_ID": "parent"}
@@ -932,7 +936,7 @@ def fake_cli(tmp_path: Path, auth: str = "auth_status_claude_ai.json", *, slow: 
 )
 async def test_probe_reads_version_and_login(tmp_path: Path, auth: str, logged_in: bool, method: str | None) -> None:
     assistant = _assistant(tmp_path, Factory([]), cli_path=fake_cli(tmp_path, auth), base_env=None)
-    status = await assistant.probe(timeout=TIMEOUT)
+    status = await assistant.probe(timeout=PROBE_TIMEOUT)
     assert status.installed is True
     assert status.version == "2.1.310"
     assert status.logged_in is logged_in
@@ -941,7 +945,7 @@ async def test_probe_reads_version_and_login(tmp_path: Path, auth: str, logged_i
 
 async def test_probe_without_the_binary_reports_not_installed(tmp_path: Path) -> None:
     assistant = _assistant(tmp_path, Factory([]), cli_path=tmp_path / "missing", base_env=None)
-    status = await assistant.probe(timeout=TIMEOUT)
+    status = await assistant.probe(timeout=PROBE_TIMEOUT)
     assert status.installed is False
     assert status.missing == ("claude",)
 
