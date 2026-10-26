@@ -54,6 +54,52 @@ Telefonda o'qish uchun. Qo'shtirnoq ichidagi bot javoblari — botning aynan o'z
 
 ---
 
+## 2a. Mavzular (Topics)
+
+Guruh mavzularga bo'linadi: **General** — umumiy gap, savol, hisobot va sozlamalar uchun; har bir loyihaning esa
+**o'z mavzusi** bor. Mavzularni siz ochmaysiz — bot ularni o'zi ochadi.
+
+**Bir martalik sozlash** (telefonda, 1 daqiqa)
+
+1. "OrvionX Projects" guruhini oching → guruh nomiga bosing → **Tahrirlash** (qalam belgisi).
+2. **Topics** (Mavzular) ni yoqing → **Saqlash**.
+3. **Administratorlar** → `@OrvionXBot` → **Manage topics** (Mavzularni boshqarish) huquqini yoqing → **Saqlash**.
+4. Guruhga istalgan xabar yozing (masalan `salom`) — bot guruh endi mavzuli ekanini shundan biladi.
+5. Tekshirish (Mac'da): `python -m yordamchi.check` — "Topics yoqilgan" va "bot mavzu ocha oladi" qatorlari yashil.
+
+**Qanday ishlaydi**
+
+- Loyihaga **birinchi ish** berganingizda bot shu loyiha nomi bilan mavzu ochadi (masalan «BonviHR»). Keyingi
+  ishlar shu mavzuda davom etadi. Hamma loyihaga birdan mavzu ochilmaydi — faqat ish berilganlariga.
+- **General'da** ish bersangiz ("BonviHR'da login sahifasini tuzat"), ish loyihaning mavzusida davom etadi:
+  "→ {loyiha}", jonli qator, savollar, qarorlar va natija — hammasi o'sha mavzuda. General'da bitta qator qoladi:
+  "→ BonviHR · mavzusida davom etadi" — bossangiz mavzu ochiladi. Shu qatorga reply qilsangiz ham BonviHR'ga ketadi.
+- **Loyiha mavzusida** yozgan hamma narsangiz o'sha loyihaga ketadi: loyiha nomini aytish shart emas, bot
+  "qaysi loyiha?" deb so'ramaydi. Ish ketayotgan bo'lsa, xabaringiz shu ishga qo'shiladi.
+- Mavzuda `to'xta` — **faqat shu loyiha** to'xtaydi, boshqalari ishlashda davom etadi. `davom ettir`,
+  `qayta yubor`, `yangi sessiya`, `/hisobot` — ham shu loyiha uchun.
+- Mavzudagi `ha`, `yo'q` yoki `2` — faqat shu loyihaning savoli yoki qaroriga javob, boshqa loyihanikiga emas.
+- `salom`, `rahmat`, `holat?` — qayerda yozsangiz, o'sha yerda javob keladi. Sozlamalar va `xarajat?` javobi
+  General'da.
+- Umumiy savol, hisobot va sozlamalarni General'da yozing. Mavzuda «BonviHR qanday?» desangiz, bu loyihaga topshiriq
+  bo'ladi (agent javob beradi); mavzu ichida tezkor hisobot uchun `/hisobot` deng.
+- Mavzuni **yopsangiz**, loyihaga keyingi ish berilganda bot uni qayta ochadi. **O'chirsangiz**, keyingi xabarda
+  yangi mavzu ochadi (eski mavzudagi yozishmalar qaytmaydi).
+- Yangi loyiha (`yangi loyiha: …`) hali yo'q (10-bo'lim). Qo'shilganda uning rejasi va qurilishi o'z mavzusida
+  bo'ladi.
+
+**Mavzular kerak bo'lmasa**
+
+- Guruhda Topics'ni o'chirsangiz, bot avvalgidek oddiy guruh bo'lib ishlaydi — hammasi bitta chatda.
+- Faqat botda o'chirish: `sozlama: topics.enabled false`. Qayta yoqish: `sozlama: topics.enabled true`.
+- Botda «Manage topics» huquqi bo'lmasa, ishlar General'da davom etadi va bot bir marta eslatadi: "Loyiha uchun
+  mavzu ocha olmadim: botga guruhda **Manage topics** (mavzularni boshqarish) huquqini bering. Hozircha ishlar
+  General'da davom etadi."
+
+<!-- SCREENSHOT: General'dagi "→ BonviHR · mavzusida davom etadi" qatori va BonviHR mavzusidagi jonli qator -->
+
+---
+
 ## 3. Loyiha ishlari
 
 - Ko'rsatma, qo'shimcha va tuzatishlarni oddiy gap bilan yozing. Ish ketayotganda yozgan

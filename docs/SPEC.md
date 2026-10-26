@@ -205,6 +205,7 @@ survives (STACK §4.6).
 | `shared/audit` [P1] | append-only audit | — |
 | `shared/integrations` [P2] | add/validate/list/remove, OAuth paste-back, token service, session injection specs | McpClient |
 | `shared/bridge` [P3] | the only read path from personal to `dev.db` | — |
+| `shared/topics` [D4 revised 2026-10-26] | the dev group's forum topics (§3.2.16): one per project, opened on its first work; project ↔ topic; reopen or replace a closed or deleted one; read by the outbox to place each row | Messenger |
 | `dev/routing` [P1] | deterministic pre-route + LLM route, clarification, wrong-target correction | Assistant |
 | `dev/turns` [P1; park P2] | sessions, scheduler (cap, pressure, queue), deliveries, progress, result, runaway, usage-limit wait, park/resume | AgentRuntime, Git, MacHost |
 | `dev/gate` [P1] | classifier, decisions, grants, approval binding, shims/pre-push backends | Git |
@@ -258,6 +259,9 @@ same-user processes; the gate's forbidden rules keep the executor away from the 
      direct call (≤ 10 s), never via the outbox, never posting there;
    - the owner in any chat but the configured one → `Drop`.
 
+   In a forum dev group an update also carries its topic (§3.2.16 step 4); a topic service message (closed,
+   reopened, renamed) is stored for the record and carries no request.
+
    Effective ids: `access.owner_id`, `access.dev_group_id`, `access.personal_group_id`. Each defaults to the
    bootstrap value; changing it weakens a safeguard.
 3. Handler → `inbox.service.accept_update` (one uow):
@@ -272,7 +276,7 @@ same-user processes; the gate's forbidden rules keep the executor away from the 
      `readBusinessMessage` being for business accounts only); `sendChatAction(typing)` (deduped per chat for 4 s, repeated
      every 4 s while work for this chat is pending ≤ 60 s).
 4. `burst.service.on_part`: attaches to the chat's open burst, or opens one, and recomputes `closes_at` with
-   `burst.domain.window()` (§4.4).
+   `burst.domain.window()` (§4.4). A burst never holds parts of two forum topics (§3.2.16 step 4).
    - Album items share `media_group_id`.
    - A voice part starts the STT job and holds the window.
    - Interrupt words skip the window entirely (3.2.5).
@@ -296,6 +300,8 @@ same-user processes; the gate's forbidden rules keep the executor away from the 
    - then `turns.service.submit`. If the project has a running turn and the route is `merge_ok`
      (confidence ≥ `burst.merge_min_confidence = 0.85`), deliver as steering (`deliveries.mode=next`);
    - otherwise queue a new turn. The scheduler starts it when cap, pressure and Mac-attach allow.
+   - in a forum the echo and the rest of the work go to the project's own topic, and General gets one line pointing
+     there; a burst written in a project's topic goes to that project with no routing model (§3.2.16).
 8. Progress: one message per turn, coalesce key `progress:<turn_id>`, ≤ 1 edit per `outbox.progress_edit_s = 5`.
    The final result is a new message (golden format §6.2) that replies to the project's previous bot message.
 9. The outbox sender runs per-chat token buckets: 1 msg/s per chat, 20/min for the group, edits counted. It
@@ -403,7 +409,8 @@ turn, and at park time, into `digests.handoff_note` (≤ 4,000 chars).
    "kut" while assembling = burst `holding` for up to `burst.hold_max_s = 120`.
 5. Redirect = stop (step 3), then deliver X as `new_turn` in the same session (resume keeps context), ≤ 5 s.
 
-**3.2.6 Routing (UC-10)** — `routing.domain` signals, in order:
+**3.2.6 Routing (UC-10)** — `routing.domain` signals, in order. A burst written in a project's own forum topic never
+gets here: it goes to that project with no model and no question (`route_decisions.method = topic`, §3.2.16 step 5).
 1. **Explicit name or alias.**
    - Normalise: lowercase; `ʻ ʼ ’ ‘ \``→`'`; drop Uzbek suffixes (`'da 'dagi 'ga 'ni 'ning 'dan 'dagi`, also
      unquoted after a name).
@@ -479,6 +486,8 @@ turn, and at park time, into `digests.handoff_note` (≤ 4,000 chars).
 5. Turn end → `S.PLAN_READY(name, summary)`, the `docs/*.md` files as documents, and
    `decisions(kind=plan_approval)` "Rejani tasdiqlaysizmi? (ha / o'zgartir: …)".
 6. "ha" → policy `FULL`, build turn "Plan approved. Build from zero; finish committed and pushed".
+   In a forum (§3.2.16 step 8) the plan is the project's first work: its topic opens when the plan turn is queued,
+   and steps 4–6 happen there.
    "o'zgartir: …" → a revision turn (`PLAN_ONLY`), then step 5 again. The planning wall limit is
    `newproject.plan_max_min = 14` (AC ≤ 15 min).
 
@@ -686,6 +695,59 @@ heartbeat within 60 s → it switches back.
 5. "sozlamalaring qanday?" → grouped template plus the full `.md` (≤ 3 s). "oldingi holatiga qaytar [key]" →
    a new row with the prior value. `needs_code` → offer a self-update.
 
+**3.2.16 Forum topics (D4 revised 2026-10-26; `shared/topics`, `0002`)**
+
+The owner: "Split the group into topics, but I won't open topics by hand: you open a topic for each of my projects
+automatically. In General I ask general questions. If I ask in General to create a new project, it creates a separate
+topic for exactly that project and works with it there."
+1. **Setup.** The dev group is a forum supergroup: the owner turns Topics on and gives the bot the "Manage topics"
+   admin right, once (`python -m yordamchi.check` shows `is_forum` and `can_manage_topics`). Each owner message says
+   whether the chat is a forum (`chat.is_forum` → `topic_chats`). Topics off is no error: the bot is the flat group it
+   was, with no topic call at all. `topics.enabled = false` switches the behaviour off too: no topic is opened or
+   reopened, a message in a topic is read as one in General, and the bot's topics are set aside (`closed_at`) at the
+   router's next pass, so its projects' work goes to General; a project's next work reopens its topic once it is on.
+2. **Opening.** A project's topic opens on its first work, never before and never for every project at once:
+   `turns.open_topic` runs before a turn's first message is queued (the route, a submit, a report's investigation, a
+   server investigation, a new project's plan) and once more as any turn starts. It is named after the project and
+   gets one of Telegram's six icon colours, by a hash of the project id (the same every time). Later work reuses it
+   (`project_topics`). Without the right Telegram refuses: the work goes to General, the owner is told once
+   (`S.TOPICS_NO_RIGHT`), and the bot asks again after `topics.retry_after_min = 30`. A call that does not answer in
+   `timeouts.topic_s = 5` also leaves the work in General: work never waits for a topic.
+3. **Closed or deleted.** A topic the owner closed (its service message says so) is reopened by the project's next
+   work. Telegram tells nobody about a deleted one: the next send into it fails ("message thread not found"), the
+   outbox opens a new topic for the project, every row still bound for the old one follows, and the row goes again at
+   once (General when no topic can be had, and for a thread no project owns). The live line of a turn that was
+   running in the deleted topic is gone with it; its result arrives in the new topic. A pointer written just before
+   the repair still links the old topic.
+4. **Inbound.** A message carries its topic: `message_thread_id` when `is_topic_message` (Telegram also sets a thread
+   id on a reply in General, and presents every topic message as a reply to the topic's first message: that is no
+   reply). `bursts.thread_id` keeps it. A burst never holds parts of two topics: the chat keeps one assembling burst
+   (its unique index is frozen in `0001`), so a part from another topic closes the assembling one first
+   (`close_reason = thread`), or, while that one waits for a transcript, waits itself, still `received`, with every
+   later part of its topic behind it. An interrupt word from another topic stands alone and cuts nothing short.
+5. **In a project's topic** the pre-parse of §6.1 runs with that project in mind: a bare "to'xta", "davom ettir",
+   "qayta yubor", "yangi sessiya", `/stop` or `/hisobot` acts on it; a "ha" or a "2" binds only its open questions,
+   decisions and revert offers (the topic names the project, as the words would); no clarification is offered; and
+   anything else is its work with no routing model, recorded like any route (`route_decisions.method = topic`) and
+   steering its working turn when it is a follow-up (UC-02). Only a voice note is echoed there. Small talk and
+   `holat?` are answered in the topic.
+6. **In General** (and in a topic the bot did not open) routing is content-first, as before. Work routed from there
+   goes on in the project's topic: the echo (or "Tekshiryapman"), the live line, questions, decisions, results and
+   files. General gets one line pointing there (`S.TOPIC_POINTER`, a `https://t.me/c/<chat>/<topic>` link), and a
+   reply to that line still routes to the project.
+7. **Outbound.** Where a row goes is decided when it is written (`outbox_messages.thread_id`): the thread its caller
+   names (an answer goes where the owner wrote, a report about a project with a topic too), else the open topic of the
+   project the row is about (`About.project_id`), else General. Health, startup and "Onlayn" notices, cross-project
+   reports, settings and cost answers are General's. Edits, deletes, reactions and pins name their message and carry
+   no thread; a typing hint carries it and is deduped per topic, and a reply ends the hint of its own topic only.
+   `dev/gate` posts its questions itself: into the project's topic, or General when that topic is gone.
+   Deciding at the write rather than at the send keeps a row's place fixed and visible, needs only the database
+   (never a Telegram call inside a unit of work), and the topic exists by then (step 2); the send only repairs a topic
+   Telegram refuses (step 3).
+8. **New project** (§3.2.8; not wired yet, `docs/PENDING_WIRING.md` From the Topics unit): its plan is its first work,
+   so its topic opens when the plan turn is queued; the planning line, the plan's documents and "Rejani
+   tasdiqlaysizmi?" go there, and General gets the pointer.
+
 ## 4. Data model
 
 ### 4.1 Rules
@@ -702,12 +764,12 @@ heartbeat within 60 s → it switches back.
 ### 4.2 Tables
 | Table (feature) | Columns | Keys / indexes | Retention |
 |---|---|---|---|
-| `inbound_updates` (inbox) | `bot` S16, `update_id`, `chat_id`, `user_id`?, `message_id`?, `kind` (text\|voice\|audio\|photo\|video\|document\|link\|edited\|member\|other), `media_group_id`?, `reply_to_message_id`?, `payload_json`✱ (+ `sent_at`, Telegram's send time, §4.4), `synthetic` bool=false, `status` (received\|attached\|ignored\|failed), `burst_id`?, `received_at` | **UNIQUE(bot, update_id)**; IX(bot, status, update_id) | payload nulled 7 d; row 30 d |
+| `inbound_updates` (inbox) | `bot` S16, `update_id`, `chat_id`, `user_id`?, `message_id`?, `kind` (text\|voice\|audio\|photo\|video\|document\|link\|edited\|member\|service\|other), `media_group_id`?, `reply_to_message_id`?, `payload_json`✱ (+ `sent_at`, Telegram's send time, §4.4; + `thread_id`, the forum topic, §3.2.16), `synthetic` bool=false, `status` (received\|attached\|ignored\|failed), `burst_id`?, `received_at` | **UNIQUE(bot, update_id)**; IX(bot, status, update_id) | payload nulled 7 d; row 30 d |
 | `poll_offsets` (inbox) | `bot` PK, `next_offset`, `updated_at` | — | — |
-| `bursts` (burst) | `bot`, `chat_id`, `status` (open\|holding\|closed\|routed\|merged\|cancelled), `opened_at`, `last_part_at`, `closes_at`, `closed_at`?, `close_reason`?, `input_json`✱?, `route_id`? | IX(bot, status) | 30 d |
+| `bursts` (burst) | `bot`, `chat_id`, `status` (open\|holding\|closed\|routed\|merged\|cancelled), `opened_at`, `last_part_at`, `closes_at`, `closed_at`?, `close_reason`?, `input_json`✱?, `route_id`?, `thread_id`? (`0002`: the forum topic of its parts) | IX(bot, status) | 30 d |
 | `transcripts` (voice) | `inbound_update_id` UNIQUE, `status` (pending\|done\|failed), `text`✱?, `provider`, `provider_path`, `model`, `audio_ms`, `latency_ms`, `error_code`?, `created_at`, `done_at`? | — | text 7 d; row 30 d |
 | `voice_offers` (voice) | `voices_json` (3), `status` (open\|chosen\|expired), `chosen`?, `at` | — | 30 d |
-| `outbox_messages` (outbox) | `bot`, `chat_id`, `op` (send_text\|edit_text\|delete\|react\|chat_action\|pin\|send_photo\|send_document\|send_voice\|send_video), `kind` (ack\|echo\|progress\|result\|question\|decision\|report\|notice\|heartbeat\|file\|voice\|system), `payload_json`✱, `dedupe_key` S128, `coalesce_key`?, `priority` 0–3, `status` (pending\|sending\|sent\|failed\|superseded\|cancelled), `attempts`, `next_attempt_at`, `last_error_code`?, `reply_to_message_id`?, `disable_notification`, `project_id`?, `turn_id`?, `created_at`, `sent_at`? | **UNIQUE(dedupe_key)**; IX(bot, status, priority, next_attempt_at); IX(coalesce_key, status) | sent 30 d |
+| `outbox_messages` (outbox) | `bot`, `chat_id`, `op` (send_text\|edit_text\|delete\|react\|chat_action\|pin\|send_photo\|send_document\|send_voice\|send_video), `kind` (ack\|echo\|progress\|result\|question\|decision\|report\|notice\|heartbeat\|file\|voice\|system), `payload_json`✱, `dedupe_key` S128, `coalesce_key`?, `priority` 0–3, `status` (pending\|sending\|sent\|failed\|superseded\|cancelled), `attempts`, `next_attempt_at`, `last_error_code`?, `reply_to_message_id`?, `disable_notification`, `project_id`?, `turn_id`?, `created_at`, `sent_at`?, `thread_id`? (`0002`: the forum topic it goes to, §3.2.16 step 7) | **UNIQUE(dedupe_key)**; IX(bot, status, priority, next_attempt_at); IX(coalesce_key, status) | sent 30 d |
 | `message_links` (outbox) | `bot`, `chat_id`, `message_id`, `outbox_id`, `project_id`?, `turn_id`?, `question_id`?, `decision_id`?, `kind`, `created_at` | PK(bot, chat_id, message_id) | 90 d |
 | `setting_versions` (settings) | `key` S96, `value_json`, `version`, `reason` (change\|revert\|import), `actor` (owner\|system), `origin_update_id`?, `created_at` | **UNIQUE(key, version)** | forever, append-only |
 | `vault_secrets` (vault) | `name` S64, `kind` (§4.5), `ciphertext` blob, `nonce` blob(12), `key_fp` S16, `last4` S4, `bots_json`, `origin_update_id`?, `created_at`, `removed_at`? | UNIQUE(name) WHERE removed_at IS NULL | removed: ciphertext wiped 30 d |
@@ -727,12 +789,14 @@ heartbeat within 60 s → it switches back.
 | `decisions` (gate) | `kind` (gate\|plan_approval\|selfupdate_core\|settings_weaken\|wrong_target_revert\|runaway_continue\|drain_timeout), `project_id`?, `turn_id`?, `gate_class`?, `tool_name`?, `input_sha256`?, `input_redacted`✱?, `target`?, `payload_json`, `status` (pending\|approved\|denied\|expired\|consumed\|superseded\|cancelled), `created_at`, `expires_at`, `decided_at`?, `decided_update_id`?, `grant_expires_at`?, `consumed_at`?, `superseded_by`? | IX(status); IX(project_id, status); IX(input_sha256, status) | 90 d |
 | `digests` (digest) | `project_id` PK, `updated_at`, `git_branch`, `git_head`, `git_head_subject`✱, `git_head_at`, `ahead`, `behind`, `dirty_count`, `recent_commits_json`✱, `last_natija`✱, `last_natija_at`, `last_turn_id`, `open_questions`, `pending_decisions`, `queued`, `parked`, `handoff_note`✱, `handoff_note_at`, `handoff_note_source` (executor\|synthesized), `executor`, `session_id`? | — | one row per project |
 | `server_checks` (servers) | `host`, `at`, `ok`, `summary_json`✱, `error_code`?, `duration_ms` | IX(host, at) | 30 d |
-| `route_decisions` (routing) | `burst_id`, `at`, `method` (explicit\|reply\|binding\|draft\|llm\|context), `intent`, `project_id`?, `candidates_json`, `confidence_milli`, `asked`, `model`?, `latency_ms`, `corrected_to`? | IX(at) | 90 d |
+| `route_decisions` (routing) | `burst_id`, `at`, `method` (explicit\|reply\|binding\|draft\|llm\|context\|topic), `intent`, `project_id`?, `candidates_json`, `confidence_milli`, `asked`, `model`?, `latency_ms`, `corrected_to`? | IX(at) | 90 d |
 | `clarifications` (routing) | `burst_id`, `kind` (which_project\|which_item\|which_running\|which_decision), `candidates_json`, `status` (open\|resolved\|expired), `message_id`?, `asked_at`, `resolved_at`? | IX(status) | expires 30 min; row 30 d |
 | `project_drafts` (newproject) | `status` (collecting\|creating\|planning\|awaiting_approval\|revising\|building\|done\|cancelled\|failed), `parts_json`✱, `proposed_name`?, `project_id`?, `decision_id`?, `plan_turn_id`?, `build_turn_id`?, `opened_at`, `last_part_at`, `closed_at`? | — | 400 d |
 | `self_updates` (selfupdate) | `status` (working\|awaiting_core\|requested\|building\|refused\|draining\|switching\|probation\|healthy\|merged\|rolled_back\|failed), `kind` (app\|supervisor), `branch`, `commit`?, `version`?, `changed_files_json`, `touches_core`, `decision_id`?, `tests_count`?, `result_code`?, `requested_at`?, `finished_at`? | — | forever |
 | `assistant_sessions` (qa) | `session_id`, `status` (live\|closed), `summary`✱?, `prompt_version_seen`, `websearch_count`, `created_at`, `last_active_at`, `closed_at`? | — | 90 d |
 | `answers` (qa) | `assistant_session_id`, `burst_id`, `text_full`✱?, `voice_status` (sent\|skipped\|failed\|off), `voice_error_code`?, `first_text_ms`, `total_ms`, `voice_ms`?, `fallback`, `at` | IX(at) | text 30 d; row 400 d |
+| `project_topics` (topics, `0002`) | `project_id` S64 PK (a `projects.id` string, no FK), `chat_id`, `thread_id`, `created_at`, `closed_at`? | IX(chat_id, thread_id) | one row per project; rewritten when opened anew |
+| `topic_chats` (topics, `0002`) | `chat_id` PK, `is_forum`, `noted_at`, `refused_at`?, `refusal` (not_forum\|no_right)? | — | one row per chat |
 | `media_files` (media) | `kind` (download\|screenshot\|tts\|inbound), `rel_path`, `size_bytes`, `sha256`, `mime`, `created_at`, `expires_at`, `deleted_at`? | IX(expires_at) | file 7 d |
 
 Retention runs daily at 04:30 (`schedule.retention_at = "04:30"`). It deletes in batches of 500 and never
@@ -757,11 +821,11 @@ touches a row in a non-terminal state.
   | SPEECH | `speech.stt_provider`, `speech.tts_provider`, `speech.video_provider` ("auto"), `stt.google_model`, `stt.openrouter_model`, `tts.google_model`, `tts.openrouter_model` ("google/gemini-3.8-flash-tts"), `tts.edge_voice`, `stt.mode` ("smart"), `stt.split_over_s` (20) |
   | LANGUAGE | `lang.reply` ("uz"), `stt.languages` (["uz-UZ","ru-RU","en-US"]), `stt.extra_terms` ([]) |
   | MODELS | `models.routing` ("haiku"), `models.report` ("haiku"; sonnet missed the 3.5 s budget live) + `models.report_effort` ("low"), `models.settings` ("sonnet"), `models.qa` ("sonnet") + `models.qa_effort` ("medium"), `models.coding` ("opus") + `models.coding_effort` ("xhigh"), `models.investigation` ("opus"), `models.fallback_text` ("gemini-3.8-flash"). Check `OneOf(haiku, sonnet, opus, fable, best)`; `weakens=to_values({fable, best})` (usage credits = money, UC-13 #3) |
-  | ROUTING / PROJECTS | `routing.min_confidence` (0.75), `routing.min_margin` (0.2), `routing.context_window_min` (15), `projects.root` ("~/Documents/Projects"), `projects.aliases` ({}), `projects.descriptions` ({}), `projects.archived` ([]), `projects.unarchived` ([]), `projects.excluded` ([]; never registered, listed, routed or opened), `executor.default` ("claude"), `executor.per_project` ({}) |
+  | ROUTING / PROJECTS | `routing.min_confidence` (0.75), `routing.min_margin` (0.2), `routing.context_window_min` (15), `projects.root` ("~/Documents/Projects"), `projects.aliases` ({}), `projects.descriptions` ({}), `projects.archived` ([]), `projects.unarchived` ([]), `projects.excluded` ([]; never registered, listed, routed or opened), `executor.default` ("claude"), `executor.per_project` ({}), `topics.enabled` (true; §3.2.16) |
   | DECISIONS | `gate.ask_classes` (all 12 classes, §5.7; `removes_items`), `gate.secret_scan_enabled` (true; `disables`), `gate.approval_ttl_min` (120; `increases`), `gate.hook_timeout_s` (15), `gate.readonly_remote_commands` (§5.7; `weakens=always` on add), `gate.jump_only_hosts` (["server"]; `removes_items`), `gate.git_hosts` (["github.com"]), `gate.http_write_allow_hosts` ([]; `weakens=always` on add), `gate.temp_roots` (["/tmp", "/private/tmp", "/private/var/folders"]) |
   | BURST | `burst.after_complete_text_s` (1.2), `burst.after_text_s` (2.0), `burst.after_media_s` (10.0), `burst.album_gap_s` (1.5), `burst.after_voice_s` (2.0), `burst.hold_max_s` (120), `burst.max_total_s` (30), `burst.merge_min_confidence` (0.85) |
-  | TIMEOUTS | `timeouts.routing_s` (2.5), `timeouts.report_s` (3.5), `timeouts.stt_s` (8), `timeouts.stt_per_audio_s` (0.5, added per second of audio), `timeouts.tts_s` (15), `timeouts.integration_validate_s` (25), `timeouts.session_open_s` (60), `questions.hold_process_min` (30), `park.grace_s` (15) |
-  | SCHEDULES | `schedule.heartbeat_edit_min` (5), `schedule.digest_active_poll_s` (120), `schedule.digest_idle_poll_min` (60), `schedule.server_check_min` (30), `schedule.cost_summary_at` ("", off), `schedule.quiet_hours` ("", e.g. "23:00-07:00" → `disable_notification`), `schedule.retention_at` ("04:30"), `ui.timezone` ("Asia/Tashkent") |
+  | TIMEOUTS | `timeouts.routing_s` (2.5), `timeouts.report_s` (3.5), `timeouts.stt_s` (8), `timeouts.stt_per_audio_s` (0.5, added per second of audio), `timeouts.tts_s` (15), `timeouts.integration_validate_s` (25), `timeouts.session_open_s` (60), `questions.hold_process_min` (30), `park.grace_s` (15), `timeouts.topic_s` (5) |
+  | SCHEDULES | `schedule.heartbeat_edit_min` (5), `schedule.digest_active_poll_s` (120), `schedule.digest_idle_poll_min` (60), `schedule.server_check_min` (30), `schedule.cost_summary_at` ("", off), `schedule.quiet_hours` ("", e.g. "23:00-07:00" → `disable_notification`), `schedule.retention_at` ("04:30"), `ui.timezone` ("Asia/Tashkent"), `topics.retry_after_min` (30) |
   | CAPS | `caps.google_monthly_usd` (40), `caps.openrouter_monthly_usd` (10), `caps.openai_monthly_usd` (10), `caps.warn_pct` (80) — all `increases`; `turns.max_concurrent` (15; `increases`), `turns.max_wall_min` (60), `turns.max_steps` (200), `turns.max_same_failure` (5) (`increases`), `guard.min_free_disk_gb` (10), `guard.block_disk_gb` (3) |
   | LIMITS | `text.max_chars` (3500), `text.max_lines` (40), `outbox.max_parts` (3), `outbox.progress_edit_s` (5), `media.retention_days` (7) |
   | SERVERS | `servers.hosts` ([]; `~/.ssh/config` aliases the owner lists) |
@@ -1055,6 +1119,9 @@ never produce a second final result.
 Everything else goes to routing plus the LLM intent (dev), or to the assistant (personal). `setMyCommands` is
 never called; the check script asserts the command list is empty.
 
+In a project's forum topic (dev, §3.2.16 step 5) the same order runs with that project in mind: a command that names
+no project acts on it, step 3 is skipped, and "everything else" is that project's work, with no routing model.
+
 | Intent | Examples | Alias | Bot | UC | Phase |
 |---|---|---|---|---|---|
 | `stop_turn` / `stop_all` / `redirect` / `hold` | "to'xta", "bas", "stop" / "hammasini to'xtat" / "yo'q, boshqacha qil: …" / "kut" | `/stop` | both | 03 | P1 |
@@ -1072,7 +1139,7 @@ never called; the check script asserts the command list is empty.
 | `list_projects` | "loyihalar" | `/loyihalar` | dev | 18 | P1 basic, P2 full |
 | `wrong_target` | "bu HRMentor uchun edi" | — | dev | 10 | P1 |
 | `continue_turn` / `retry_delivery` | "davom ettir" / "qayta yubor" | — | dev | NFR-COST-03, NFR-REL-05/07 | P1 |
-| `new_session` | "X yangi sessiya" | — | dev | ASSUMPTIONS | P1 |
+| `new_session` | "X yangi sessiya"; bare "yangi sessiya" in a project's topic | — | dev | ASSUMPTIONS | P1 |
 | `show_cost` | "xarajat?" | `/xarajat` | both | 07 | P2 |
 | `integration_add` / `list` / `remove` | "Bonvi HR'ga ulan: https://… token …" / "integratsiyalar" / "X'ni o'chir" | `/integratsiyalar` | both | 08 | P2 |
 | `new_project` (+ "tamom" / "boshla") | "yangi loyiha: …" | — | dev | 14 | P2 |

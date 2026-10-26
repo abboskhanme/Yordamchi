@@ -39,7 +39,7 @@ Yordamchi/
 │   │                  system_clock
 │   ├── persistence/   base types engine uow upsert
 │   ├── prompts/       <bot>/<feature>_<purpose>.md + __init__.py (render)
-│   ├── shared/        deps.py + access inbox burst voice vault settings outbox cost health integrations audit bridge
+│   ├── shared/        deps.py + access inbox burst voice vault settings outbox cost health integrations audit bridge topics
 │   ├── dev/           deps.py + routing turns gate questions projects digest servers newproject handoff selfupdate
 │   ├── personal/      deps.py + qa media artefacts news
 │   └── bots/          common.py (OwnerOnly middleware, guarded(), polling runner)
@@ -123,7 +123,7 @@ src/yordamchi/<shared|dev|personal>/<feature>/
 | `AgentRuntime`: project sessions (start/resume, send, steer, interrupt, events) | `claude/executor.py` (Agent SDK; guard as a `PreToolUse` hook) | `codex/` (UC-17); `FakeAgentRuntime` |
 | `Assistant`: warm Q&A session with an allowlisted toolset | `claude/assistant.py` | `gemini/assistant.py`, labelled "zaxira model" (Q4) |
 | `Transcriber` · `Synthesizer` | `gemini/stt.py` · `gemini/tts.py` | fake with scripted latency · `edge_tts/` (R-40) |
-| `Messenger`: send, edit, delete, react, pin, leave, download | `telegram/` (aiogram `Bot`) | `FakeMessenger` |
+| `Messenger`: send, edit, delete, react, pin, leave, download, forum topics | `telegram/` (aiogram `Bot`) | `FakeMessenger` |
 | `Git` · `GitHub` | `git/` · `github/` (CLIs) | real git on `tmp_path` repos · fake |
 | `RemoteShell` · `McpClient` | `ssh/` (OpenSSH, `~/.ssh/config`) · `mcp/` | fake · fixture MCP server (UC-35) |
 | `WebTools` (screenshot, download) · `MacHost` (memory/disk, Mac attach, ClaudeManager) | `web/` · `macos/` | fakes |

@@ -456,3 +456,38 @@ The outbox now renders a Markdown subset (`**bold**`, `` `code` ``, `#` title li
       Google key reached a coding session, both DBs and Telegram progress lines before its format was known
       (masked in both DBs by hand; the owner rotates the key). Treat a bare high-entropy token as a secret to refuse
       and ask about, never as an instruction.
+
+## From the Topics unit (D4 revised 2026-10-26)
+- [ ] **New project wiring (T58, P2).** Not wired here: `dev/newproject` is built, but wiring it touches the approval
+      binding safety (R-18) in four places and the runtime, which is T58's sequential unit. Its topic part is done:
+      `newproject._create` opens the new project's topic with its plan turn (its first work), the planning line, the
+      plan's documents and "Rejani tasdiqlaysizmi?" go there, and General gets the pointer line
+      (`tests/unit/dev/newproject/test_service.py::test_in_a_forum_the_new_project_gets_its_own_topic_with_its_plan`).
+      Left, in order:
+  1. `bots/dev/intents.py`: take `Intent.NEW_PROJECT` out of `NOT_BUILT`.
+  2. `bots/dev/pipeline.py`: the command ("yangi loyiha: …", "tamom", "boshla"; needs the `OwnerOrigin`), routing's
+     `new_project` intent and a clarification resolved to it → `newproject.start_draft(deps, state, origin, item)`;
+     an open draft takes the next burst (`newproject.take_message`, SPEC §3.2.6 step 4) after the answers (step 4)
+     and before routing. In a project's topic it must run before `turns.route_topic`, and `newproject._signals` must
+     count the topic's project as `reply_project` (a "ha" in the new project's topic is no reply), or the plan's "ha"
+     is delivered to the plan turn as work.
+  3. Binding safety (R-18): pass `newproject.open_approvals(deps)` into `DecisionReply.open_questions`
+     (`questions.answer_owner`), and count them in `RevertReply.others_pending`, `RouteFacts.others_pending` and
+     `questions.domain.bind_answer(decisions_pending=…)`, so a bare "ha" approves nothing else while a plan waits.
+  4. `bots/dev/runtime.py`: `NewProjectState(turns=…)` in `build_app`; the loop
+     `"newproject": partial(newproject.run_drafts, deps, state)`; `newproject.shutdown_drafts` in `stop()`;
+     `newproject.apply_retention` in `retain()` (and drop its line from `tests/migrations/inventory.NOT_SCHEDULED_YET`);
+     one `turns_state.turn_ended` that runs both `digest.refresh_after_turn` and `newproject.on_turn_ended`.
+  5. An integration test on `tests/integration/dev_bot_harness.py` (`bot.forum()`, `FakeGitHub`, projects root in
+     tmp): "yangi loyiha: …" + "tamom" in General → the topic opens with the plan → "ha" in the topic → the build
+     turn works there.
+- [ ] `bursts`: one assembling burst per chat (`uq_bursts_bot_chat_id_assembling`, frozen in `0001`), so a part from
+      another topic closes the assembling one, or waits while that one waits for a transcript. A burst per
+      (chat, topic) needs that index replaced by one on (bot, chat_id, thread_id): a contraction (CONVENTIONS §8,
+      `tests/migrations/test_expand_only.CONTRACTIONS`) one release after this one.
+- [ ] Answers that a service queues itself still go to General when the owner asked in a topic: settings
+      (`settings.show_settings`/`handle_request`/`revert_setting` reply to `origin.chat_id`), `xarajat?`
+      (`cost.show_cost`) and a server status asked in a topic the bot did not open (`servers.answer_server_status`).
+      Settings and cost are bot-wide, so General is a fair home; give them a `thread` if the owner wants the answer
+      where he asked.
+- [ ] `S.HELP` ("nima qila olasan?") does not mention topics yet; `docs/QOLLANMA.md` §2a does.

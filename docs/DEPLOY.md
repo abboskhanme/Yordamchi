@@ -141,6 +141,22 @@ a plist in `~/Library/LaunchAgents` by hand: the next install replaces it.
 Re-running the installer on the same commit is safe: a built release is reused, the Keychain items and env values
 are kept, and the jobs are restarted with `kickstart -k`.
 
+### 3.1 The forum-topics release (`0002`, D4 revised 2026-10-26)
+
+- **Schema.** The installer runs `alembic upgrade head`, which applies `0002 topics_threads`: two new tables
+  (`project_topics`, `topic_chats`) and two nullable columns (`bursts.thread_id`, `outbox_messages.thread_id`).
+  Expand-only: the previous release runs on it unchanged, so the code rollback (§4.1) needs no DB restore.
+- **Nothing changes until the owner acts.** With Topics off the bot is the flat group it was: no topic is opened,
+  no request carries a thread. The owner's one-time steps are in `docs/QOLLANMA.md` §2a: Topics on, the bot's
+  "Manage topics" right, then any message in the group.
+- **Check.** `python -m yordamchi.check` shows `dev guruh: Topics yoqilgan (is_forum)` (or an info line while it is
+  off) and, with Topics on, `dev guruh: bot mavzu ocha oladi (can_manage_topics)`; the second is red without the
+  right (the work then stays in General and the owner is told once in the group).
+- **Smoke test after the owner's steps.** In General: "BonviHR'da README'ni tekshir" → a "BonviHR" topic appears with
+  the echo and the live line in it, and General shows one "→ BonviHR · mavzusida davom etadi" line. In that topic:
+  "to'xta" stops BonviHR only.
+- **Switch off without a release:** `sozlama: topics.enabled false` in the group (from the next message).
+
 ## 4. Rollback
 
 ### 4.1 Back to the previous release (code only)
