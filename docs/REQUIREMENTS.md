@@ -19,7 +19,7 @@ Bot text is Uzbek (Latin). Everything else is English.
 | D1 | Stack: Python 3.12 (uv), aiogram 3, Claude Agent SDK / official `claude` CLI, google-genai, SQLite via SQLAlchemy + Alembic. Switching to Postgres is a config change. |
 | D2 | Both bots run on the owner's Mac (MacBook Pro M4) as launchd services and use Telegram long polling. No inbound port. |
 | D3 | Each project is a **headless** Claude Code session (not tmux, not a visible terminal). Sessions resume by session id, and the owner can continue a session at the Mac. |
-| D4 | The dev bot lives in **one flat private group**: owner + bot only, **no Topics**. |
+| D4 | The dev bot lives in **one private group**: owner + bot only. **Revised 2026-10-26 (owner):** the group is a forum with Topics, opened by the bot itself: **General** for talk, reports and routing, one topic per project on its first work (a new project gets its own topic). The owner never opens topics by hand. (Until then: one flat group, no Topics.) |
 | D5 | Routing is content-first (§3, UC-10). A Telegram reply is one signal among several, not the main mechanism. |
 | D6 | **Brain for both bots is the owner's Claude subscription**, through the official `claude` binary (Agent SDK). Gemini is used only for speech-to-text, text-to-speech and, where useful, search or video understanding. OpenRouter is optional (extra models or fallback only). |
 | D7 | The owner has 3–4 Claude accounts. `../ClaudeManager` rotates them by moving the next login into Claude Code's keychain slot. Yordamchi uses the standard `claude` login and **never handles Claude credentials**. |
@@ -735,8 +735,8 @@ setting is handled by UC-09; anything else becomes a self-update (UC-19).
 
 ### NOT in this version
 - Controlling GUI apps, clicking, screen automation, "open program X and click Y" (D13).
-- Inline buttons, reply keyboards, a BotFather command menu, Telegram Topics, more than one dev
-  group (D4, D8).
+- Inline buttons, reply keyboards, a BotFather command menu, more than one dev group (D4, D8). (Topics are in
+  since 2026-10-26, D4.)
 - Any user other than the owner: no team access, no guest mode, no sharing.
 - Running anywhere but the owner's Mac: no VPS, no cloud relay, no off-Mac watchdog, no
   second-machine failover (see Q1). Messages sent while the Mac is offline for more than 24 h are

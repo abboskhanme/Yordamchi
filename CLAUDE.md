@@ -22,7 +22,9 @@ A stdlib-only **supervisor** acts as watchdog and self-updater. These rules over
 - In the projects the bot works on, commits, `git push` and private GitHub repos happen automatically.
   It asks the owner, in chat, only about important decisions (SPEC §5.7: deploy or prod, data loss,
   money, sending to others).
-- Dev bot: one flat group, no Topics. Routing is content-first; a reply is only one signal.
+- Dev bot: one private forum group with Topics (owner, 2026-10-26; D4 revised): **General** for talk, reports and
+  routing, and one topic per project that the bot opens itself on the project's first work. A message in a project
+  topic goes to that project; in General, routing is content-first and a reply is only one signal.
 - The brain of both bots is the owner's Claude subscription through the official `claude` binary.
   Gemini or OpenRouter only does STT, TTS and optional search or video.
 - Never touch Claude credentials. ClaudeManager rotates the accounts. Never set
