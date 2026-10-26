@@ -1193,7 +1193,8 @@ TOPICS_ALL_STARTED = Msg("Loyihalar uchun mavzu ochyapman: {count} ta, taxminan 
 TOPICS_ALL_DONE = Msg("Tayyor: {opened} ta yangi mavzu ochildi, {existing} tasi oldindan bor edi.")
 TOPICS_ALL_SOME_FAILED = Msg("{failed} tasini hozir ocholmadim — ular birinchi ishi bilan o'zi ochiladi.")
 TOPICS_ALL_UNAVAILABLE = Msg(
-    "Mavzu ocholmadim: guruhda mavzular yoqilmagan, botda «Manage topics» huquqi yo'q yoki ular sozlamada o'chirilgan."
+    "Mavzu ocholmadim: guruhda mavzular yoqilmagan, botda mavzularni boshqarish huquqi yo'q yoki ular sozlamada "
+    "o'chirilgan."
 )
 TOPICS_NO_RIGHT = Msg(
     "Loyiha uchun mavzu ocha olmadim: botga guruhda **Manage topics** (mavzularni boshqarish) huquqini bering. "
