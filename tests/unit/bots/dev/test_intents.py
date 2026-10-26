@@ -71,6 +71,10 @@ from yordamchi.bots.dev.intents import EARLY, NOT_BUILT, Command, Intent, comman
         ("/yordam", Command(Intent.HELP)),
         ("/help", Command(Intent.HELP)),
         ("Hop", Command(Intent.ACKNOWLEDGE)),  # the owner's own word, 2026-10-24
+        ("hamma loyihalarga topic och", Command(Intent.OPEN_ALL_TOPICS)),  # owner, 2026-10-26
+        ("barcha loyihalar uchun mavzu oching", Command(Intent.OPEN_ALL_TOPICS)),
+        ("topiclarni och", Command(Intent.OPEN_ALL_TOPICS)),
+        ("hamma loyihalarga topic ochib chiq", Command(Intent.OPEN_ALL_TOPICS)),
         ("xo'p", Command(Intent.ACKNOWLEDGE)),
         ("ok 👍", Command(Intent.ACKNOWLEDGE)),
         ("tushunarli, rahmatsiz", None),  # more than an okay: routing reads it
@@ -134,6 +138,7 @@ def test_each_phrase_names_its_intent(text: str, expected: Command) -> None:
         "rahmat, endi testlarni ham yoz",
         "yordam ber: BonviHR testlari yiqilyapti",
         "BonviHR qanday?",  # a report question: routing's fast path
+        "BonviHR'ga topic och",  # one project: its first work opens its topic
         "/start",
         "ha",
         "2",
@@ -152,6 +157,7 @@ def test_only_commands_that_can_never_be_an_answer_come_before_binding() -> None
     assert Intent.CHANGE_SETTING not in EARLY
     assert {Intent.GREETING, Intent.THANKS, Intent.HELP} <= EARLY  # "rahmat" never answers an agent's question
     assert Intent.ACKNOWLEDGE not in EARLY  # "xo'p" may answer an open question or decision
+    assert Intent.OPEN_ALL_TOPICS in EARLY
 
 
 def test_every_later_phase_intent_is_answered_not_yet() -> None:

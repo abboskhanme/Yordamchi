@@ -498,6 +498,40 @@ async def open_topic(deps: DevDeps, project_id: str, *, snap: Snapshot | None = 
     return ensured.thread_id
 
 
+@dataclass(frozen=True, slots=True)
+class TopicsOpened:
+    opened: int
+    existing: int
+    failed: int
+
+
+def topics_wanted(found: Sequence[Project]) -> list[str]:
+    """The projects "hamma loyihalarga topic och" opens a topic for: those he works on, not archived, not a worktree
+    copy of another, not gone."""
+    return [project.id for project in found if project.routable and not project.is_worktree]
+
+
+async def open_all_topics(deps: DevDeps, wanted: Sequence[str]) -> TopicsOpened | None:
+    """A topic for each of `wanted`, paced so the group's limit holds (`open_topic` each, so an open one is reused and
+    a closed one reopened). None when the first one cannot be had: no forum, `topics.enabled` off, no right."""
+    snap = await settings.snapshot(deps)
+    chat = _chat(snap)
+    opened = existing = failed = 0
+    for project_id in wanted:
+        before = await topics.find_project_thread(deps, chat_id=chat, project_id=project_id)
+        thread = await open_topic(deps, project_id, snap=snap)
+        if thread is None:
+            if opened == existing == 0:
+                return None
+            failed += 1
+        elif thread == before:
+            existing += 1
+        else:
+            opened += 1
+            await deps.clock.sleep(domain.OPEN_ALL_TOPICS_PAUSE_S)
+    return TopicsOpened(opened=opened, existing=existing, failed=failed)
+
+
 async def point_to_topic(
     s: Session, deps: DevDeps, snap: Snapshot, *, project_id: str, topic: int | None, from_thread: int | None, ref: str
 ) -> None:

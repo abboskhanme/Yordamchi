@@ -64,6 +64,7 @@ class Intent(StrEnum):
     PARK_PROJECT = "park_project"
     RESUME_PROJECT = "resume_project"
     SELF_UPDATE = "self_update"
+    OPEN_ALL_TOPICS = "open_all_topics"  # "hamma loyihalarga topic och": a topic for every project at once
 
 
 LATER_PHASE: Final = "P2"
@@ -77,6 +78,7 @@ EARLY: Final = frozenset(
         Intent.GREETING,  # "rahmat" or "salom" is never the answer to an open question
         Intent.THANKS,
         Intent.HELP,
+        Intent.OPEN_ALL_TOPICS,
     }
 )
 # `Command.argument` of a greeting: which opening the reply takes.
@@ -205,6 +207,11 @@ _ACKNOWLEDGE: Final = re.compile(
     r"(?:(?:ok(?:ey|ay)?|xo'?p|hop|mayli|tushunarli|tushundim|yaxshi|zo'r|ajoyib|super|понятно|хорошо|ладно|окей)"
     r"[\s,.!)👍👌🙂]*)+"
 )
+# Owner, 2026-10-26: "birinchi martaga barcha loyihalarim uchun topic ochvolish": a topic for every project at once.
+_ALL_TOPICS: Final = re.compile(
+    r"(?:(?:hamma|barcha)\s+loyiha\w*\s+(?:uchun\s+)?(?:topic|mavzu)\w*|(?:hamma\s+|barcha\s+)?(?:topic|mavzu)larni)"
+    r"\s+och\w*(?:\s+chiq\w*)?"
+)
 _HELP: Final = re.compile(
     r"(?:sen\s+|siz\s+)?(?:nima(?:lar)?\s+(?:ish(?:lar)?\s+)?qil\s*(?:a\s*)?ola(?:san(?:iz)?|siz)"
     r"|qanday\s+yordam\s+bera\s*ola(?:san(?:iz)?|siz)|imkoniyatlaring(?:\s+(?:qanday|nima(?:lar)?))?|yordam|help"
@@ -272,6 +279,8 @@ def _small_talk_of(folded: str) -> Command | None:
         return Command(Intent.HELP)
     if _ACKNOWLEDGE.fullmatch(folded) is not None:
         return Command(Intent.ACKNOWLEDGE)
+    if _ALL_TOPICS.fullmatch(folded) is not None:
+        return Command(Intent.OPEN_ALL_TOPICS)
     return None
 
 

@@ -51,6 +51,7 @@ SMOKE_START_BUDGET: Final = timedelta(minutes=2)  # the smoke turn's queue, sess
 SMOKE_POLL_S: Final = 5.0  # how often the smoke runner looks at its turn
 SMOKE_BRANCH: Final = "main"  # of the scratch repo `DATA/sessions/smoke`, created on first use
 SMOKE_FILE_MAX: Final = 64  # bytes of the smoke file read back
+OPEN_ALL_TOPICS_PAUSE_S: Final = 2.0  # between new topics: each is a service message, under the group's 20/min
 SCHEDULER_TICK_S: Final = 15.0  # the scheduler also wakes this often for wall clocks, limit retries and idle closes
 # §2.7: `turns.error_code` of a turn a restart cut off. The recovery pass writes UNTOLD; once the restart notice that
 # lists it is queued, it becomes TOLD (the value earlier releases wrote, so their rows count as told). A start that

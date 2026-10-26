@@ -48,7 +48,7 @@ from yordamchi.bots.dev.intents import Command, Intent
 from yordamchi.core import aio
 from yordamchi.core import strings as S
 from yordamchi.core.log import get_log
-from yordamchi.core.text import BotText
+from yordamchi.core.text import BotText, join
 from yordamchi.dev.chat import service as chat
 from yordamchi.dev.deps import DevDeps
 from yordamchi.dev.digest import domain as digest_domain
@@ -113,6 +113,7 @@ _OWNER_ONLY: Final = frozenset(
         Intent.DESCRIBE_PROJECT,
         Intent.WATCH_SERVER,
         Intent.UNWATCH_SERVER,
+        Intent.OPEN_ALL_TOPICS,  # opens topics in the owner's group
     }
 )
 
@@ -448,6 +449,29 @@ class Pipeline:
             await self._reply(item, await servers.add_server_host(deps, origin, command.argument), kind=Kind.NOTICE)
         elif intent is Intent.UNWATCH_SERVER:
             await self._reply(item, await servers.remove_server_host(deps, origin, command.argument), kind=Kind.NOTICE)
+        elif intent is Intent.OPEN_ALL_TOPICS:
+            await self._open_all_topics(item)
+
+    async def _open_all_topics(self, item: TurnInput) -> None:
+        """ "hamma loyihalarga topic och": the start line now; the topics (paced, ≈ 2 s each) in a background job, so
+        nothing else waits; then how many opened."""
+        wanted = turns.topics_wanted(await projects.list_projects(self.deps))
+        minutes = max(1, round(len(wanted) * turns_domain.OPEN_ALL_TOPICS_PAUSE_S / 60))
+        await self._reply(item, S.TOPICS_ALL_STARTED(count=len(wanted), minutes=minutes), kind=Kind.NOTICE)
+
+        async def open_them() -> None:
+            done = await turns.open_all_topics(self.deps, wanted)
+            if done is None:
+                text = S.TOPICS_ALL_UNAVAILABLE()
+            else:
+                lines = [S.TOPICS_ALL_DONE(opened=done.opened, existing=done.existing)]
+                if done.failed:
+                    lines.append(S.TOPICS_ALL_SOME_FAILED(failed=done.failed))
+                text = join(lines)
+            await self._reply(item, text, kind=Kind.NOTICE, ref=f"burst-{item.burst_id}-topics")
+
+        job = jobs.run(self.deps, self.health, open_them(), job="open_all_topics", chat_id=item.chat_id)
+        aio.spawn(f"open_all_topics_{item.burst_id}", job)
 
     async def _names_a_project(self, text: str) -> bool:
         return bool(routing_domain.find_mentions(text, await projects.list_projects(self.deps)).named)

@@ -287,3 +287,33 @@ async def test_without_the_manage_topics_right_the_work_goes_on_in_general_and_t
         await bot.within(30, lambda: bool(bot.posted("HRMentor · Natija:")), what="HRMentor's result")
         assert len(bot.requests("createForumTopic")) == 1  # refused lately: not asked again yet
         assert len(bot.posted(S.TOPICS_NO_RIGHT())) == 1
+
+
+async def test_hamma_loyihalarga_topic_och_opens_one_topic_per_project_once() -> None:
+    """Owner, 2026-10-26: "birinchi martaga barcha loyihalarim uchun topic ochvolish". Archived names and worktree
+    copies get none; a second ask opens nothing new; no session opens (a topic is not work)."""
+    async with dev_bot() as bot:
+        bot.forum()
+        await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT, OTHER, "OldCRM Archive", "HRMentor-wt-api")
+        await started(bot)
+        await bot.say("hamma loyihalarga topic och")
+        await bot.within(5, lambda: bool(bot.posted(S.TOPICS_ALL_STARTED(count=2, minutes=1))), what="the start")
+        done = S.TOPICS_ALL_DONE(opened=2, existing=0)
+        await bot.within(30, lambda: bool(bot.posted(done)), what="the topics")
+        assert sorted(str(r.params["name"]) for r in bot.requests("createForumTopic")) == sorted([PROJECT, OTHER])
+        assert await topic_of(bot, PROJECT) is not None
+        assert bot.fakes.agents.opened == []  # a topic is not work: no session opened
+
+        await bot.say("topiclarni och")
+        again = S.TOPICS_ALL_DONE(opened=0, existing=2)
+        await bot.within(30, lambda: bool(bot.posted(again)), what="nothing new")
+        assert len(bot.requests("createForumTopic")) == 2
+
+
+async def test_hamma_loyihalarga_topic_och_in_a_flat_group_says_why_not() -> None:
+    async with dev_bot() as bot:
+        await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT)
+        await started(bot)
+        await bot.say("hamma loyihalarga topic och")
+        await bot.within(30, lambda: bool(bot.posted(S.TOPICS_ALL_UNAVAILABLE())), what="why not")
+        assert bot.requests("createForumTopic") == []
