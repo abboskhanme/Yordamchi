@@ -9,6 +9,9 @@ The ack is priority-0 outbox rows written in that same transaction, so it is exa
 crash after the commit still deletes a key message once the sender runs again. A message holding a key is deleted
 first (UC-04: ≤ 5 s); the masked reply waits for that delete and says "kalitni almashtiring" if it failed. Typing and
 the "seen" reaction go out of band. The sender (`outbox.service.run_sender`) makes every call, bounded and retried.
+
+In a forum dev group the masked reply and typing go to the topic the message is in, and the same unit of work notes
+for `shared/topics` whether the chat is a forum and whether the owner closed or reopened a topic.
 """
 
 import time
@@ -39,9 +42,10 @@ from yordamchi.shared.inbox.domain import (
 )
 from yordamchi.shared.inbox.models import InboundUpdate
 from yordamchi.shared.outbox import service as outbox
-from yordamchi.shared.outbox.domain import Kind, Op, op_key
+from yordamchi.shared.outbox.domain import Kind, Op, Thread, op_key
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
+from yordamchi.shared.topics import service as topics
 from yordamchi.shared.vault import service as vault
 from yordamchi.shared.vault.domain import SecretRef
 
@@ -89,6 +93,7 @@ async def _record(
     )
     if row_id is None:
         return None
+    await _note_topics(s, update, at=at)
     to_store = scan.to_store()
     stored: tuple[SecretRef, ...] = ()
     vault_error: DomainError | None = None
@@ -99,11 +104,22 @@ async def _record(
     by_value = {} if vault_error is not None else dict(zip((secret.value for secret in to_store), stored, strict=True))
     status = domain.initial_status(update, vault_failed=vault_error is not None)
     content = domain.redacted_content(update, scan, by_value)
-    payload = domain.payload_json(content, redact.scrubbed, sent_at=update.sent_at)
+    payload = domain.payload_json(content, redact.scrubbed, sent_at=update.sent_at, thread_id=update.thread_id)
     await store.set_update_payload(s, row_id, payload=payload, status=status.value)
     plan = domain.plan_ack(update, scan, status=status, stored=stored, vault_error=vault_error)
     await _enqueue_ack(s, update, plan, reaction=reaction, read_mark=read_mark, max_parts=max_parts, at=at)
     return _Recorded(status=status, stored=stored, vault_error=vault_error)
+
+
+async def _note_topics(s: Session, update: IncomingUpdate, *, at: datetime) -> None:
+    """What the update tells `shared/topics`: whether the chat is a forum (a group message says), and a topic the
+    owner closed or reopened (a service message)."""
+    if update.is_forum is not None:
+        await topics.note_chat(s, chat_id=update.chat_id, is_forum=update.is_forum, at=at)
+    if update.topic_closed is not None and update.thread_id is not None:
+        await topics.note_topic_event(
+            s, chat_id=update.chat_id, thread_id=update.thread_id, closed=update.topic_closed, at=at
+        )
 
 
 async def _enqueue_ack(
@@ -111,8 +127,10 @@ async def _enqueue_ack(
 ) -> None:
     """The ack as priority-0 outbox rows (SPEC §3.2.1 step 3), in the order the sender takes them: the delete, the
     reply that waits for it, typing, then the "seen" reaction (`ui.seen_reaction`, it stays) or, when that is empty,
-    the read mark (`ui.read_mark`: ✓✓ and no reaction left; owner, 2026-10-24)."""
+    the read mark (`ui.read_mark`: ✓✓ and no reaction left; owner, 2026-10-24). The reply and typing go to the topic
+    the message is in."""
     bot, chat_id, ref = update.bot, plan.chat_id, f"update-{update.update_id}"
+    thread = Thread(update.thread_id)
     if plan.delete_message and plan.message_id is not None:
         await outbox.enqueue_delete(s, bot=bot, chat_id=chat_id, message_id=plan.message_id, ref=ref, at=at)
         # Always queued: if the delete fails, the reply is at least "kalitni almashtiring".
@@ -126,13 +144,14 @@ async def _enqueue_ack(
             kind=Kind.ACK,
             ref=ref,
             at=at,
+            thread=thread,
         )
     elif (reply := domain.ack_reply(plan, deleted=True)) is not None:
         await outbox.enqueue_text(
-            s, bot=bot, chat_id=chat_id, text=reply, kind=Kind.ACK, ref=ref, at=at, max_parts=max_parts
+            s, bot=bot, chat_id=chat_id, text=reply, kind=Kind.ACK, ref=ref, at=at, max_parts=max_parts, thread=thread
         )
     if plan.typing:
-        await outbox.request_typing(s, bot=bot, chat_id=chat_id, ref=ref, at=at)
+        await outbox.request_typing(s, bot=bot, chat_id=chat_id, ref=ref, at=at, thread=thread)
     if not plan.react or plan.message_id is None:
         return
     if reaction:
@@ -214,6 +233,7 @@ def _stored_update(row: InboundUpdate) -> StoredUpdate:
         received_at=row.received_at,
         content=domain.content_from_json(row.payload_json),
         sent_at=domain.sent_at_of(row.payload_json),
+        thread_id=domain.thread_of(row.payload_json),
     )
 
 

@@ -38,6 +38,7 @@ from yordamchi.ports.git import Commit, GitStatus
 from yordamchi.shared.audit import store as audit_store
 from yordamchi.shared.audit.domain import AuditKind
 from yordamchi.shared.audit.models import AuditEvent
+from yordamchi.shared.topics import service as topics
 
 DEPLOY = "ssh prod 'docker compose up -d'"
 GROUP = -1001234567890  # tests.factories.DEV_GROUP_ID
@@ -391,6 +392,40 @@ async def test_a_question_that_could_not_be_sent_is_sent_later_once(
     assert await service.post_unasked_decisions(dev_deps) == 0
     assert len(fakes.messenger.sent()) == 1
     assert await service.pending_items(dev_deps) == (domain.PendingItem("decision", 1, "BonviHR"),)
+
+
+# --- forum topics (D4 revised 2026-10-26) ----------------------------------------------------------------------------
+async def _project_topic(deps: DevDeps, project: str = "BonviHR") -> int:
+    async with deps.db.uow() as s:
+        await topics.note_chat(s, chat_id=GROUP, is_forum=True, at=deps.clock.now())
+    ensured = await topics.ensure_topic(
+        deps, chat_id=GROUP, project_id=project, enabled=True, retry_after_s=60.0, timeout=5.0
+    )
+    assert ensured.thread_id is not None
+    return ensured.thread_id
+
+
+async def test_a_decision_is_asked_and_answered_in_its_projects_topic(
+    dev_deps: DevDeps, fakes: Fakes, scope: GateScope
+) -> None:
+    thread = await _project_topic(dev_deps)
+    assert not (await check(dev_deps, scope, DEPLOY)).allow
+    [asked] = fakes.messenger.sent()
+    assert asked.payload["thread_id"] == thread
+    assert (await answer(dev_deps, "ha")).kind is AnswerKind.APPROVED
+    confirmed = fakes.messenger.sent()[-1]
+    assert confirmed.payload["thread_id"] == thread
+
+
+async def test_a_decision_whose_topic_is_gone_is_asked_in_general(
+    dev_deps: DevDeps, fakes: Fakes, scope: GateScope
+) -> None:
+    thread = await _project_topic(dev_deps)
+    fakes.messenger.delete_topic(GROUP, thread)
+    assert not (await check(dev_deps, scope, DEPLOY)).allow
+    [asked] = fakes.messenger.sent()
+    assert "thread_id" not in asked.payload  # General: the outbox replaces the topic with the next message
+    assert "message_id" in as_object((await decisions(dev_deps))[0].payload_json)  # asked, so never re-asked
 
 
 # --- facts (SPEC §3.2.3 step 2) -------------------------------------------------------------------------------------

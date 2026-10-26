@@ -31,7 +31,7 @@ from yordamchi.shared.cost import service as cost
 from yordamchi.shared.cost.domain import Provider, Usage
 from yordamchi.shared.outbox import domain as outbox_domain
 from yordamchi.shared.outbox import service as outbox
-from yordamchi.shared.outbox.domain import Kind
+from yordamchi.shared.outbox.domain import Kind, Thread
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 
@@ -130,6 +130,7 @@ async def answer_chat(deps: DevDeps, item: TurnInput) -> ChatAnswer:
             max_parts=snap[defaults.OUTBOX_MAX_PARTS],
             priority=outbox_domain.HIGHEST_PRIORITY,
             reply_to=item.own_parts[-1].message_id if item.own_parts else None,
+            thread=Thread(item.thread_id),  # where it was asked (a forum topic; None: General)
         )
         if usage is not None:
             await cost.record_usage(s, bot=deps.bot, at=now, usage=usage)

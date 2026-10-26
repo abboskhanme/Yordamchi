@@ -89,6 +89,7 @@ class Method(StrEnum):
     DRAFT = "draft"  # an open new-project draft took the message (P2)
     LLM = "llm"
     CONTEXT = "context"  # the one active project took it: the LLM was unavailable, or its unsure pick agreed
+    TOPIC = "topic"  # written in the project's own forum topic (D4 revised 2026-10-26): no model, no question
 
 
 class Intent(StrEnum):
@@ -1266,6 +1267,26 @@ def first_reply(decision: RouteDecision, item: TurnInput, scrub: Callable[[str],
             return S.VOICE_ECHO_MERGED(text=echo, project=decision.project_id)
         return S.VOICE_ECHO(text=echo, project=decision.project_id)
     return S.ROUTED_MERGED(project=decision.project_id) if merged else S.ROUTED(project=decision.project_id)
+
+
+def topic_decision(project_id: str) -> RouteDecision:
+    """A burst written in a project's own forum topic goes to that project (D4 revised 2026-10-26): no model is asked
+    and nothing is asked of the owner. `with_follow_up` may still make it steer the project's working turn."""
+    return RouteDecision(
+        outcome=Outcome.ROUTE,
+        method=Method.TOPIC,
+        intent=Intent.INSTRUCT,
+        project_id=project_id,
+        confidence=EXPLICIT_CONFIDENCE,
+        candidates=(Candidate(project_id, EXPLICIT_CONFIDENCE),),
+        reason="topic",
+    )
+
+
+def topic_reply(decision: RouteDecision, item: TurnInput, scrub: Callable[[str], str]) -> BotText | None:
+    """The first reply in the project's own topic: only a voice note's echo, which shows what was heard (UC-05). A
+    bare "→ BonviHR" inside BonviHR's topic says nothing new; the read mark and the live line say it was taken."""
+    return first_reply(decision, item, scrub) if _transcripts(item) else None
 
 
 # --- the owner's answer to a clarification (SPEC §6.1 step 3) -------------------------------------------------------

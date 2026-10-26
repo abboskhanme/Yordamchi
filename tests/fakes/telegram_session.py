@@ -7,13 +7,19 @@ empty values dropped), so `params` is what Telegram would receive. Any request c
 Answers go through aiogram's own `check_response`, so status codes and bodies from `tests/fixtures/telegram/`
 become the same exceptions a live server would cause. Unscripted calls get a well-formed success built from the
 request (increasing message ids per chat, as Telegram does).
+
+Forum topics (D4 revised 2026-10-26) are Telegram's side in `ForumTopics`, which several sessions may share (the fault
+harness's processes restart): `createForumTopic` opens one in a forum and is refused in a group that is none, or
+without the "Manage topics" right; a send into a deleted topic is "message thread not found", into a closed one
+`TOPIC_CLOSED`; `reopenForumTopic` of an open topic is `TOPIC_NOT_MODIFIED`. A message posted into a topic carries its
+`message_thread_id`, as Telegram's does.
 """
 
 import asyncio
 import json
 from collections import defaultdict, deque
-from collections.abc import AsyncGenerator, Callable
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator, Callable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, cast
 
@@ -61,6 +67,75 @@ class Answer:
 # A scripted answer, or a factory for an exception aiogram itself would raise (e.g. `TelegramNetworkError`).
 type Reply = Answer | Callable[[TelegramMethod[Any]], BaseException]
 
+POSTING_METHODS: Final = frozenset({"sendMessage", "sendPhoto", "sendDocument", "sendVoice", "sendVideo"})
+TOPIC_SEND_METHODS: Final = frozenset({*POSTING_METHODS, "sendChatAction"})
+
+
+def bad_request(description: str) -> Answer:
+    """Telegram's 400 with its own description (aiogram raises `TelegramBadRequest`)."""
+    return Answer.json(400, {"ok": False, "error_code": 400, "description": f"Bad Request: {description}"})
+
+
+@dataclass(slots=True)
+class ForumTopics:
+    """Telegram's side of the forum topics: is the group a forum, may the bot manage topics, which topics are open,
+    closed or deleted. Thread ids increase from 500, as in a group whose first messages came before its topics."""
+
+    forum: bool = False
+    can_manage: bool = True
+    next_thread: int = 500
+    open: dict[tuple[int, int], str] = field(default_factory=dict)  # (chat, thread) → name
+    closed: set[tuple[int, int]] = field(default_factory=set)
+    deleted: set[tuple[int, int]] = field(default_factory=set)
+    created: list[tuple[int, int, str, int]] = field(default_factory=list)  # (chat, thread, name, icon colour)
+
+    def delete(self, chat_id: int, thread_id: int) -> None:
+        """The owner deleted the topic."""
+        self.open.pop((chat_id, thread_id), None)
+        self.closed.discard((chat_id, thread_id))
+        self.deleted.add((chat_id, thread_id))
+
+    def close(self, chat_id: int, thread_id: int) -> None:
+        """The owner closed the topic."""
+        self.closed.add((chat_id, thread_id))
+
+    def owner_topic(self, chat_id: int, name: str) -> int:
+        """A topic the owner opened himself: the bot never made it."""
+        self.next_thread += 1
+        self.open[(chat_id, self.next_thread)] = name
+        return self.next_thread
+
+    def refusal(self, api_method: str, params: Mapping[str, Any]) -> Answer | None:  # noqa: PLR0911  # one per rule
+        """The 400 Telegram gives this request, or None when it goes through."""
+        chat_id = params.get("chat_id")
+        thread_id = params.get("message_thread_id")
+        key = (int(chat_id), int(thread_id)) if isinstance(chat_id, int) and isinstance(thread_id, int) else None
+        if api_method == "createForumTopic":
+            if not self.forum:
+                return bad_request("the chat is not a forum")
+            return None if self.can_manage else bad_request("not enough rights to create a topic")
+        if api_method == "reopenForumTopic":
+            if key is None or key in self.deleted or key not in self.open:
+                return bad_request("TOPIC_ID_INVALID")
+            return None if key in self.closed else bad_request("TOPIC_NOT_MODIFIED")
+        if api_method in TOPIC_SEND_METHODS and key is not None:
+            if key in self.deleted or (self.forum and key not in self.open):
+                return bad_request("message thread not found")
+            if key in self.closed and api_method in POSTING_METHODS:
+                return bad_request("TOPIC_CLOSED")
+        return None
+
+    def open_topic(self, params: Mapping[str, Any]) -> dict[str, object]:
+        chat_id, name, color = int(params["chat_id"]), str(params["name"]), int(params.get("icon_color", 0))
+        self.next_thread += 1
+        self.open[(chat_id, self.next_thread)] = name
+        self.created.append((chat_id, self.next_thread, name, color))
+        return {"message_thread_id": self.next_thread, "name": name, "icon_color": color}
+
+    def reopen(self, params: Mapping[str, Any]) -> bool:
+        self.closed.discard((int(params["chat_id"]), int(params["message_thread_id"])))
+        return True
+
 
 @dataclass(frozen=True, slots=True)
 class WireRequest:
@@ -78,8 +153,9 @@ class StoredFile:
 
 
 class RecordingSession(BaseSession):
-    def __init__(self) -> None:
+    def __init__(self, *, topics: ForumTopics | None = None) -> None:
         super().__init__()
+        self.topics = topics if topics is not None else ForumTopics()
         self.requests: list[WireRequest] = []
         self.streamed: list[str] = []  # file paths fetched from /file/bot<token>/…
         self.hang = False  # every request waits forever (the caller's timeout must end it)
@@ -132,9 +208,12 @@ class RecordingSession(BaseSession):
             await asyncio.Event().wait()
 
         queue = self._scripted[api_method]
-        reply: Reply = (
-            queue.popleft() if queue else Answer.json(200, {"ok": True, "result": self._success(params, api_method)})
-        )
+        if queue:
+            reply: Reply = queue.popleft()
+        elif (refused := self.topics.refusal(api_method, params)) is not None:
+            reply = refused
+        else:
+            reply = Answer.json(200, {"ok": True, "result": self._success(params, api_method)})
         if not isinstance(reply, Answer):
             raise reply(method)
         response = self.check_response(bot=bot, method=method, status_code=reply.status, content=reply.content)
@@ -160,7 +239,11 @@ class RecordingSession(BaseSession):
     def _success(self, params: dict[str, Any], api_method: str) -> object:
         if api_method == "getFile":
             return self._file_object(str(params["file_id"]))
-        if api_method in {"sendMessage", "sendPhoto", "sendDocument", "sendVoice", "sendVideo"}:
+        if api_method == "createForumTopic":
+            return self.topics.open_topic(params)
+        if api_method == "reopenForumTopic":
+            return self.topics.reopen(params)
+        if api_method in POSTING_METHODS:
             chat_id = int(params["chat_id"])
             self._next_id[chat_id] += 1
             return self._message(chat_id, self._next_id[chat_id], api_method, params)
@@ -185,6 +268,9 @@ class RecordingSession(BaseSession):
             else {"id": chat_id, "type": "private", "first_name": "Owner"}
         )
         message: dict[str, object] = {"message_id": message_id, "from": BOT_USER, "chat": chat, "date": FIXED_DATE}
+        if (thread_id := params.get("message_thread_id")) is not None:
+            message["message_thread_id"] = thread_id
+            message["is_topic_message"] = True
         unique = f"{chat_id}-{message_id}"
         if api_method == "sendMessage":
             message["text"] = params["text"]

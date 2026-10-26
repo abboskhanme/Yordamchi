@@ -1030,3 +1030,34 @@ def test_route_settings_come_from_the_snapshot_defaults() -> None:
 def test_an_unknown_part_kind_reads_as_a_message() -> None:
     sticker: BurstPart = make_part(1, kind=UpdateKind.OTHER)
     assert domain.material(make_turn_input(sticker), redact.scrubbed) == S.ROUTING_MATERIAL_MESSAGE()
+
+
+# --- a project's own forum topic (D4 revised 2026-10-26) -------------------------------------------------------------
+def test_a_burst_in_a_projects_topic_goes_there_with_no_model_and_no_question() -> None:
+    decision = domain.topic_decision("BonviHR")
+    assert (decision.outcome, decision.method, decision.intent, decision.project_id) == (
+        Outcome.ROUTE,
+        Method.TOPIC,
+        Intent.INSTRUCT,
+        "BonviHR",
+    )
+    assert decision.confidence == domain.EXPLICIT_CONFIDENCE
+    assert not decision.asked
+
+
+def test_in_its_own_topic_only_a_voice_note_is_echoed() -> None:
+    decision = domain.topic_decision("BonviHR")
+    assert domain.topic_reply(decision, _item("testlarini ham yoz"), redact.scrubbed) is None
+    spoken = make_turn_input(make_voice_part(1, at_s=0.0, transcript="testlarini ham yoz"))
+    assert domain.topic_reply(decision, spoken, redact.scrubbed) == S.VOICE_ECHO(
+        text="testlarini ham yoz", project="BonviHR"
+    )
+
+
+def test_a_follow_up_written_in_the_topic_steers_its_working_turn() -> None:
+    running = make_running_turn("BonviHR")
+    decision = domain.with_follow_up(domain.topic_decision("BonviHR"), _item("testlarini ham yoz"), (running,), CFG)
+    assert (decision.outcome, decision.project_id) == (Outcome.MERGE, "BonviHR")
+    other = make_running_turn("HRMentor")
+    stays = domain.with_follow_up(domain.topic_decision("BonviHR"), _item("testlarini ham yoz"), (other,), CFG)
+    assert (stays.outcome, stays.project_id) == (Outcome.ROUTE, "BonviHR")

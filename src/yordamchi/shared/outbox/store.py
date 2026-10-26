@@ -39,6 +39,7 @@ async def add_outbox_message(
     project_id: str | None,
     turn_id: int | None,
     created_at: datetime,
+    thread_id: int | None = None,
 ) -> int | None:
     """Write one pending row keyed by `dedupe_key`. The new row id, or None if that key was already there."""
     inserted = await insert_or_ignore(
@@ -63,6 +64,7 @@ async def add_outbox_message(
             "turn_id": turn_id,
             "created_at": created_at,
             "sent_at": None,
+            "thread_id": thread_id,
         },
         conflict_columns=("dedupe_key",),
     )
@@ -99,19 +101,47 @@ async def set_pending_payload(s: AsyncSession, row_id: int, *, payload: JsonValu
 
 
 async def cancel_pending(
-    s: AsyncSession, *, bot: str, chat_id: int, op: str, code: str, in_flight: bool = False
+    s: AsyncSession,
+    *,
+    bot: str,
+    chat_id: int,
+    op: str,
+    code: str,
+    in_flight: bool = False,
+    every_thread: bool = True,
+    thread_id: int | None = None,
 ) -> int:
     """Every pending row of one op in one chat → `cancelled` (typing that is no longer wanted). `in_flight` also takes
-    a row being sent right now: its call finishes, but it is never re-armed (`set_message_pending` needs `sending`)."""
+    a row being sent right now: its call finishes, but it is never re-armed (`set_message_pending` needs `sending`).
+    `every_thread=False` keeps to the rows of one forum topic, `thread_id` (None: the chat itself)."""
+    statement = update(OutboxMessage).where(
+        OutboxMessage.bot == bot,
+        OutboxMessage.chat_id == chat_id,
+        OutboxMessage.op == op,
+        OutboxMessage.status.in_(_QUEUED if in_flight else (_PENDING,)),
+    )
+    if not every_thread:
+        statement = statement.where(
+            OutboxMessage.thread_id.is_(None) if thread_id is None else OutboxMessage.thread_id == thread_id
+        )
+    statement = statement.values(status=Status.CANCELLED.value, last_error_code=code).execution_options(
+        synchronize_session=False
+    )
+    return await bulk.affected_rows(s, statement)
+
+
+async def move_thread(s: AsyncSession, *, bot: str, chat_id: int, from_thread: int, to_thread: int | None) -> int:
+    """Every pending or in-flight row bound for topic `from_thread` goes to `to_thread` instead (None: the chat
+    itself): the topic was reopened under the same id, opened anew, or cannot be had."""
     statement = (
         update(OutboxMessage)
         .where(
             OutboxMessage.bot == bot,
             OutboxMessage.chat_id == chat_id,
-            OutboxMessage.op == op,
-            OutboxMessage.status.in_(_QUEUED if in_flight else (_PENDING,)),
+            OutboxMessage.thread_id == from_thread,
+            OutboxMessage.status.in_(_QUEUED),
         )
-        .values(status=Status.CANCELLED.value, last_error_code=code)
+        .values(thread_id=to_thread)
         .execution_options(synchronize_session=False)
     )
     return await bulk.affected_rows(s, statement)

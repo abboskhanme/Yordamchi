@@ -18,6 +18,14 @@ Rows hold the Markdown subset (`domain.render`); a text is rendered as Telegram 
 still refuse to parse it (`MarkupRejected`), the same call goes once more with the markers stripped and no parse
 mode, and `outbox_markup_rejected` is logged. Captions always go stripped: the port takes no parse mode for them.
 
+Forum topics (D4 revised 2026-10-26). Where a message goes is decided when its row is written, in the same unit of
+work: the `thread=` its caller names (an answer goes where the owner wrote), else the open topic of the project it is
+about (`About.project_id`, `topics.thread_of_project`), else the chat itself (General). Deciding then, not at the call,
+keeps a row's place fixed and visible in `thread_id`, and the topic exists by then: the work's first message is
+written after `topics.ensure_topic` opened it. A send that Telegram refuses because the topic is closed or gone is
+repaired instead of given up: `topics.repair_thread` reopens it or opens a new one, every row still bound for the old
+topic moves with it, and the row is tried again at once (General when no topic can be had).
+
     async with deps.db.uow() as s:
         decision_id = await store.add_decision(s, …)
         await outbox.enqueue_text(s, bot=deps.bot, chat_id=group, text=S.DECISION_ASK(…), kind=Kind.DECISION,
@@ -35,7 +43,7 @@ from typing import Final
 
 from yordamchi.core import redact
 from yordamchi.core import strings as S
-from yordamchi.core.errors import ErrorCode, ExternalError, MarkupRejected, RateLimited
+from yordamchi.core.errors import ErrorCode, ExternalError, MarkupRejected, RateLimited, TopicClosed, TopicGone
 from yordamchi.core.log import get_log
 from yordamchi.core.paths import BotName
 from yordamchi.core.text import BotText
@@ -54,6 +62,7 @@ from yordamchi.shared.outbox.domain import (
     MESSAGE_OPS,
     ORDERED_OPS,
     TERMINAL,
+    THREADED_OPS,
     About,
     Code,
     Delivery,
@@ -73,8 +82,10 @@ from yordamchi.shared.outbox.domain import (
     SenderConfig,
     Status,
     TextPlan,
+    Thread,
 )
 from yordamchi.shared.outbox.models import MessageLink, OutboxMessage
+from yordamchi.shared.topics import service as topics
 
 log = get_log(__name__)
 
@@ -97,6 +108,18 @@ class _Row:
     reply_to: int | None = None
     disable_notification: bool = False
     about: About = NO_ABOUT
+    thread: Thread | None = None  # None: the project's topic, if it is about one with an open topic; else the chat
+
+
+async def _thread_of(s: Session, row: _Row, op: Op) -> int | None:
+    """The forum topic a new row goes to (module docstring): the caller's, else its project's open one."""
+    if op not in THREADED_OPS:
+        return None
+    if row.thread is not None:
+        return row.thread.id
+    if row.about.project_id is None:
+        return None
+    return await topics.thread_of_project(s, chat_id=row.chat_id, project_id=row.about.project_id)
 
 
 async def _add(s: Session, row: _Row, *, op: Op, payload: Payload, key: str) -> int | None:
@@ -123,6 +146,7 @@ async def _add(s: Session, row: _Row, *, op: Op, payload: Payload, key: str) -> 
         project_id=row.about.project_id,
         turn_id=row.about.turn_id,
         created_at=row.at,
+        thread_id=await _thread_of(s, row, op),
     )
 
 
@@ -161,10 +185,11 @@ async def enqueue_text(
     reply_to: int | None = None,
     about: About = NO_ABOUT,
     disable_notification: bool = False,
+    thread: Thread | None = None,
 ) -> tuple[int, ...]:
     """Queue one text, keyed `<kind>:<ref>:<part>`. Over 4,096 it is split at paragraphs and code blocks; more than
     `max_parts` (`outbox.max_parts`) parts → one `.md` file captioned with its first line. Returns the new row ids:
-    () when this ref was queued before."""
+    () when this ref was queued before. `thread`: the forum topic it goes to (module docstring)."""
     plan = domain.plan_text(text, max_parts=max_parts, file_stem=f"{kind.value}-{ref}")
     row = _Row(
         bot=bot,
@@ -175,6 +200,7 @@ async def enqueue_text(
         reply_to=reply_to,
         disable_notification=disable_notification,
         about=about,
+        thread=thread,
     )
     return await _add_plan(s, row, plan, ref=ref)
 
@@ -189,9 +215,11 @@ async def enqueue_reply(
     max_parts: int,
     reply_to: int | None = None,
     about: About = NO_ABOUT,
+    thread: Thread | None = None,
 ) -> tuple[int, ...]:
     """`enqueue_text` in its own unit of work, for an answer that has nothing else to commit with it (a `holat?`
-    reply, a routing question, a stop that found nothing): the bot's chat router queues these (T34)."""
+    reply, a routing question, a stop that found nothing): the bot's chat router queues these (T34), in the topic the
+    owner wrote in (`thread`)."""
     async with deps.db.uow() as s:
         return await enqueue_text(
             s,
@@ -204,6 +232,7 @@ async def enqueue_reply(
             max_parts=max_parts,
             reply_to=reply_to,
             about=about,
+            thread=thread,
         )
 
 
@@ -219,6 +248,7 @@ async def enqueue_text_after(
     ref: str,
     at: datetime,
     priority: int | None = None,
+    thread: Thread | None = None,
 ) -> int | None:
     """One message sent once the row keyed `after` has finished: `text` if it was sent, `text_if_after_failed`
     otherwise; nothing if the chosen text is empty. The inbox uses it for the masked reply that follows the delete
@@ -228,7 +258,7 @@ async def enqueue_text_after(
         after=after,
         text_if_after_failed=domain.fit_one(text_if_after_failed) if text_if_after_failed else None,
     )
-    row = _Row(bot=bot, chat_id=chat_id, kind=kind, at=at, priority=priority)
+    row = _Row(bot=bot, chat_id=chat_id, kind=kind, at=at, priority=priority, thread=thread)
     return await _add(s, row, op=Op.SEND_TEXT, payload=payload, key=domain.dedupe_key(kind, ref, 0))
 
 
@@ -333,11 +363,15 @@ async def enqueue_read_mark(
     return await _add(s, row, op=Op.MARK_READ, payload=payload, key=domain.op_key(Kind.ACK, ref, Op.MARK_READ))
 
 
-async def request_typing(s: Session, *, bot: BotName, chat_id: int, ref: str, at: datetime) -> int | None:
-    """Show "typing…" in a chat for up to 60 s, repeated every 4 s; a hint sent < 4 s ago is not sent again. The
-    newest request replaces an older pending one, and the next reply (or `stop_typing`) ends it. `ref` names what
-    caused it (the inbox passes `update-<id>`), so a redelivered cause asks only once."""
-    key = domain.typing_key(chat_id)
+async def request_typing(
+    s: Session, *, bot: BotName, chat_id: int, ref: str, at: datetime, thread: Thread | None = None
+) -> int | None:
+    """Show "typing…" in a chat (in a forum, in the topic `thread`) for up to 60 s, repeated every 4 s; a hint sent
+    < 4 s ago is not sent again. The newest request replaces an older pending one, and the next reply there (or
+    `stop_typing`) ends it. `ref` names what caused it (the inbox passes `update-<id>`), so a redelivered cause asks
+    only once."""
+    place = thread or domain.GENERAL
+    key = domain.typing_key(chat_id, place.id)
     last = await store.get_last_sent_at(s, key)
     row = _Row(
         bot=bot,
@@ -346,6 +380,7 @@ async def request_typing(s: Session, *, bot: BotName, chat_id: int, ref: str, at
         at=at,
         coalesce_key=key,
         next_attempt_at=domain.first_typing_at(at, last),
+        thread=place,
     )
     payload = Payload(action=ChatAction.TYPING.value, until=domain.typing_until(at))
     row_id = await _add(s, row, op=Op.CHAT_ACTION, payload=payload, key=domain.op_key(Kind.ACK, ref, Op.CHAT_ACTION))
@@ -354,11 +389,19 @@ async def request_typing(s: Session, *, bot: BotName, chat_id: int, ref: str, at
     return row_id
 
 
-async def stop_typing(s: Session, *, bot: BotName, chat_id: int) -> int:
-    """No more typing for this chat (the work ended, or it is long work with its own progress line): the hint stops
-    repeating, even one the sender is sending this instant (race-free). Returns how many hints were cancelled."""
+async def stop_typing(s: Session, *, bot: BotName, chat_id: int, thread: Thread | None = None) -> int:
+    """No more typing in this chat (`thread`: in that forum topic only; None: anywhere in the chat), because the work
+    ended or it is long work with its own progress line: the hint stops repeating, even one the sender is sending
+    this instant (race-free). Returns how many hints were cancelled."""
     return await store.cancel_pending(
-        s, bot=bot.value, chat_id=chat_id, op=Op.CHAT_ACTION.value, code=Code.TYPING_ENDED.value, in_flight=True
+        s,
+        bot=bot.value,
+        chat_id=chat_id,
+        op=Op.CHAT_ACTION.value,
+        code=Code.TYPING_ENDED.value,
+        in_flight=True,
+        every_thread=thread is None,
+        thread_id=None if thread is None else thread.id,
     )
 
 
@@ -398,6 +441,7 @@ async def enqueue_file(
     reply_to: int | None = None,
     about: About = NO_ABOUT,
     disable_notification: bool = False,
+    thread: Thread | None = None,
 ) -> tuple[int, ...]:
     """Queue a photo, document, voice note or video made by another feature (it must still exist when sent). A
     caption over 1,024 keeps its first part and the rest follows as text."""
@@ -413,6 +457,7 @@ async def enqueue_file(
         reply_to=reply_to,
         disable_notification=disable_notification,
         about=about,
+        thread=thread,
     )
     first_caption: str | None = None
     rest: TextPlan | None = None
@@ -538,6 +583,7 @@ def _queued(row: OutboxMessage) -> Queued | None:
         attempts=row.attempts,
         dedupe_key=row.dedupe_key,
         coalesce_key=row.coalesce_key,
+        thread_id=row.thread_id,
     )
 
 
@@ -677,6 +723,12 @@ async def _call_and_record(
     try:
         async with asyncio.timeout(timeout + state.config.hard_grace_s):
             outcome = await _call(deps, row, claimed, payload, ready, file, timeout=timeout)
+    except (TopicGone, TopicClosed) as error:
+        if counted:
+            state.settle_call(row.chat_id, started, deps.clock.now())
+        if row.op in MESSAGE_OPS and row.thread_id is not None:
+            return await _rethread(deps, state, row, error, thread_id=row.thread_id)
+        return await _failed(deps, state, row, Failure.REFUSED, error_code=error.code.value, retry_after=None)
     except ExternalError as error:
         if counted:
             state.settle_call(row.chat_id, started, deps.clock.now())
@@ -766,6 +818,7 @@ async def _call(
                 reply_to=claimed.reply_to_message_id,
                 parse_mode=mode,
                 disable_notification=claimed.disable_notification,
+                thread_id=row.thread_id,
                 timeout=timeout,
             ),
         )
@@ -784,7 +837,8 @@ async def _call(
     elif row.op is Op.MARK_READ:
         await messenger.mark_read(chat_id, _id(ready.message_id), payload.emoji or "", timeout=timeout)
     elif row.op is Op.CHAT_ACTION:
-        await messenger.chat_action(chat_id, ChatAction(payload.action or ChatAction.TYPING), timeout=timeout)
+        action = ChatAction(payload.action or ChatAction.TYPING)
+        await messenger.chat_action(chat_id, action, thread_id=row.thread_id, timeout=timeout)
     else:
         await messenger.pin(chat_id, _id(ready.message_id), timeout=timeout)
     return _Outcome()
@@ -802,12 +856,18 @@ async def _send_file(
     if file is None:  # pragma: no cover - _deliver fails a file row without its file
         msg = "a file op without its file"
         raise AssertionError(msg)
-    messenger, chat_id = deps.messenger, row.chat_id
+    messenger, chat_id, thread_id = deps.messenger, row.chat_id, row.thread_id
     caption = _caption(payload.caption)
     reply_to, quiet = claimed.reply_to_message_id, claimed.disable_notification
     if row.op is Op.SEND_PHOTO:
         return await messenger.send_photo(
-            chat_id, file, caption=caption, reply_to=reply_to, disable_notification=quiet, timeout=timeout
+            chat_id,
+            file,
+            caption=caption,
+            reply_to=reply_to,
+            disable_notification=quiet,
+            thread_id=thread_id,
+            timeout=timeout,
         )
     if row.op is Op.SEND_VOICE:
         return await messenger.send_voice(
@@ -817,14 +877,27 @@ async def _send_file(
             reply_to=reply_to,
             disable_notification=quiet,
             duration_s=payload.duration_s,
+            thread_id=thread_id,
             timeout=timeout,
         )
     if row.op is Op.SEND_VIDEO:
         return await messenger.send_video(
-            chat_id, file, caption=caption, reply_to=reply_to, disable_notification=quiet, timeout=timeout
+            chat_id,
+            file,
+            caption=caption,
+            reply_to=reply_to,
+            disable_notification=quiet,
+            thread_id=thread_id,
+            timeout=timeout,
         )
     return await messenger.send_document(
-        chat_id, file, caption=caption, reply_to=reply_to, disable_notification=quiet, timeout=timeout
+        chat_id,
+        file,
+        caption=caption,
+        reply_to=reply_to,
+        disable_notification=quiet,
+        thread_id=thread_id,
+        timeout=timeout,
     )
 
 
@@ -941,9 +1014,15 @@ async def _succeeded(
                 decision_id=payload.decision_id,
                 created_at=now,
             )
-        if domain.ends_typing(row.op, row.kind):
+        if domain.ends_typing(row.op, row.kind):  # this topic's hint only: one in another topic is still wanted
             await store.cancel_pending(
-                s, bot=deps.bot.value, chat_id=row.chat_id, op=Op.CHAT_ACTION.value, code=Code.TYPING_ENDED.value
+                s,
+                bot=deps.bot.value,
+                chat_id=row.chat_id,
+                op=Op.CHAT_ACTION.value,
+                code=Code.TYPING_ENDED.value,
+                every_thread=False,
+                thread_id=row.thread_id,
             )
     log.info(
         "outbox_message_sent",
@@ -1006,6 +1085,47 @@ async def _failed(
             error_code=error_code,
             attempts=row.attempts,
         )
+    return _Attempt(called=True, done=False)
+
+
+async def _rethread(
+    deps: SharedDeps, state: SenderState, row: Queued, error: TopicGone | TopicClosed, *, thread_id: int
+) -> _Attempt:
+    """A send into a forum topic that Telegram says is closed or gone (the owner closed or deleted it). The topic is
+    reopened, or its project gets a new one; every row still bound for the old topic follows, and this one goes
+    again at once. No topic to be had (a thread no project owns, Topics off, no right): they go to the chat itself
+    (General). A row that has used up its attempts goes there without asking Telegram again. A failure of the repair
+    itself (the network) is this row's failure, retried later like any other."""
+    to_thread: int | None = None
+    if row.attempts < domain.max_attempts(row.op):
+        try:
+            to_thread = await topics.repair_thread(
+                deps,
+                chat_id=row.chat_id,
+                thread_id=thread_id,
+                closed=isinstance(error, TopicClosed),
+                timeout=state.config.text_timeout_s,
+            )
+        except ExternalError as repair_error:
+            # The repair is idempotent (reopen, or open once more): its failure is transient or a refusal.
+            failure = Failure.TRANSIENT if repair_error.retryable else Failure.REFUSED
+            return await _failed(deps, state, row, failure, error_code=repair_error.code.value, retry_after=None)
+    async with deps.db.uow() as s:
+        moved = await store.move_thread(
+            s, bot=deps.bot.value, chat_id=row.chat_id, from_thread=thread_id, to_thread=to_thread
+        )
+        await store.set_message_pending(
+            s, row.id, next_attempt_at=deps.clock.now(), attempts=row.attempts, error_code=error.code.value
+        )
+    log.warning(
+        "outbox_thread_repaired",
+        outbox_id=row.id,
+        chat_id=row.chat_id,
+        error_code=error.code.value,
+        from_thread=thread_id,
+        to_thread=to_thread,
+        rows_moved=moved,
+    )
     return _Attempt(called=True, done=False)
 
 

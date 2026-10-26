@@ -73,7 +73,7 @@ from yordamchi.shared.cost import service as cost
 from yordamchi.shared.cost.domain import Provider, Usage
 from yordamchi.shared.outbox import domain as outbox_domain
 from yordamchi.shared.outbox import service as outbox
-from yordamchi.shared.outbox.domain import About, Kind
+from yordamchi.shared.outbox.domain import About, Kind, Thread
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import Snapshot
@@ -542,9 +542,11 @@ async def _send(
     *,
     ref: str,
     project_id: str | None,
+    thread_id: int | None,
     reply: AssistantReply | None = None,
 ) -> None:
-    """The answer, queued with its usage row in one short unit of work."""
+    """The answer, queued with its usage row in one short unit of work, in the forum topic the question was asked in
+    (`thread_id`; None: General): a report answers where it was asked, also about a project that has a topic."""
     now = deps.clock.now()
     usage = _usage(reply, project_id) if reply is not None else None
     async with deps.db.uow() as s:
@@ -558,6 +560,7 @@ async def _send(
             at=now,
             max_parts=snap[defaults.OUTBOX_MAX_PARTS],
             about=About(project_id=project_id),
+            thread=Thread(thread_id),
         )
         if usage is not None:
             await cost.record_usage(s, bot=deps.bot, at=now, usage=usage)
@@ -582,8 +585,11 @@ async def _investigate(
     deps: DevDeps, state: DigestState, question: ReportQuestion, project: Project, plan: ReportPlan
 ) -> ReportAnswer:
     """UC-15 F: "Tekshiryapman (~3 daqiqa)" and a read-only investigation turn, in one unit of work (never one
-    without the other), with no git, model or turn awaited first: the owner sees it within 2 s."""
+    without the other), with no git, model or turn awaited first: the owner sees it within 2 s. In a forum both go
+    to the project's topic (opened now on its first work: one Telegram call), and where the owner asked gets one line
+    pointing there."""
     snap = await settings.snapshot(deps)
+    topic = await turns.open_topic(deps, project.id, snap=snap)
     now = deps.clock.now()
     text = S.CHECKING(project=project.id, minutes=domain.INVESTIGATION_MINUTES)
     request = TurnRequest(
@@ -605,6 +611,15 @@ async def _investigate(
             max_parts=snap[defaults.OUTBOX_MAX_PARTS],
             priority=outbox_domain.HIGHEST_PRIORITY,
             about=About(project_id=project.id),
+        )
+        await turns.point_to_topic(
+            s,
+            deps,
+            snap,
+            project_id=project.id,
+            topic=topic,
+            from_thread=question.thread_id,
+            ref=_ref(question, "checking-pointer"),
         )
         submitted = await turns.submit(s, request=request, at=now)
     state.turns.poke()
@@ -646,7 +661,9 @@ async def _answer_project(
     if body is None:
         body = domain.project_report(view, now=deps.clock.now(), timezone=timezone, scrub=scrub)
     text = _with_freshness(snap, body, fresh, now=deps.clock.now())
-    await _send(deps, snap, text, ref=_ref(question, "report"), project_id=project.id, reply=reply)
+    await _send(
+        deps, snap, text, ref=_ref(question, "report"), project_id=project.id, thread_id=question.thread_id, reply=reply
+    )
     return ReportAnswer(plan, text=text, provider=provider, refreshed=fresh.refreshed)
 
 
@@ -706,7 +723,8 @@ async def _answer_all(
         prompt = domain.answer_prompt(question.text, views, servers, now=now, timezone=timezone, scrub=scrub)
         reply = await _ask(deps, snap, prompt=prompt, deadline=deadline)
         if reply is not None and (chat := domain.chat_reply(reply.text, scrub)) is not None:
-            await _send(deps, snap, chat, ref=_ref(question, "report-all"), project_id=None, reply=reply)
+            ref = _ref(question, "report-all")
+            await _send(deps, snap, chat, ref=ref, project_id=None, thread_id=question.thread_id, reply=reply)
             return ReportAnswer(plan, text=chat, provider=reply.provider)
         if reply is not None:
             body = domain.all_assistant_report(reply.text, scrub)
@@ -715,7 +733,8 @@ async def _answer_all(
         body = domain.all_report(views, servers, now=deps.clock.now(), timezone=timezone, scrub=scrub)
     fresh = _all_freshness((stored[p.id] for p in (active or present) if p.id in stored), freshness.values())
     text = _with_freshness(snap, body, fresh, now=deps.clock.now())
-    await _send(deps, snap, text, ref=_ref(question, "report-all"), project_id=None, reply=reply)
+    ref = _ref(question, "report-all")
+    await _send(deps, snap, text, ref=ref, project_id=None, thread_id=question.thread_id, reply=reply)
     refreshed = any(item.refreshed for item in freshness.values())
     return ReportAnswer(plan, text=text, provider=provider, refreshed=refreshed)
 
@@ -757,7 +776,7 @@ async def _answer_servers(
         return ReportAnswer(plan, needs_server_check=True)
     oldest = min(check.at for check in checks)
     text = _with_freshness(snap, domain.servers_line(checks, now=now), Freshness(oldest), now=now)
-    await _send(deps, snap, text, ref=_ref(question, "servers"), project_id=None)
+    await _send(deps, snap, text, ref=_ref(question, "servers"), project_id=None, thread_id=question.thread_id)
     return ReportAnswer(plan, text=text)
 
 

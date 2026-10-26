@@ -15,6 +15,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from tests.migrations import revision_rules
+from tests.migrations.harness import revisions_after
 from yordamchi.core.paths import BotName
 from yordamchi.persistence.base import import_all_models
 from yordamchi.persistence.engine import open_database
@@ -61,12 +62,19 @@ def test_0001_only_creates_tables_and_indexes() -> None:
     assert revision_rules.create_only_violations(_initial_source()) == []
 
 
-def test_0001_creates_every_model_table_once() -> None:
-    created = [
+def _created_tables(source: str) -> list[str]:
+    return [
         str(ast.literal_eval(found.call.args[0]))
-        for found in revision_rules.op_calls(revision_rules.upgrade_function(ast.parse(_initial_source())))
+        for found in revision_rules.op_calls(revision_rules.upgrade_function(ast.parse(source)))
         if found.method == "create_table"
     ]
+
+
+def test_0001_creates_every_model_table_once() -> None:
+    """`0001` created every table of its time once; a table added since (it is frozen) is created by exactly one later
+    revision. Together they create every model table exactly once."""
+    later = [table for script in revisions_after(INITIAL) for table in _created_tables(Path(script.path).read_text())]
+    created = [*_created_tables(_initial_source()), *later]
     assert sorted(created) == sorted(import_all_models().tables)
 
 

@@ -126,6 +126,11 @@ class ErrorCode(StrEnum):
     # --- qa ---
     PERSONAL_TOOLS_MISMATCH = "personal_tools_mismatch"
     QA_NOTHING_MORE = "qa_nothing_more"
+    # --- topics ---
+    # The dev group's forum topics (D4 revised 2026-10-26), raised by adapters/telegram.
+    TOPIC_GONE = "topic_gone"
+    TOPIC_CLOSED = "topic_closed"
+    TOPICS_UNAVAILABLE = "topics_unavailable"
 
 
 class YordamchiError(Exception):
@@ -752,3 +757,30 @@ class QaNothingMore(DomainError):
 
     def __init__(self) -> None:
         super().__init__(ErrorCode.QA_NOTHING_MORE)
+
+
+# --- topics ---
+# The Telegram adapter's refusals around the dev group's forum topics (D4 revised 2026-10-26). None is retryable: the
+# same request fails again until something changes. `shared/outbox` repairs the first two (reopen or recreate the
+# project's topic); the third sends the work to General instead.
+class TopicGone(ExternalError):
+    """The topic (`message_thread_id`) no longer exists: the owner deleted it, or it never was one."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.TOPIC_GONE, retryable=False)
+
+
+class TopicClosed(ExternalError):
+    """The topic exists but is closed: nothing can be posted in it until it is reopened."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.TOPIC_CLOSED, retryable=False)
+
+
+class TopicsUnavailable(ExternalError):
+    """The chat is no forum (Topics are off), or the bot lacks the "Manage topics" admin right. `reason` (`not_forum`
+    or `no_right`) is for the log and the bot's memory of the chat, not a message param."""
+
+    def __init__(self, *, reason: str) -> None:
+        super().__init__(ErrorCode.TOPICS_UNAVAILABLE, retryable=False)
+        self.reason = reason

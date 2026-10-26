@@ -18,6 +18,7 @@ from tests.fakes.messenger import FakeMessenger
 from tests.fakes.telegram_session import RecordingSession
 from yordamchi.adapters.telegram.messenger import TelegramMessenger
 from yordamchi.core import strings as S
+from yordamchi.core.errors import TopicClosed, TopicGone, TopicsUnavailable
 from yordamchi.ports.messenger import ChatAction, Messenger
 
 CHAT = -1001234567890
@@ -68,10 +69,45 @@ class MessengerContract:
         await messenger.edit_text(chat, sent.message_id, S.HEALTH_ONLINE(time="09:05"), timeout=TIMEOUT)
 
 
-class TestFakeMessenger(MessengerContract):
+class TopicsContract:
+    """Forum topics (D4 revised 2026-10-26): the bot opens a topic, sends and types into it, and reopening an open one
+    is no error. Offline only: the live contract's chat need not be a forum."""
+
+    @pytest.fixture
+    def forum(self) -> Messenger:
+        raise NotImplementedError
+
+    async def test_a_topic_opens_and_takes_sends_and_typing(self, forum: Messenger) -> None:
+        topic = await forum.create_forum_topic(CHAT, "BonviHR", icon_color=0x6FB9F0, timeout=TIMEOUT)
+        assert (topic.name, topic.icon_color) == ("BonviHR", 0x6FB9F0)
+        assert topic.thread_id > 0
+        sent = await forum.send_text(CHAT, S.STOPPED(project="BonviHR"), thread_id=topic.thread_id, timeout=TIMEOUT)
+        assert sent.chat_id == CHAT
+        await forum.chat_action(CHAT, ChatAction.TYPING, thread_id=topic.thread_id, timeout=TIMEOUT)
+        await forum.reopen_forum_topic(CHAT, topic.thread_id, timeout=TIMEOUT)  # open already: counts as reopened
+
+
+class TestFakeMessenger(MessengerContract, TopicsContract):
     @pytest.fixture
     def messenger(self) -> Messenger:
         return FakeMessenger()
+
+    @pytest.fixture
+    def forum(self) -> Messenger:
+        return FakeMessenger()
+
+    async def test_a_deleted_or_closed_topic_refuses_a_send_as_telegram_does(self) -> None:
+        messenger = FakeMessenger()
+        thread = (await messenger.create_forum_topic(CHAT, "BonviHR", icon_color=0x6FB9F0, timeout=TIMEOUT)).thread_id
+        messenger.closed_topics.add((CHAT, thread))
+        with pytest.raises(TopicClosed):
+            await messenger.send_text(CHAT, S.STOPPED(project="BonviHR"), thread_id=thread, timeout=TIMEOUT)
+        messenger.delete_topic(CHAT, thread)
+        with pytest.raises(TopicGone):
+            await messenger.send_text(CHAT, S.STOPPED(project="BonviHR"), thread_id=thread, timeout=TIMEOUT)
+        messenger.not_forum.add(CHAT)
+        with pytest.raises(TopicsUnavailable):
+            await messenger.create_forum_topic(CHAT, "HRMentor", icon_color=0x6FB9F0, timeout=TIMEOUT)
 
     async def test_records_every_request_and_scripted_failures(self) -> None:
         messenger = FakeMessenger()
@@ -89,7 +125,7 @@ class TestFakeMessenger(MessengerContract):
         assert await messenger.delete(CHAT, sent.message_id, timeout=TIMEOUT) is False
 
 
-class TestTelegramMessengerRecorded(MessengerContract):
+class TestTelegramMessengerRecorded(MessengerContract, TopicsContract):
     """The real adapter, offline: every request goes through the recording session, which fails on reply_markup."""
 
     @pytest.fixture
@@ -98,6 +134,11 @@ class TestTelegramMessengerRecorded(MessengerContract):
 
     @pytest.fixture
     def messenger(self, session: RecordingSession) -> Messenger:
+        return TelegramMessenger("123456:TEST-token-not-a-real-one-000000000", session=session)
+
+    @pytest.fixture
+    def forum(self, session: RecordingSession) -> Messenger:
+        session.topics.forum = True
         return TelegramMessenger("123456:TEST-token-not-a-real-one-000000000", session=session)
 
     async def test_the_contract_sent_no_reply_markup(self, messenger: Messenger, session: RecordingSession) -> None:

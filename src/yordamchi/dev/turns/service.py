@@ -18,6 +18,11 @@ How the pieces fit:
 - **Typing.** The inbox shows "typing…" from the moment an update is accepted (a quick answer keeps it until it is
   sent). Work is long and has its own progress line, so a burst routed to a turn stops it in the same unit of work;
   `ack.typing_for_work` keeps it on instead, renewed by the turn's progress.
+- **Topics** (D4 revised 2026-10-26; SPEC §3.2.16). In a forum dev group a project's work goes on in its own topic:
+  `open_topic` opens it before the work's first message is queued (the route, a submit, and once more as a turn
+  starts, for work queued elsewhere), and every message about the project follows it there (`shared/outbox`). Work
+  routed from General leaves one line there pointing to the topic. A burst written in a project's topic goes to that
+  project with no routing model (`route_topic`).
 - **Events.** One pump per live session reads `AgentRuntime.events` and drives the turn: progress (one line per
   project, coalesced by the outbox), questions, usage limits, the result (complete after `turns.result_grace_s` of
   silence with no input left, SPEC §5.1) and failures. A finished turn gets the finish nudge once if work is left
@@ -61,7 +66,7 @@ from yordamchi.dev.projects import service as projects
 from yordamchi.dev.projects.domain import Project, is_hidden
 from yordamchi.dev.routing import service as routing
 from yordamchi.dev.routing.domain import NO_FACTS, Intent, Outcome, RouteFacts
-from yordamchi.dev.routing.service import Routed
+from yordamchi.dev.routing.service import Planned, Routed
 from yordamchi.dev.turns import domain, store
 from yordamchi.dev.turns.domain import (
     ACTIVE,
@@ -121,10 +126,12 @@ from yordamchi.shared.cost.domain import Provider, Usage
 from yordamchi.shared.health.domain import SmokeOutcome, WorkStatus
 from yordamchi.shared.outbox import domain as outbox_domain
 from yordamchi.shared.outbox import service as outbox
-from yordamchi.shared.outbox.domain import About, Kind
+from yordamchi.shared.outbox.domain import GENERAL, About, Kind, Thread
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import Snapshot
+from yordamchi.shared.topics import domain as topics_domain
+from yordamchi.shared.topics import service as topics
 
 log = get_log(__name__)
 
@@ -447,11 +454,72 @@ async def _add_delivery(
     return row.id if row is not None else None
 
 
-async def _work_accepted(s: Session, deps: DevDeps, snap: Snapshot) -> None:
-    """A burst became work in a turn: the "typing…" the inbox started at intake stops here, in the same unit of work
-    (the reaction and the progress line say enough), unless `ack.typing_for_work` keeps it on."""
+async def _work_accepted(s: Session, deps: DevDeps, snap: Snapshot, *, thread: Thread | None = None) -> None:
+    """A burst became work in a turn: the "typing…" the inbox started at intake (in the topic it was written in,
+    `thread`; None: anywhere) stops here, in the same unit of work (the reaction and the progress line say enough),
+    unless `ack.typing_for_work` keeps it on."""
     if not snap[defaults.ACK_TYPING_FOR_WORK]:
-        await outbox.stop_typing(s, bot=deps.bot, chat_id=_chat(snap))
+        await outbox.stop_typing(s, bot=deps.bot, chat_id=_chat(snap), thread=thread)
+
+
+# --- forum topics (D4 revised 2026-10-26; SPEC §3.2.16) -------------------------------------------------------------
+async def open_topic(deps: DevDeps, project_id: str, *, snap: Snapshot | None = None) -> int | None:
+    """The project's forum topic for its work: opened on its first work, reused after, reopened if the owner closed
+    it (`topics.ensure_topic`; one he deleted is replaced when the next send into it fails, in `shared/outbox`).
+    None: the work goes to General (no forum,
+    `topics.enabled` off, no "Manage topics" right, Telegram did not answer in `timeouts.topic_s`); a first refusal
+    for want of the right is told once, in General. Yordamchi's hidden smoke project never gets one. Call it before
+    the work's first message is queued, outside any unit of work (a Telegram call)."""
+    if is_hidden(project_id):
+        return None
+    snap = snap or await settings.snapshot(deps)
+    ensured = await topics.ensure_topic(
+        deps,
+        chat_id=_chat(snap),
+        project_id=project_id,
+        enabled=snap[defaults.TOPICS_ENABLED],
+        retry_after_s=snap[defaults.TOPICS_RETRY_AFTER_MIN] * 60.0,
+        timeout=snap[defaults.TIMEOUTS_TOPIC_S],
+    )
+    if ensured.refused:
+        now = deps.clock.now()
+        async with deps.db.uow() as s:
+            await outbox.enqueue_text(
+                s,
+                bot=deps.bot,
+                chat_id=_chat(snap),
+                text=S.TOPICS_NO_RIGHT(),
+                kind=Kind.NOTICE,
+                ref=f"topics-no-right-{now.timestamp():.0f}",
+                at=now,
+                max_parts=snap[defaults.OUTBOX_MAX_PARTS],
+                thread=GENERAL,
+            )
+    return ensured.thread_id
+
+
+async def point_to_topic(
+    s: Session, deps: DevDeps, snap: Snapshot, *, project_id: str, topic: int | None, from_thread: int | None, ref: str
+) -> None:
+    """Work routed from General (or from a topic that is not the project's) goes on in the project's topic: where the
+    owner wrote gets one line pointing there, linked to the topic. A reply to that line still routes to the project
+    (`About`). Nothing when the project has no topic, or he wrote in it."""
+    if topic is None or topic == from_thread:
+        return
+    link = topics_domain.topic_link(_chat(snap), topic)
+    text = S.TOPIC_POINTER(project=project_id, link=link) if link else S.TOPIC_POINTER_PLAIN(project=project_id)
+    await outbox.enqueue_text(
+        s,
+        bot=deps.bot,
+        chat_id=_chat(snap),
+        text=text,
+        kind=Kind.ECHO,
+        ref=ref,
+        at=deps.clock.now(),
+        max_parts=snap[defaults.OUTBOX_MAX_PARTS],
+        about=About(project_id=project_id),
+        thread=Thread(from_thread),
+    )
 
 
 # --- submit (the narrow interface to dev/routing) -------------------------------------------------------------------
@@ -504,11 +572,46 @@ async def submit(s: Session, *, request: TurnRequest, at: datetime) -> Submitted
 
 
 async def submit_turn(deps: DevDeps, state: TurnsState, request: TurnRequest) -> Submitted:
-    """`submit` in its own unit of work (and "typing…" stops: `_work_accepted`), then a scheduler pass."""
+    """`submit` in its own unit of work (and "typing…" stops: `_work_accepted`), then a scheduler pass. The project's
+    topic is opened first (`open_topic`)."""
     snap = await settings.snapshot(deps)
+    await open_topic(deps, request.project_id, snap=snap)
     async with deps.db.uow() as s:
         submitted = await submit(s, request=request, at=deps.clock.now())
         await _work_accepted(s, deps, snap)
+    log.info(
+        "turn_submitted",
+        project=request.project_id,
+        turn_id=submitted.turn_id,
+        merged=submitted.merged,
+        burst_id=request.burst_id,
+    )
+    state.poke()
+    return submitted
+
+
+async def submit_routed(
+    deps: DevDeps,
+    state: TurnsState,
+    request: TurnRequest,
+    *,
+    echo: BotText | None,
+    ref: str,
+    from_thread: int | None = None,
+) -> Submitted:
+    """A routed burst's work that `route_turn` did not submit (a clarification answered, an instruction naming a
+    watched server): its echo goes to the project's topic and, from General, one line points there, as in
+    `route_turn`; then `submit`. `from_thread`: the topic the owner wrote in (None: General)."""
+    snap = await settings.snapshot(deps)
+    topic = await open_topic(deps, request.project_id, snap=snap)
+    async with deps.db.uow() as s:
+        if echo is not None:
+            await _tell(s, deps, snap, echo, ref=ref, project_id=request.project_id, turn_id=None, kind=Kind.ECHO)
+        await point_to_topic(
+            s, deps, snap, project_id=request.project_id, topic=topic, from_thread=from_thread, ref=f"{ref}-pointer"
+        )
+        submitted = await submit(s, request=request, at=deps.clock.now())
+        await _work_accepted(s, deps, snap, thread=Thread(from_thread))
     log.info(
         "turn_submitted",
         project=request.project_id,
@@ -572,13 +675,36 @@ async def route_turn(
 
     An investigation gets "X · Tekshiryapman (~3 daqiqa)" in the same unit of work, at the top priority, as the report
     path sends it (UC-15 F, ≤ 2 s). It names the project, so it takes the place of a bare "→ X"; a voice echo stays
-    first, because it shows what was heard (UC-05)."""
+    first, because it shows what was heard (UC-05).
+
+    In a forum the work's topic is opened before that unit of work, so the echo, the "Tekshiryapman" and everything
+    after it go there; where the owner wrote (General) gets one line pointing to it."""
     facts = replace(facts, running=await running_turns(deps))
     planned = await routing.decide_route(deps, item, facts)
+    return await _submit_planned(deps, state, item, planned, images=images)
+
+
+async def route_topic(
+    deps: DevDeps, state: TurnsState, item: TurnInput, project_id: str, *, images: Sequence[str] = ()
+) -> RoutedTurn:
+    """A burst written in `project_id`'s own forum topic (D4 revised 2026-10-26): work for that project with no
+    routing model (method `topic`), recorded and submitted like `route_turn`'s, steering its working turn when it is
+    a follow-up of it. Only a voice note is echoed."""
+    facts = RouteFacts(running=await running_turns(deps))
+    planned = await routing.plan_topic_route(deps, item, project_id, facts)
+    return await _submit_planned(deps, state, item, planned, images=images)
+
+
+async def _submit_planned(
+    deps: DevDeps, state: TurnsState, item: TurnInput, planned: Planned, *, images: Sequence[str]
+) -> RoutedTurn:
+    """`route_turn`'s and `route_topic`'s one unit of work: the decision, the first reply, the pointer and the
+    delivery."""
     decision = planned.decision
     kind = _TURN_INTENTS.get(decision.intent)
     to_project = decision.project_id if decision.outcome in {Outcome.ROUTE, Outcome.MERGE} else None
     snap = await settings.snapshot(deps)
+    topic = await open_topic(deps, to_project, snap=snap) if kind is not None and to_project is not None else None
     now = deps.clock.now()
     async with deps.db.uow() as s:
         routed = await routing.record_route(s, bot=deps.bot, planned=planned, at=now)
@@ -612,12 +738,21 @@ async def route_turn(
                     # After an echo, at the echo's priority, so the echo goes first (an answer is priority 0 alone).
                     priority=outbox_domain.DEFAULT_PRIORITY[Kind.ECHO] if reply is not None else None,
                 )
+            await point_to_topic(
+                s,
+                deps,
+                snap,
+                project_id=to_project,
+                topic=topic,
+                from_thread=item.thread_id,
+                ref=f"route-{routed.route_id}-pointer",
+            )
             merge = decision.outcome is Outcome.MERGE
             request = domain.request_from_input(
                 item, to_project, kind=kind, merge=merge, route_id=routed.route_id, images=images
             )
             submitted = await submit(s, request=request, at=now)
-            await _work_accepted(s, deps, snap)
+            await _work_accepted(s, deps, snap, thread=Thread(item.thread_id))
     if submitted is not None:
         state.poke()
         log.info("turn_routed", project=to_project, turn_id=submitted.turn_id, merged=submitted.merged)
@@ -970,6 +1105,9 @@ async def _start_turn(deps: DevDeps, state: TurnsState, turn_id: int) -> None:
                 start_files_json=None if files is None else domain.start_files_json(files),
             )
     snap = await settings.snapshot(deps)
+    # Work queued without a route (an investigation from a report, a new project's plan, a decision's re-run) gets its
+    # topic here, before its live line: every message about the project follows it there.
+    await open_topic(deps, project.id, snap=snap)
     try:
         live = await _session_for(deps, state, snap, project, kind, root)
     except ExternalError as error:
@@ -1506,9 +1644,11 @@ async def _on_progress(deps: DevDeps, state: TurnsState, live: _Live, event: Pro
         await _show(s, deps, snap, turn_id=turn_id, project_id=live.project_id, text=text)
         live.shown_at = now
         if snap[defaults.ACK_TYPING_FOR_WORK] and not is_hidden(live.project_id):
-            # The owner asked to see "typing…" while work runs: each step renews it (≤ 60 s past the last one).
+            # The owner asked to see "typing…" while work runs: each step renews it (≤ 60 s past the last one), in the
+            # project's topic when it has one, as its live line is.
             ref = f"turn-{turn_id}-step-{live.total_steps}"
-            await outbox.request_typing(s, bot=deps.bot, chat_id=_chat(snap), ref=ref, at=now)
+            topic = await topics.thread_of_project(s, chat_id=_chat(snap), project_id=live.project_id)
+            await outbox.request_typing(s, bot=deps.bot, chat_id=_chat(snap), ref=ref, at=now, thread=Thread(topic))
     limits = _limits(snap, live.turn_kind)
     reason = domain.runaway_of(
         steps=live.run_steps,

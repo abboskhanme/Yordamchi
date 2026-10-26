@@ -28,7 +28,7 @@ class RouteDecision(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     burst_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("bursts.id", ondelete="SET NULL"), index=True)
     at: Mapped[datetime]
-    method: Mapped[str] = mapped_column(String(16))  # explicit | reply | binding | draft | llm | context
+    method: Mapped[str] = mapped_column(String(16))  # explicit | reply | binding | draft | llm | context | topic
     intent: Mapped[str] = mapped_column(String(32))  # instruct_project | report_project | … | wrong_target
     project_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("projects.id"))
     candidates_json: Mapped[JsonValue] = mapped_column(JSONText, nullable=False)  # [{project_id, confidence_milli}]

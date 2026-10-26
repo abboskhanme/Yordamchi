@@ -257,11 +257,16 @@ async def open_question(deps: DevDeps, question: PendingQuestion) -> None:
 
 
 # --- answering --------------------------------------------------------------------------------------------------
-async def answer_owner(deps: DevDeps, state: TurnsState, origin: OwnerOrigin, item: TurnInput) -> OwnerAnswer | None:
+async def answer_owner(
+    deps: DevDeps, state: TurnsState, origin: OwnerOrigin, item: TurnInput, *, topic_project: str | None = None
+) -> OwnerAnswer | None:
     """The router's step 3 for one closed burst: a gate decision or an agent question takes it (module docstring), or
     it asks which project's question it answers. None: it answers nothing open — route it as usual. An unknown
     `#id` raises `DecisionNotFound` once the burst is recorded, so `guarded()` tells the owner and it is not re-read.
     Anything but this bot's `OwnerOrigin` raises before anything is read (`require_owner_origin`).
+
+    `topic_project`: the burst was written in that project's forum topic (D4 revised 2026-10-26), which names the
+    project as the words would: there a bare "ha" or "2" answers that project's open item only, never another's.
     """
     origin = require_owner_origin(origin, deps.bot)
     routable = item.interrupt is None and not item.synthetic  # pre-parse takes those (SPEC §6.1)
@@ -269,6 +274,8 @@ async def answer_owner(deps: DevDeps, state: TurnsState, origin: OwnerOrigin, it
     if not text:
         return None
     mentioned, names, known = await _names_in(deps, text)
+    if not mentioned and topic_project is not None:
+        mentioned = (topic_project,)
     reply_to = domain.reply_to_of(item)
     waiting = await _open_questions(deps)
     reply = DecisionReply(

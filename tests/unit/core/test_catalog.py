@@ -273,6 +273,8 @@ ENTRY_TERMS: Final[Mapping[str, frozenset[str]]] = {
     # "Client ID Metadata Document": the OAuth draft's own name for what the server asks for
     "INTEGRATION_REASONS['oauth_client_metadata_needed']": frozenset({"client", "document"}),
     "ERR_OAUTH_CLIENT_METADATA_NEEDED": frozenset({"client", "document"}),
+    # "Manage topics": Telegram's own name of the admin right the bot needs, next to its Uzbek label (D4 revised)
+    "TOPICS_NO_RIGHT": frozenset({"topics"}),
 }
 _PLACEHOLDER: Final = re.compile(r"\{[a-z_]+\}")
 _CODE_SPAN: Final = re.compile(r"`[^`]*`")  # a command to type, quoted as code

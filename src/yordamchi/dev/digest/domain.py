@@ -99,6 +99,7 @@ class ReportQuestion:
     needs_fresh: bool = False  # routing's flag: the answer needs a fresh look (SPEC §3.2.6 step 5)
     burst_id: int | None = None
     route_id: int | None = None
+    thread_id: int | None = None  # the forum topic it was asked in: the answer goes there (None: General)
 
 
 def question_of(item: TurnInput, decision: RouteDecision, *, route_id: int | None = None) -> ReportQuestion:
@@ -113,6 +114,7 @@ def question_of(item: TurnInput, decision: RouteDecision, *, route_id: int | Non
         needs_fresh=decision.needs_fresh,
         burst_id=item.burst_id,
         route_id=route_id,
+        thread_id=item.thread_id,
     )
 
 

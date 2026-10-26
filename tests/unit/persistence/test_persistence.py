@@ -142,4 +142,4 @@ async def test_the_read_only_handle_cannot_write(tmp_path: Path) -> None:
 
 
 def test_there_is_exactly_one_migration_head() -> None:
-    assert head_revisions(ROOT / "migrations") == ("0001",)
+    assert head_revisions(ROOT / "migrations") == ("0002",)  # 0002 topics_threads (D4 revised 2026-10-26)

@@ -37,6 +37,9 @@ from yordamchi.core.errors import (
     MarkupRejected,
     ProviderUnavailable,
     RateLimited,
+    TopicClosed,
+    TopicGone,
+    TopicsUnavailable,
 )
 
 PROVIDER: Final = "telegram"
@@ -92,7 +95,17 @@ _REASONS: Final[tuple[tuple[str, str], ...]] = (
     ("reaction_invalid", "reaction_invalid"),
     ("message is too long", "message_too_long"),
     ("too many requests", "too_many_requests"),
+    # Forum topics (D4 revised 2026-10-26). A deleted topic reads as either of the first two; reopening one does too.
+    ("message thread not found", "thread_not_found"),
+    ("topic_deleted", "thread_not_found"),
+    ("topic_id_invalid", "thread_not_found"),
+    ("topic_closed", "topic_closed"),
+    ("topic_not_modified", "topic_not_modified"),
+    ("chat is not a forum", "chat_not_forum"),
 )
+# The topic methods, whose "not enough rights" means the bot lacks "Manage topics": a lasting state of the chat, not
+# a refusal of this one message.
+TOPIC_METHODS: Final = frozenset({"createForumTopic", "reopenForumTopic", "editForumTopic"})
 _RETRY_AFTER_TEXT: Final = re.compile(r"retry after (\d+)", re.IGNORECASE)
 
 
@@ -127,7 +140,22 @@ def _client_error(exc: TelegramAPIError, operation: str) -> Translated:
         return Translated(TelegramFileTooLarge(direction="in", limit_bytes=INBOUND_MAX_BYTES), reason)
     if reason == "parse_entities_failed":
         return Translated(MarkupRejected(provider=PROVIDER), reason)
+    if (topic := _topic_refusal(reason, operation)) is not None:
+        return Translated(topic, reason)
     return _refused(reason)
+
+
+def _topic_refusal(reason: str, operation: str) -> ExternalError | None:
+    """A refusal about the forum topic the request named, or about the chat's topics as a whole."""
+    if reason == "thread_not_found":
+        return TopicGone()
+    if reason == "topic_closed":
+        return TopicClosed()
+    if reason == "chat_not_forum":
+        return TopicsUnavailable(reason="not_forum")
+    if reason == "not_enough_rights" and operation in TOPIC_METHODS:
+        return TopicsUnavailable(reason="no_right")
+    return None
 
 
 def _unclassified(exc: TelegramAPIError, operation: str) -> Translated:

@@ -40,7 +40,7 @@ from typing import Final
 from yordamchi import prompts
 from yordamchi.core import redact
 from yordamchi.core import strings as S
-from yordamchi.core.errors import DecisionNotFound, ExternalError, YordamchiError
+from yordamchi.core.errors import DecisionNotFound, ExternalError, TopicClosed, TopicGone, YordamchiError
 from yordamchi.core.json_value import JsonObject, JsonValue, dumps
 from yordamchi.core.log import get_log
 from yordamchi.core.text import BotText
@@ -75,6 +75,7 @@ from yordamchi.shared.burst.domain import TurnInput
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import PendingChange, Snapshot
+from yordamchi.shared.topics import service as topics
 
 log = get_log(__name__)
 
@@ -413,12 +414,24 @@ def _state(row: Decision) -> DecisionState:
     )
 
 
-async def _tell(deps: DevDeps, snap: Snapshot, text: BotText, *, reply_to: int | None) -> int | None:
-    """One message to the dev group, now (until the outbox, T15); a failure is logged, never raised."""
+async def _tell(
+    deps: DevDeps, snap: Snapshot, text: BotText, *, reply_to: int | None, project_id: str | None = None
+) -> int | None:
+    """One message to the dev group, now (until the outbox, T15); a failure is logged, never raised. A message about
+    a project goes to its forum topic when it has one (D4 revised 2026-10-26); should Telegram say that topic is
+    closed or gone, it goes to General instead (the outbox reopens or replaces the topic with the project's next
+    message)."""
+    chat_id = snap[defaults.ACCESS_DEV_GROUP_ID]
+    thread_id = None
+    if project_id is not None:
+        thread_id = await topics.find_project_thread(deps, chat_id=chat_id, project_id=project_id)
     try:
-        sent = await deps.messenger.send_text(
-            snap[defaults.ACCESS_DEV_GROUP_ID], text, reply_to=reply_to, timeout=domain.NOTICE_SEND_TIMEOUT_S
-        )
+        try:
+            sent = await deps.messenger.send_text(
+                chat_id, text, reply_to=reply_to, thread_id=thread_id, timeout=domain.NOTICE_SEND_TIMEOUT_S
+            )
+        except (TopicGone, TopicClosed):
+            sent = await deps.messenger.send_text(chat_id, text, timeout=domain.NOTICE_SEND_TIMEOUT_S)
     except ExternalError as error:
         log.warning("gate_notice_failed", error_code=error.code.value)
         return None
@@ -613,7 +626,7 @@ async def post_question(deps: DevDeps, decision_id: int, *, snap: Snapshot | Non
         row = await store.get_decision(s, decision_id)
     if row is None or row.status != "pending":
         return False
-    message_id = await _tell(deps, snap, _question(row), reply_to=None)
+    message_id = await _tell(deps, snap, _question(row), reply_to=None, project_id=row.project_id)
     if message_id is None:
         return False
     async with deps.db.uow() as s:
@@ -849,7 +862,9 @@ async def answer_decision(deps: DevDeps, origin: OwnerOrigin, reply: DecisionRep
     async with deps.db.uow() as s:
         resolved = await _resolve(s, deps, origin, binding, now=now, ttl_min=snap[defaults.GATE_APPROVAL_TTL_MIN])
     if resolved.answer.reply is not None:
-        await _tell(deps, snap, resolved.answer.reply, reply_to=resolved.message_id)
+        await _tell(
+            deps, snap, resolved.answer.reply, reply_to=resolved.message_id, project_id=resolved.answer.project_id
+        )
     if resolved.new_decision_id is not None:
         await post_question(deps, resolved.new_decision_id, snap=snap)
     log.info("decision_answered", decision_id=resolved.answer.decision_id, kind=resolved.answer.kind.value)
@@ -1079,7 +1094,7 @@ async def report_secret_block(deps: DevDeps, scope: GateScope | None, report: Se
         )
     if enforce and scope is not None:
         text = S.PUSH_BLOCKED_SECRET(project=scope.project_id, file=file, line=report.line, rule=report.rule)
-        await _tell(deps, snap, text, reply_to=None)
+        await _tell(deps, snap, text, reply_to=None, project_id=scope.project_id)
     log.warning("push_secret_found", project=scope.project_id if scope else None, rule=report.rule, enforced=enforce)
     return SecretAnswer(ok=True, enforce=enforce)
 

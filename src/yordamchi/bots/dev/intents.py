@@ -14,6 +14,8 @@ lives in `bots/dev/router.py`; this table only says what each phrase means:
 
 A phrase that needs a project (`X'ni to'xtat`) carries the name as written; the router resolves it against the
 registry and lets the message through to routing when it names no project ("serverni to'xtat" is an instruction).
+A bare "to'xta", "davom ettir", "qayta yubor" or "yangi sessiya" written in a project's forum topic acts on that
+project (D4 revised 2026-10-26; the router knows the topic).
 Later-phase intents are recognised here and answered with `S.NOT_YET`, never sent to a project as work.
 
 A settings request is recognised by its clear cues only (SPEC §6 `change_setting`, UC-09): a message that starts with
@@ -177,6 +179,8 @@ _PHRASES: Final[dict[str, Intent]] = {
     **dict.fromkeys(("integratsiyalar", "integratsiyalarni ko'rsat"), Intent.INTEGRATIONS),
     **dict.fromkeys(("davom ettir", "davom et", "davom ettiring"), Intent.CONTINUE_TURN),
     **dict.fromkeys(("qayta yubor", "qayta yuboring"), Intent.RETRY_DELIVERY),
+    # Bare, in a project's forum topic: that project's (D4 revised 2026-10-26); elsewhere the router asks which.
+    **dict.fromkeys(("yangi sessiya", "yangi sessiya och", "yangi sessiya boshla"), Intent.NEW_SESSION),
     **dict.fromkeys(("yangi loyiha", "tamom", "boshla"), Intent.NEW_PROJECT),
 }
 # Small talk (owner, 2026-10-24: "qandaysan?" got a report). Only a whole message of such words: one that says

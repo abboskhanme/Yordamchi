@@ -3,6 +3,12 @@
 It accepts only `BotText` (catalog entries or scrubbed model output). No method takes a keyboard or a markup
 parameter: no inline buttons, reply keyboards or menus, ever (D8, UC-12). Polling is not here: `bots/common.py`
 feeds updates to aiogram.
+
+Forum topics (D4 revised 2026-10-26): a send or a typing hint takes `thread_id`, the topic's `message_thread_id`
+(None: the chat itself, which in a forum is General). Edits, deletes, reactions and pins name a message, which is
+unique in its chat, so they take none. `create_forum_topic` and `reopen_forum_topic` are the bot's own topic
+management; a send into a topic that is gone raises `TopicGone`, into a closed one `TopicClosed`, and a chat that is
+no forum (or a bot without the "Manage topics" right) `TopicsUnavailable` (`core/errors.py`).
 """
 
 from dataclasses import dataclass
@@ -31,6 +37,15 @@ class SentMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class ForumTopic:
+    """A topic the bot opened: `thread_id` is its `message_thread_id`."""
+
+    thread_id: int
+    name: str
+    icon_color: int
+
+
+@dataclass(frozen=True, slots=True)
 class OutboundFile:
     path: Path
     filename: str | None = None
@@ -46,6 +61,7 @@ class Messenger(Protocol):
         reply_to: int | None = None,
         parse_mode: ParseMode = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage: ...
 
@@ -64,7 +80,9 @@ class Messenger(Protocol):
         has no read method for a bot in a group (`readBusinessMessage` is for business accounts only)."""
         ...
 
-    async def chat_action(self, chat_id: int, action: ChatAction, *, timeout: float) -> None: ...
+    async def chat_action(
+        self, chat_id: int, action: ChatAction, *, thread_id: int | None = None, timeout: float
+    ) -> None: ...
 
     async def pin(self, chat_id: int, message_id: int, *, timeout: float) -> None: ...
 
@@ -82,6 +100,7 @@ class Messenger(Protocol):
         caption: BotText | None = None,
         reply_to: int | None = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage: ...
 
@@ -93,6 +112,7 @@ class Messenger(Protocol):
         caption: BotText | None = None,
         reply_to: int | None = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage: ...
 
@@ -105,6 +125,7 @@ class Messenger(Protocol):
         reply_to: int | None = None,
         disable_notification: bool = False,
         duration_s: int | None = None,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage: ...
 
@@ -116,9 +137,18 @@ class Messenger(Protocol):
         caption: BotText | None = None,
         reply_to: int | None = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage: ...
 
     async def send_draft(self, chat_id: int, draft_id: int, text: BotText, *, timeout: float) -> None:
         """`sendMessageDraft`: a streamed preview in a private chat (ephemeral, then `send_text`)."""
+        ...
+
+    async def create_forum_topic(self, chat_id: int, name: str, *, icon_color: int, timeout: float) -> ForumTopic:
+        """`createForumTopic`. Never retried on an unknown outcome: a second call would open a second topic."""
+        ...
+
+    async def reopen_forum_topic(self, chat_id: int, thread_id: int, *, timeout: float) -> None:
+        """`reopenForumTopic`; a topic that is open already counts as reopened."""
         ...

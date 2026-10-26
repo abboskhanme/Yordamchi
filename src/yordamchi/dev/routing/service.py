@@ -300,6 +300,35 @@ async def record_route(s: Session, *, bot: BotName, planned: Planned, at: dateti
     return Routed(route_id=row.id, decision=decision, reply=planned.reply, clarification_id=clarification_id)
 
 
+async def plan_topic_route(deps: DevDeps, item: TurnInput, project_id: str, facts: RouteFacts = NO_FACTS) -> Planned:
+    """A burst written in `project_id`'s own forum topic (D4 revised 2026-10-26): that project, method `topic`, with
+    no model and no question; a follow-up of its working turn steers it (UC-02). Writes nothing: `record_route` does,
+    like any other decision."""
+    domain.require_routable(item)
+    snap = await settings.snapshot(deps)
+    cfg = domain.route_settings(snap)
+    decision = domain.with_follow_up(domain.topic_decision(project_id), item, facts.running, cfg)
+    log.info(
+        "route_decided",
+        burst_id=item.burst_id,
+        outcome=decision.outcome.value,
+        method=decision.method.value,
+        intent=decision.intent.value,
+        reason=decision.reason,
+        confidence_milli=domain.confidence_milli(decision.confidence),
+        candidates=len(decision.candidates),
+        llm=False,
+        duration_ms=0,
+    )
+    return Planned(
+        item=item,
+        decision=decision,
+        reply=domain.topic_reply(decision, item, redact.scrubbed),
+        model=None,
+        latency_ms=0,
+    )
+
+
 async def route_burst(deps: DevDeps, item: TurnInput, facts: RouteFacts = NO_FACTS) -> Routed | None:
     """Route one closed burst and record it (SPEC §3.2.6). None when another pass already handled the burst."""
     planned = await decide_route(deps, item, facts)

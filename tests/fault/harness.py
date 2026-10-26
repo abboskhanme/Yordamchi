@@ -62,7 +62,7 @@ from tests.factories import (
 )
 from tests.fakes.agent import FakeAgentRuntime, ScriptItem
 from tests.fakes.clock import FakeClock
-from tests.fakes.telegram_session import Answer, RecordingSession
+from tests.fakes.telegram_session import Answer, ForumTopics, RecordingSession
 from tests.integration.dev_bot_harness import register_projects, short_paths
 from yordamchi.adapters.telegram.messenger import TelegramMessenger
 from yordamchi.bots.dev import runtime
@@ -287,6 +287,7 @@ class Post:
     chat_id: int
     message_id: int
     text: str
+    thread_id: int | None = None  # the forum topic it went to; None: the chat itself
 
 
 class FakeTelegram:
@@ -305,6 +306,7 @@ class FakeTelegram:
         self.retry_after = 20  # seconds a FLOOD answer asks for; above the adapter's own 10 s, so the outbox parks
         self.flood_until: dict[int | None, datetime] = {}  # per chat (None: getUpdates) while a 429 holds
         self.polls = 0
+        self.topics = ForumTopics()  # forum topics outlive every process, as Telegram's do
         self._arrived = asyncio.Event()
         self._counted: defaultdict[int, list[datetime]] = defaultdict(list)
 
@@ -404,7 +406,8 @@ class FakeTelegram:
         recent.append(now)
         text = str(params.get("text") or params.get("caption") or "")
         message_id = getattr(result, "message_id", None) or int(params.get("message_id", 0))
-        record = Post(now, api_method, chat_id, int(message_id), text)
+        thread = params.get("message_thread_id")
+        record = Post(now, api_method, chat_id, int(message_id), text, thread if isinstance(thread, int) else None)
         (self.posts if posted else self.edits).append(record)
 
     async def _fail(
@@ -449,7 +452,7 @@ class ProcessSession(RecordingSession):
     """One process's aiogram session: every request goes to the shared `FakeTelegram`, and none once it is dead."""
 
     def __init__(self, telegram: FakeTelegram, mortality: Mortality) -> None:
-        super().__init__()
+        super().__init__(topics=telegram.topics)
         self.telegram = telegram
         self.mortality = mortality
         self._next_id = telegram.message_ids  # message ids are Telegram's, across restarts
@@ -612,17 +615,25 @@ class World:
         await self.bot.kill()
 
     # --- the owner ---
-    def say(self, text: str, *, chat_id: int = DEV_GROUP_ID, user_id: int = OWNER_ID) -> int:
-        """The owner posts `text`; Telegram holds it for the bot. Returns its update id."""
+    def say(
+        self, text: str, *, chat_id: int = DEV_GROUP_ID, user_id: int = OWNER_ID, thread_id: int | None = None
+    ) -> int:
+        """The owner posts `text` (in forum topic `thread_id`); Telegram holds it for the bot. Returns its update id."""
         self.next_update += 1
         update_id = self.next_update
+        chat = tg_chat(chat_id)
+        if self.telegram.topics.forum:
+            chat["is_forum"] = True
         message: TelegramJson = {
             "message_id": self.telegram.new_message_id(chat_id),
             "date": int(self.clock.now().timestamp()),
-            "chat": tg_chat(chat_id),
+            "chat": chat,
             "from": tg_user(user_id),
             "text": text,
         }
+        if thread_id is not None:
+            message["message_thread_id"] = thread_id
+            message["is_topic_message"] = True
         self.telegram.deliver({"update_id": update_id, "message": message})
         self.sent[update_id] = text
         return update_id

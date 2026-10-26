@@ -165,6 +165,9 @@ SPEC_KEYS.append("models.chat")  # the model of the chat answers (sonnet: plain 
 SPEC_KEYS.append("models.chat_effort")  # effort is a launch option of the warm client (SPEC §5.4)
 SPEC_KEYS.append("timeouts.chat_s")  # A4: every external await is bounded; past it the owner gets one short line
 SPEC_KEYS.append("persona.dev_chat")  # SPEC §5.4: persona never in the frozen prompt, always in the per-ask block
+# Owner, 2026-10-26 (D4 revised): the dev group's forum topics (SPEC §3.2.16). The switch back to a flat group; how
+# long a refusal (no "Manage topics" right) is remembered before the bot tries again; and A4's bound on the topic calls.
+SPEC_KEYS.extend(["topics.enabled", "topics.retry_after_min", "timeouts.topic_s"])
 
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")

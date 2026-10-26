@@ -52,7 +52,7 @@ from yordamchi.dev.turns.service import Submitted, TurnsState
 from yordamchi.persistence import bulk
 from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.outbox import service as outbox
-from yordamchi.shared.outbox.domain import Kind
+from yordamchi.shared.outbox.domain import Kind, Thread
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings.domain import Snapshot
@@ -365,11 +365,13 @@ async def investigate_server(
     chat_id: int,
     ref: str,
     burst_id: int | None = None,
+    from_thread: int | None = None,
 ) -> Submitted | None:
     """A read-only investigation of the servers the question names (all of them if it names none), in `project_id`'s
     investigation session: the ack and the turn are queued in one unit of work, then the scheduler is poked. None
     when no server is configured (the owner is told so). `ProjectNotFound` / `ServerJumpOnly` raise before anything
-    is written."""
+    is written. The ack answers where the owner asked (`from_thread`; None: General); the turn's messages go to the
+    project's forum topic, and the ack's chat gets one line pointing there."""
     snap = await settings.snapshot(deps)
     rules = _rules(snap)
     hosts = tuple(snap[defaults.SERVERS_HOSTS])
@@ -395,6 +397,7 @@ async def investigate_server(
     checking = S.SERVERS_CHECKING(
         minutes=domain.checking_minutes(INVESTIGATION_WALL.total_seconds()), hosts=", ".join(targets)
     )
+    topic = await turns.open_topic(deps, project.id, snap=snap)
     now = deps.clock.now()
     async with deps.db.uow() as s:
         await outbox.enqueue_text(
@@ -407,6 +410,16 @@ async def investigate_server(
             at=now,
             max_parts=snap[defaults.OUTBOX_MAX_PARTS],
             priority=0,
+            thread=Thread(from_thread),
+        )
+        await turns.point_to_topic(
+            s,
+            deps,
+            snap,
+            project_id=project.id,
+            topic=topic,
+            from_thread=from_thread,
+            ref=f"servers-{ref}-pointer",
         )
         submitted = await turns.submit(s, request=request, at=now)
     state.poke()

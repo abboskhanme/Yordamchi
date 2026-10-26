@@ -2,9 +2,9 @@
 
 - The inventory (`inventory.RETENTION` / `KEPT`) names every table exactly once, and every `apply_retention` there is.
 - The dev bot runs each of them daily (`DevApp.retain`), apart from the documented `NOT_SCHEDULED_YET`.
-- On the release DB 401 days later (past every period), each function prunes its own tables and nothing that is kept,
-  never a row still in flight, and the foreign keys hold; the end state does not depend on the order, and a second run
-  changes nothing.
+- On the release DB, brought to head by the real chain as the next release finds it, 401 days later (past every
+  period), each function prunes its own tables and nothing that is kept, never a row still in flight, and the foreign
+  keys hold; the end state does not depend on the order, and a second run changes nothing.
 """
 
 import importlib
@@ -19,7 +19,7 @@ import pytest
 from tests.factories import Fakes, make_dev_deps, make_paths, make_personal_deps
 from tests.fakes.clock import FakeClock
 from tests.migrations import inventory
-from tests.migrations.harness import Table, foreign_key_violations, read_tables, release_copy
+from tests.migrations.harness import Table, foreign_key_violations, read_tables, release_at_head
 from tests.migrations.p1_release import RELEASE_AT
 from yordamchi.bots.dev import runtime
 from yordamchi.dev.deps import DevDeps
@@ -163,7 +163,7 @@ def _by_key(table: Table) -> dict[tuple[object, ...], dict[str, object]]:
 
 @pytest.mark.parametrize("service", SERVICES)
 async def test_each_retention_prunes_its_own_tables_and_nothing_kept(tmp_path: Path, service: str) -> None:
-    copy = release_copy(tmp_path)
+    copy = release_at_head(tmp_path)
     before = read_tables(copy)
     assert await _run(copy, tmp_path, [service]) > 0
     after = read_tables(copy)
@@ -178,7 +178,7 @@ async def test_each_retention_prunes_its_own_tables_and_nothing_kept(tmp_path: P
 
 
 async def test_retention_keeps_in_flight_rows_and_prunes_the_rest(tmp_path: Path) -> None:
-    copy = release_copy(tmp_path)
+    copy = release_at_head(tmp_path)
     before = read_tables(copy)
     await _run(copy, tmp_path, SERVICES)
     after = read_tables(copy)
@@ -213,8 +213,8 @@ async def test_retention_keeps_in_flight_rows_and_prunes_the_rest(tmp_path: Path
 
 
 async def test_retention_order_does_not_matter_and_a_second_run_changes_nothing(tmp_path: Path) -> None:
-    forward = release_copy(tmp_path / "forward")
-    backward = release_copy(tmp_path / "backward")
+    forward = release_at_head(tmp_path / "forward")
+    backward = release_at_head(tmp_path / "backward")
     await _run(forward, tmp_path / "forward", SERVICES)
     await _run(backward, tmp_path / "backward", reversed(SERVICES))
     once = read_tables(forward)

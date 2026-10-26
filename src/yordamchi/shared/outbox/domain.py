@@ -18,6 +18,10 @@ write idempotent). This module decides everything about those rows; the service 
 7. Failures: a 429 parks, a refusal gives up, a transient error retries with backoff. A send whose delivery is
    unknown (the Telegram adapter's contract: it never resends a non-idempotent call) is resent under the same
    `dedupe_key` unless the key's kind is one where a duplicate costs more than a loss.
+8. Forum topics (D4 revised 2026-10-26): a message goes to the `Thread` its caller names (an answer goes where the
+   owner wrote), else to the open topic of the project it is about, else to the chat itself (General). Typing is
+   deduped per (chat, topic). A send into a topic Telegram says is closed or gone is repaired, not given up
+   (`shared/topics.repair_thread`).
 """
 
 import html
@@ -205,8 +209,9 @@ def progress_key(turn_id: int) -> str:
     return f"progress:{turn_id}"
 
 
-def typing_key(chat_id: int) -> str:
-    return f"typing:{chat_id}"
+def typing_key(chat_id: int, thread_id: int | None = None) -> str:
+    """One typing hint per chat, and per forum topic in it: `typing:<chat>` for the chat itself (General)."""
+    return f"typing:{chat_id}" if thread_id is None else f"typing:{chat_id}:{thread_id}"
 
 
 # --- text: length, escaping, code blocks -------------------------------------------------------------------------
@@ -770,7 +775,21 @@ def payload_from_json(op: Op, raw: JsonValue) -> Payload:
     return payload
 
 
-# --- what a message is about, and where it stands ----------------------------------------------------------------
+# --- where a message goes, what it is about, and where it stands ------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class Thread:
+    """The forum topic a message goes to, named by the caller (`enqueue_*(thread=…)`): `id` is the topic's
+    `message_thread_id`, None the chat itself (General in a forum). A caller that names none gets the topic of the
+    project the message is about (`About.project_id`), else the chat itself."""
+
+    id: int | None = None
+
+
+GENERAL: Final = Thread()
+# The ops that go into a topic: everything that posts, and the typing hint. The rest name a message by its id.
+THREADED_OPS: Final = frozenset({*MESSAGE_OPS, Op.CHAT_ACTION})
+
+
 @dataclass(frozen=True, slots=True)
 class About:
     """Becomes the `message_links` row of each message posted, so routing can follow a reply (SPEC §3.2.6)."""
@@ -819,6 +838,7 @@ class Queued:
     attempts: int
     dedupe_key: str
     coalesce_key: str | None = None
+    thread_id: int | None = None  # the forum topic it goes to; None: the chat itself
 
 
 def sendable(rows: Iterable[Queued], *, now: datetime, parked: Mapping[int, datetime]) -> tuple[Queued, ...]:

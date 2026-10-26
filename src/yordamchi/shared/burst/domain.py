@@ -21,6 +21,10 @@ There are two clocks. The bot's (`BurstPart.at`, when a part was received) arms 
 (`BurstPart.sent_at`, Telegram's date) also decides placement: what Telegram held while the Mac slept, or the network
 or the bot was down, arrives in one batch, so only the send times still tell messages written minutes apart (T36
 BUG-1). Live, the two agree to within Telegram's whole second.
+
+Forum topics (D4 revised 2026-10-26): a burst never holds parts of two topics. A chat still has one assembling burst
+at a time (its unique index is frozen in `0001`), so a part from another topic closes the assembling one first
+(`CloseReason.THREAD`), or, while that one waits for a transcript, waits itself (`Into.WAIT`) until it can go.
 """
 
 import itertools
@@ -71,6 +75,7 @@ class CloseReason(StrEnum):
     INTERRUPTED = "interrupted"  # an interrupt word arrived: this burst closed at once, without it
     INTERRUPT = "interrupt"  # this burst is the interrupt word itself, never merged (UC-03)
     SYNTHETIC = "synthetic"  # the supervisor's self-test: window 0 (SPEC §3.2.12)
+    THREAD = "thread"  # a part from another forum topic arrived: this burst closed at once, without it
 
 
 class HoldReason(StrEnum):
@@ -361,6 +366,7 @@ class Into(StrEnum):
     EDIT = "edit"  # replaces the part of the same message in the assembling burst
     NEW = "new"  # a new assembling burst
     ALONE = "alone"  # a burst of its own, closed at once and never merged
+    WAIT = "wait"  # another topic's burst waits for a transcript: this part stays received until it can go
 
 
 @dataclass(frozen=True, slots=True)
@@ -417,8 +423,11 @@ def _ended(
     return None if sent.admits(sent_at - DATE_PRECISION) else sent.reason
 
 
-def place(part: BurstPart, assembling: Sequence[BurstPart], settings: WindowSettings) -> Placement:
+def place(  # noqa: PLR0911  # one return per placement rule
+    part: BurstPart, assembling: Sequence[BurstPart], settings: WindowSettings, *, other_thread: bool = False
+) -> Placement:
     """Where a newly received part goes, given the parts of the chat's assembling burst (empty if there is none).
+    `other_thread`: that burst's parts were written in another forum topic (`_other_thread` has those rules).
 
     - The self-test stands alone with window 0 and leaves the owner's burst alone.
     - "kut" means "wait, more is coming", never "stop": it joins the assembling burst as a hold, or, with nothing
@@ -439,6 +448,8 @@ def place(part: BurstPart, assembling: Sequence[BurstPart], settings: WindowSett
     ended = None if current is None else _ended(part, assembling, current, settings)
     still_open = current is not None and ended is None
     interrupt = interrupt_of_part(part)
+    if other_thread and current is not None:
+        return _other_thread(part, current, ended=ended, interrupt=interrupt)
     if interrupt is InterruptKind.HOLD:
         held = replace(part, role=PartRole.HOLD)
         return Placement(Into.CURRENT, held) if still_open else Placement(Into.NEW, held, close_current=ended)
@@ -451,6 +462,22 @@ def place(part: BurstPart, assembling: Sequence[BurstPart], settings: WindowSett
     if _edits(part, assembling):
         return Placement(Into.EDIT, part)
     return Placement(Into.CURRENT, part)
+
+
+def _other_thread(
+    part: BurstPart, current: Window, *, ended: CloseReason | None, interrupt: InterruptKind | None
+) -> Placement:
+    """A part written in another forum topic than the chat's assembling burst. It never joins that burst:
+    - an interrupt word stands alone and leaves the other topic's burst as it is (unless its window had ended);
+    - anything else takes the chat's one assembling slot: the other burst closes first (`THREAD`), or for its own
+      reason if its window had ended; but one still waiting for a transcript keeps its window rather than lose the
+      voice note, so the part waits (`WAIT`) and goes once that transcript is in."""
+    if interrupt is not None and interrupt is not InterruptKind.HOLD:
+        return Placement(Into.ALONE, part, close_current=ended, close_alone=CloseReason.INTERRUPT)
+    if ended is None and current.hold is HoldReason.TRANSCRIPT:
+        return Placement(Into.WAIT, part)
+    held = replace(part, role=PartRole.HOLD) if interrupt is InterruptKind.HOLD else part
+    return Placement(Into.NEW, held, close_current=ended or CloseReason.THREAD)
 
 
 def _edited(original: BurstPart, edit: BurstPart) -> BurstPart:
@@ -537,6 +564,7 @@ class TurnInput:
     opened_at: datetime
     closed_at: datetime
     close_reason: CloseReason
+    thread_id: int | None = None  # the forum topic it was written in; None: General (or no forum)
 
     @property
     def interrupt(self) -> InterruptKind | None:
@@ -595,12 +623,15 @@ def turn_input(
     opened_at: datetime,
     closed_at: datetime,
     reason: CloseReason,
+    thread_id: int | None = None,
 ) -> TurnInput:
     content = tuple(part for part in parts if part.role is PartRole.CONTENT)
     if not content:
         msg = f"burst {burst_id} has no content part: a lone hold lapses (`has_content`), it has no turn input"
         raise ValueError(msg)
-    return TurnInput(burst_id, chat_id, content, opened_at=opened_at, closed_at=closed_at, close_reason=reason)
+    return TurnInput(
+        burst_id, chat_id, content, opened_at=opened_at, closed_at=closed_at, close_reason=reason, thread_id=thread_id
+    )
 
 
 def in_route_order(items: Iterable[TurnInput]) -> tuple[TurnInput, ...]:

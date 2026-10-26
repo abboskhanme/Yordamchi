@@ -125,3 +125,13 @@ async def test_the_client_is_warmed_with_the_profile_every_ask_uses(dev_deps: De
     fakes.assistant.reply_with("chat", ANSWER)
     await service.answer_chat(dev_deps, await _burst(dev_deps))
     assert fakes.assistant.warmed == [fakes.assistant.requests[0].profile]
+
+
+async def test_a_question_asked_in_a_forum_topic_is_answered_in_that_topic(dev_deps: DevDeps, fakes: Fakes) -> None:
+    """D4 revised 2026-10-26: an answer goes where the owner asked (a topic the bot did not open is routed like
+    General, and its chat answer stays there)."""
+    fakes.assistant.reply_with("chat", AssistantReply(text=ANSWER, provider="claude", model="sonnet", duration_ms=900))
+    item = replace(await _burst(dev_deps), thread_id=777)
+    await service.answer_chat(dev_deps, item)
+    [row] = await list_replies(dev_deps.db)
+    assert row.thread_id == 777

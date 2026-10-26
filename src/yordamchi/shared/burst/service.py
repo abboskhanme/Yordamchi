@@ -17,6 +17,10 @@ Each attach and each close is one short unit of work. The row is the truth and t
 wake-up does nothing, and a restart re-arms from `closes_at`. Nothing here talks to the owner but that one reaction,
 so a lone photo proceeds after its window without a question (UC-02). A burst that held nothing but a "kut" when it
 closed has no turn input: it ends `cancelled`, and nothing is routed.
+
+In a forum (D4 revised 2026-10-26) a burst keeps to one topic (`bursts.thread_id`): a part from another topic closes
+the chat's assembling burst first, or waits, still `received`, while that burst waits for a transcript; the later
+parts of its topic wait behind it, so each topic keeps its order.
 """
 
 import asyncio
@@ -47,6 +51,7 @@ from yordamchi.shared.deps import SharedDeps
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox.domain import StoredUpdate
 from yordamchi.shared.outbox import service as outbox
+from yordamchi.shared.outbox.domain import Thread
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 
@@ -78,6 +83,7 @@ def _turn_input(row: Burst, parts: Sequence[BurstPart]) -> TurnInput:
         opened_at=row.opened_at,
         closed_at=row.closed_at,
         reason=CloseReason(row.close_reason),
+        thread_id=row.thread_id,
     )
 
 
@@ -93,7 +99,9 @@ async def _store_window(s: Session, row: Burst, parts: Sequence[BurstPart], ws: 
     )
 
 
-async def _open(s: Session, deps: SharedDeps, chat_id: int, part: BurstPart, ws: WindowSettings) -> Burst:
+async def _open(
+    s: Session, deps: SharedDeps, chat_id: int, part: BurstPart, ws: WindowSettings, *, thread_id: int | None
+) -> Burst:
     window = domain.window((part,), ws)
     return await store.add_burst(
         s,
@@ -104,11 +112,19 @@ async def _open(s: Session, deps: SharedDeps, chat_id: int, part: BurstPart, ws:
         last_part_at=part.at,
         closes_at=window.closes_at,
         input_json=domain.parts_json((part,), redact.scrubbed),
+        thread_id=thread_id,
     )
 
 
 async def _add_closed(
-    s: Session, deps: SharedDeps, chat_id: int, part: BurstPart, *, reason: CloseReason, at: datetime
+    s: Session,
+    deps: SharedDeps,
+    chat_id: int,
+    part: BurstPart,
+    *,
+    reason: CloseReason,
+    at: datetime,
+    thread_id: int | None,
 ) -> TurnInput:
     """A one-part burst that closes as it opens: an interrupt word or the self-test."""
     row = await store.add_burst(
@@ -122,6 +138,7 @@ async def _add_closed(
         closed_at=at,
         close_reason=reason.value,
         input_json=domain.parts_json((part,), redact.scrubbed),
+        thread_id=thread_id,
     )
     return _turn_input(row, (part,))
 
@@ -147,16 +164,16 @@ async def _close(
 
 
 async def _acknowledge_hold(
-    s: Session, deps: SharedDeps, chat_id: int, part: BurstPart, *, emoji: str, at: datetime
+    s: Session, deps: SharedDeps, chat_id: int, part: BurstPart, *, emoji: str, at: datetime, thread_id: int | None
 ) -> None:
     """ "kut" is understood as "wait, more is coming": its own reaction (`ui.hold_reaction`), after the "seen" one. The
-    bot is not writing anything while it waits, so the "typing…" its intake started stops."""
+    bot is not writing anything while it waits, so the "typing…" its intake started (in that topic) stops."""
     if part.message_id is None or part.synthetic:
         return
     await outbox.enqueue_reaction(
         s, bot=deps.bot, chat_id=chat_id, message_id=part.message_id, emoji=emoji, ref=f"hold-{part.update_id}", at=at
     )
-    await outbox.stop_typing(s, bot=deps.bot, chat_id=chat_id)
+    await outbox.stop_typing(s, bot=deps.bot, chat_id=chat_id, thread=Thread(thread_id))
 
 
 async def _readable_parts(s: Session, row: Burst) -> tuple[BurstPart, ...]:
@@ -189,9 +206,13 @@ def _log_closed(deps: SharedDeps, closed: Sequence[TurnInput]) -> None:
 
 
 # --- intake -------------------------------------------------------------------------------------------------------
-async def _attach(deps: SharedDeps, update: StoredUpdate, ws: WindowSettings, *, hold_reaction: str) -> BurstEvents:
-    """One received update into its burst, in one unit of work with `received → attached` (and a "kut"'s reaction)."""
+async def _attach(
+    deps: SharedDeps, update: StoredUpdate, ws: WindowSettings, *, hold_reaction: str
+) -> BurstEvents | None:
+    """One received update into its burst, in one unit of work with `received → attached` (and a "kut"'s reaction).
+    None: it must wait, still `received` (another topic's burst waits for a transcript; `Into.WAIT`)."""
     part = domain.part_from_update(update)
+    thread_id = update.thread_id
     now = deps.clock.now()
     closed: list[TurnInput] = []
     try:
@@ -200,22 +221,29 @@ async def _attach(deps: SharedDeps, update: StoredUpdate, ws: WindowSettings, *,
             current = () if row is None else await _readable_parts(s, row)
             if not current:
                 row = None
-            placement = domain.place(part, current, ws)
+            other_thread = row is not None and row.thread_id != thread_id
+            placement = domain.place(part, current, ws, other_thread=other_thread)
+            if placement.into is Into.WAIT:
+                return None
             if row is not None and placement.close_current is not None:
                 ended = await _close(s, row, current, reason=placement.close_current, at=now)
                 closed += [ended] if ended is not None else []
             if placement.into is Into.ALONE:
                 reason = placement.close_alone or CloseReason.INTERRUPT
-                alone = await _add_closed(s, deps, update.chat_id, placement.part, reason=reason, at=now)
+                alone = await _add_closed(
+                    s, deps, update.chat_id, placement.part, reason=reason, at=now, thread_id=thread_id
+                )
                 closed.append(alone)
                 burst_id = alone.burst_id
             elif placement.into is Into.NEW or row is None:  # CURRENT and EDIT come only with an assembling row
-                burst_id = (await _open(s, deps, update.chat_id, placement.part, ws)).id
+                burst_id = (await _open(s, deps, update.chat_id, placement.part, ws, thread_id=thread_id)).id
             else:
                 await _store_window(s, row, domain.joined(current, placement), ws)
                 burst_id = row.id
             if placement.part.role is PartRole.HOLD:
-                await _acknowledge_hold(s, deps, update.chat_id, placement.part, emoji=hold_reaction, at=now)
+                await _acknowledge_hold(
+                    s, deps, update.chat_id, placement.part, emoji=hold_reaction, at=now, thread_id=thread_id
+                )
             attached = await inbox.mark_updates_attached(
                 s, bot=deps.bot, update_ids=[update.update_id], burst_id=burst_id
             )
@@ -246,15 +274,26 @@ async def attach_received_updates(deps: SharedDeps, *, batch: int = ATTACH_BATCH
     so a backlog Telegram held while the bot was away, which arrives in one batch, stays apart (`domain.place`).
     Returns the bursts that closed on the way (interrupts, the bursts they cut short, the bursts a later-sent part
     ended) and the voice parts whose transcript must be started.
+
+    An update that must wait (`Into.WAIT`) stays `received`, and so does every later one of its forum topic, so a
+    topic keeps its order; the pass ends after that batch, and the transcript that frees it wakes the next one.
     """
     snap = await settings.snapshot(deps)
     ws, hold_reaction = domain.window_settings(snap), snap[defaults.UI_HOLD_REACTION]
     events = BurstEvents()
     while True:
         updates = await inbox.list_received_updates(deps, limit=batch)
+        waiting: set[tuple[int, int | None]] = set()  # (chat, topic) with an update held back in this pass
         for update in updates:
-            events += await _attach(deps, update, ws, hold_reaction=hold_reaction)
-        if len(updates) < batch:
+            place = (update.chat_id, update.thread_id)
+            attached = None if place in waiting else await _attach(deps, update, ws, hold_reaction=hold_reaction)
+            if attached is None:
+                waiting.add(place)
+                continue
+            events += attached
+        if waiting:
+            log.info("burst_parts_waiting", bot=deps.bot.value, topics=len(waiting))
+        if waiting or len(updates) < batch:
             return events
 
 
@@ -281,7 +320,10 @@ async def record_transcript(deps: SharedDeps, *, update_id: int, text: str, ok: 
         outcome = domain.apply_transcript(parts, update_id, text=text, ok=ok, at=now)
         if outcome.alone is not None:
             reason = CloseReason.INTERRUPT
-            closed.append(await _add_closed(s, deps, row.chat_id, outcome.alone, reason=reason, at=now))
+            alone = await _add_closed(
+                s, deps, row.chat_id, outcome.alone, reason=reason, at=now, thread_id=row.thread_id
+            )
+            closed.append(alone)
         if outcome.close_now is not None:
             ended = await _close(s, row, outcome.parts, reason=outcome.close_now, at=now)
             closed += [ended] if ended is not None else []
@@ -289,7 +331,8 @@ async def record_transcript(deps: SharedDeps, *, update_id: int, text: str, ok: 
             await _store_window(s, row, outcome.parts, ws)
         held = next((part for part in outcome.parts if part.update_id == update_id), None)
         if held is not None and held.role is PartRole.HOLD:  # a spoken "kut"
-            await _acknowledge_hold(s, deps, row.chat_id, held, emoji=snap[defaults.UI_HOLD_REACTION], at=now)
+            emoji = snap[defaults.UI_HOLD_REACTION]
+            await _acknowledge_hold(s, deps, row.chat_id, held, emoji=emoji, at=now, thread_id=row.thread_id)
     log.info("transcript_recorded", bot=deps.bot.value, burst_id=row.id, update_id=update_id, ok=ok)
     _log_closed(deps, closed)
     return BurstEvents(closed=domain.in_route_order(closed))

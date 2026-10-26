@@ -2,7 +2,7 @@
 the largest photo, album, reply, forward origin), and `runtime`'s small pure helpers."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from aiogram.types import Message
@@ -36,6 +36,58 @@ def test_a_text_message_carries_its_ids_and_words() -> None:
     )
     assert (update.kind, update.message_id, update.text) == (UpdateKind.TEXT, 501, "BonviHR'da login sahifasini tuzat")
     assert update.attachment is None
+
+
+# --- forum topics (D4 revised 2026-10-26) ----------------------------------------------------------------------------
+FORUM_CHAT: Final = {**tg_chat(DEV_GROUP_ID), "is_forum": True}
+TOPIC_ROOT: Final = {
+    "message_id": 310,
+    "date": TELEGRAM_DATE,
+    "chat": FORUM_CHAT,
+    "forum_topic_created": {"name": "BonviHR", "icon_color": 0x6FB9F0},
+}
+
+
+def test_a_topic_message_carries_its_topic_and_its_implicit_reply_to_the_topic_is_none() -> None:
+    message = _message(
+        text="testlarini ham yoz",
+        chat=FORUM_CHAT,
+        message_thread_id=310,
+        is_topic_message=True,
+        reply_to_message=TOPIC_ROOT,  # how Telegram presents every message of a topic
+    )
+    update = telegram.incoming_of(ORIGIN, message)
+    assert (update.thread_id, update.is_forum, update.reply_to_message_id) == (310, True, None)
+
+
+def test_a_real_reply_inside_a_topic_stays_a_reply() -> None:
+    reply = {"message_id": 420, "date": TELEGRAM_DATE, "chat": FORUM_CHAT, "text": "BonviHR · Savol: …"}
+    message = _message(text="2", chat=FORUM_CHAT, message_thread_id=310, is_topic_message=True, reply_to_message=reply)
+    assert telegram.incoming_of(ORIGIN, message).reply_to_message_id == 420
+
+
+def test_a_reply_in_general_has_no_topic_and_a_flat_group_is_no_forum() -> None:
+    reply = {"message_id": 420, "date": TELEGRAM_DATE, "chat": FORUM_CHAT, "text": "→ BonviHR"}
+    general = telegram.incoming_of(
+        ORIGIN, _message(text="shu", chat=FORUM_CHAT, message_thread_id=420, reply_to_message=reply)
+    )
+    assert (general.thread_id, general.is_forum, general.reply_to_message_id) == (None, True, 420)
+    flat = telegram.incoming_of(ORIGIN, _message(text="salom"))
+    assert (flat.thread_id, flat.is_forum) == (None, False)
+
+
+@pytest.mark.parametrize(
+    ("service", "closed"),
+    [
+        pytest.param({"forum_topic_closed": {}}, True, id="closed"),
+        pytest.param({"forum_topic_reopened": {}}, False, id="reopened"),
+        pytest.param({"forum_topic_edited": {"name": "BonviHR!"}}, None, id="renamed"),
+    ],
+)
+def test_a_topic_service_message_is_no_request(service: dict[str, Any], closed: bool | None) -> None:
+    message = _message(chat=FORUM_CHAT, message_thread_id=310, is_topic_message=True, **service)
+    update = telegram.incoming_of(ORIGIN, message)
+    assert (update.kind, update.thread_id, update.topic_closed) == (UpdateKind.SERVICE, 310, closed)
 
 
 def test_a_link_only_text_is_a_link() -> None:

@@ -494,6 +494,31 @@ async def test_the_group_must_be_a_supergroup_where_the_bot_can_delete_and_pin(m
     assert ("getChat", {"chat_id": str(DEV_GROUP_ID)}) in api.calls
 
 
+async def test_topics_off_is_information_and_on_needs_the_manage_topics_right(mac: Mac) -> None:
+    """D4 revised 2026-10-26: Topics off is the flat group of before (not red); on, the bot must be able to open
+    each project's topic, or none is opened."""
+    api = mac.apis[DEV_BOT_TOKEN]
+    report = await mac.report()
+    assert "dev guruh: Topics o'chiq (is_forum = false): bot oddiy guruh kabi ishlaydi" in texts(report, Level.INFO)
+    assert not any("mavzu" in text for text in failures(report))
+
+    api.results["getChat"] = {"id": DEV_GROUP_ID, "type": "supergroup", "title": "Yordamchi dev", "is_forum": True}
+    report = await mac.report()
+    assert "dev guruh: Topics yoqilgan (is_forum): har loyiha o'z mavzusida ishlaydi" in texts(report, Level.OK)
+    assert "dev guruh: botda Manage topics huquqi yo'q (can_manage_topics = false): loyiha mavzulari ochilmaydi" in (
+        failures(report)
+    )
+
+    api.results["getChatMember"] = lambda params: (
+        {"status": "administrator", "can_delete_messages": True, "can_pin_messages": True, "can_manage_topics": True}
+        if params["user_id"] == BOT_ID
+        else {"status": "creator", "is_anonymous": False}
+    )
+    report = await mac.report()
+    assert "dev guruh: bot mavzu ocha oladi (can_manage_topics)" in texts(report, Level.OK)
+    assert not any("Topics" in text or "mavzu" in text for text in failures(report))
+
+
 async def test_an_owner_posting_as_anonymous_admin_is_red(mac: Mac) -> None:
     api = mac.apis[DEV_BOT_TOKEN]
     api.results["getChatMember"] = lambda params: (

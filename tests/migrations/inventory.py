@@ -68,6 +68,8 @@ KEPT: Final[dict[str, str]] = {
     "digests": "SPEC §4.2 one row per project, rewritten whole by every refresh (a project is kept forever)",
     "poll_offsets": "SPEC §4.2 '—': one row per bot, the next getUpdates offset",
     "kv_state": "SPEC §4.2 '—': a few keys per bot (pinned message id, CLI version, speech status), overwritten",
+    "project_topics": "SPEC §4.2 '—' (0002): one row per project with a forum topic, rewritten when it is opened anew",
+    "topic_chats": "SPEC §4.2 '—' (0002): one row per chat: is it a forum, and Telegram's latest refusal there",
 }
 
 # Retention that exists but that no bot runs yet, and the task that wires it. The test fails once it is wired, so the

@@ -20,7 +20,9 @@ What it checks:
 - Telegram setup (X01), through the Bot API with each bot's token read from the Keychain item its env file names
   (a plaintext token is not used): privacy off for the dev
   bot, join-groups off, an empty command menu, the dev group is a supergroup where the bot is an admin that can delete
-  and pin, and the owner does not post there as an anonymous admin;
+  and pin, and the owner does not post there as an anonymous admin; whether the dev group has Topics on (`is_forum`:
+  off is the flat group of before, so information only) and, when it does, whether the bot may open topics
+  (`can_manage_topics`: without it no project gets its topic, so red) (D4 revised 2026-10-26);
 - power (`pmset` AC sleep 0), free disk and FileVault (the last two for information).
 
 `--discover-ids` calls `getUpdates` once without an offset (nothing is confirmed, so the bot still receives those
@@ -701,17 +703,44 @@ ANONYMOUS_ADMIN_REMINDER: Final = (
 )
 
 
-async def _bot_rights(api: BotApi, group: str, bot_id: int) -> Line:
+async def _bot_rights(api: BotApi, group: str, bot_id: int, *, forum: bool) -> list[Line]:
     try:
         member = _as_dict(await _tg(api, "getChatMember", {"chat_id": group, "user_id": bot_id}))
     except TelegramError as exc:
-        return _tg_fail("dev guruh: bot a'zoligi", exc)
+        return [_tg_fail("dev guruh: bot a'zoligi", exc)]
     rights = member.get("can_delete_messages") is True and member.get("can_pin_messages") is True
     if member.get("status") == "administrator" and rights:
-        return ok("dev guruh: bot admin, xabar o'chira va qadab qo'ya oladi")
+        lines = [ok("dev guruh: bot admin, xabar o'chira va qadab qo'ya oladi")]
+    else:
+        lines = [
+            fail(
+                "dev guruh: bot admin emas yoki o'chirish/qadash huquqi yo'q",
+                "guruh → Administratorlar → botni qo'shing: Delete messages va Pin messages",
+            )
+        ]
+    if forum:
+        lines.append(_topics_right(member))
+    return lines
+
+
+TOPICS_HINT: Final = "guruh → Tahrirlash (Edit) → Topics (Mavzular) ni yoqing"
+MANAGE_TOPICS_HINT: Final = "guruh → Administratorlar → bot → Manage topics (Mavzularni boshqarish) ni yoqing"
+
+
+def _forum_line(chat: Mapping[str, object]) -> Line:
+    """Topics on: General plus one topic per project. Off is the flat group of before: information, not an error."""
+    if chat.get("is_forum") is True:
+        return ok("dev guruh: Topics yoqilgan (is_forum): har loyiha o'z mavzusida ishlaydi")
+    return info("dev guruh: Topics o'chiq (is_forum = false): bot oddiy guruh kabi ishlaydi", TOPICS_HINT)
+
+
+def _topics_right(member: Mapping[str, object]) -> Line:
+    """In a forum the bot opens each project's topic itself; it needs the "Manage topics" admin right for that."""
+    if member.get("can_manage_topics") is True:
+        return ok("dev guruh: bot mavzu ocha oladi (can_manage_topics)")
     return fail(
-        "dev guruh: bot admin emas yoki o'chirish/qadash huquqi yo'q",
-        "guruh → Administratorlar → botni qo'shing: Delete messages va Pin messages",
+        "dev guruh: botda Manage topics huquqi yo'q (can_manage_topics = false): loyiha mavzulari ochilmaydi",
+        MANAGE_TOPICS_HINT,
     )
 
 
@@ -743,7 +772,8 @@ async def _dev_group(api: BotApi, values: Mapping[str, str], bot_id: int) -> lis
         lines = [ok(f'dev guruh: supergroup "{chat.get("title", "")}"')]
     else:
         lines = [fail(f"dev guruh: turi {chat.get('type')!s}, kerak supergroup")]
-    lines.append(await _bot_rights(api, group, bot_id))
+    lines.append(_forum_line(chat))
+    lines.extend(await _bot_rights(api, group, bot_id, forum=chat.get("is_forum") is True))
     owner = values.get("OWNER_ID", "")
     if owner.isdigit():
         lines.append(await _owner_membership(api, group, int(owner)))

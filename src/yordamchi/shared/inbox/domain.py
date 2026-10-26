@@ -10,6 +10,10 @@ One Telegram update goes through intake in this order:
 5. `plan_ack` decides what the owner sees: a message holding a key is deleted and a masked reply follows; any other
    message gets the "seen" reaction; typing shows while work for the chat is pending.
 
+In a forum dev group (D4 revised 2026-10-26) an update also says which topic it is in (`thread_id`: None for General)
+and whether the chat is a forum at all; the masked reply and the typing hint go to that topic. A service message (a
+topic closed, reopened or renamed) is stored for the record and carries no request.
+
 Later stages (burst, voice, routing) read only `StoredUpdate`s, which hold the redacted content.
 """
 
@@ -28,6 +32,7 @@ from yordamchi.core.paths import BotName
 from yordamchi.core.redact import SecretHit
 from yordamchi.core.text import BotText, join
 from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
+from yordamchi.shared.topics import domain as topics
 from yordamchi.shared.vault import domain as vault
 from yordamchi.shared.vault.domain import NewSecret, SecretRef
 
@@ -48,6 +53,7 @@ class UpdateKind(StrEnum):
     LINK = "link"  # a text that is only URLs: it waits like media (SPEC §4.4)
     EDITED = "edited"
     MEMBER = "member"  # my_chat_member in the owner's own chat
+    SERVICE = "service"  # a service message in the owner's chat: a forum topic closed, reopened, renamed (no request)
     OTHER = "other"
 
 
@@ -143,10 +149,21 @@ class IncomingUpdate:
     # synthetic update. Telegram hands over what it held while the bot was away in one batch, so the receipt time
     # alone cannot tell messages sent minutes apart (the burst places by this one, SPEC §4.4).
     sent_at: datetime | None = None
+    # Forum topics (D4 revised 2026-10-26): Telegram's `message_thread_id` and `is_topic_message`. Only a topic
+    # message has a topic (`thread_id`): a reply in General carries a thread id too.
+    message_thread_id: int | None = None
+    is_topic_message: bool = False
+    is_forum: bool | None = None  # the chat's `is_forum`, for a group message; None: not said (a private chat)
+    topic_closed: bool | None = None  # a service message: the owner closed (True) or reopened (False) the topic
 
     @property
     def forwarded(self) -> bool:
         return self.forward is not None
+
+    @property
+    def thread_id(self) -> int | None:
+        """The forum topic the message is in; None for General and for any chat that is no forum."""
+        return topics.topic_of(self.message_thread_id, is_topic_message=self.is_topic_message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +198,7 @@ class StoredUpdate:
     received_at: datetime
     content: Content
     sent_at: datetime | None = None  # `IncomingUpdate.sent_at`, kept in `payload_json`; None if it had none
+    thread_id: int | None = None  # `IncomingUpdate.thread_id`, kept in `payload_json`; None: General
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +239,7 @@ def kind_for_text(text: str) -> UpdateKind:
 
 
 def initial_status(update: IncomingUpdate, *, vault_failed: bool) -> UpdateStatus:
-    if update.kind is UpdateKind.MEMBER:
+    if update.kind in {UpdateKind.MEMBER, UpdateKind.SERVICE}:
         return UpdateStatus.IGNORED
     if vault_failed:
         return UpdateStatus.FAILED
@@ -304,12 +322,15 @@ def redacted_content(update: IncomingUpdate, scan: SecretScan, stored: Mapping[s
 
 
 # --- payload_json -------------------------------------------------------------------------------------------------
-def payload_json(content: Content, scrub: Callable[[str], str], *, sent_at: datetime | None = None) -> JsonObject:
+def payload_json(
+    content: Content, scrub: Callable[[str], str], *, sent_at: datetime | None = None, thread_id: int | None = None
+) -> JsonObject:
     """The stored form of `content`; every string passes `scrub` (SPEC §4.1 ✱: redacted before the write).
 
     `sent_at` (intake passes `IncomingUpdate.sent_at`) is stored beside the content as an ISO instant: an instant is
     not content, so it is not scrubbed, as `received_at` is not. It lives here rather than in a column because only
-    a `received` row needs it, and retention never nulls the payload of one (`sent_at_of` reads it back).
+    a `received` row needs it, and retention never nulls the payload of one (`sent_at_of` reads it back). The forum
+    topic (`thread_id`, an id) is kept the same way, for the same reason (`thread_of` reads it back).
     """
     attachment: JsonValue = None
     if content.attachment is not None:
@@ -333,6 +354,8 @@ def payload_json(content: Content, scrub: Callable[[str], str], *, sent_at: date
     stored = {key: json_value.map_strings(value, scrub) for key, value in payload.items()}
     if sent_at is not None:  # likewise: a synthetic update's payload has no send time
         stored["sent_at"] = sent_at.isoformat()
+    if thread_id is not None:  # likewise: a message in General keeps the shape it always had
+        stored["thread_id"] = thread_id
     return stored
 
 
@@ -380,6 +403,11 @@ def sent_at_of(raw: JsonValue) -> datetime | None:
     except ValueError:
         return None
     return value if value.tzinfo is not None else None
+
+
+def thread_of(raw: JsonValue) -> int | None:
+    """The forum topic `payload_json` holds; None for General, an older row, a nulled payload or an unreadable one."""
+    return _int(raw.get("thread_id")) if isinstance(raw, dict) else None
 
 
 def _forward(raw: JsonValue) -> ForwardSource | None:

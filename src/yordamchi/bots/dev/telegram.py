@@ -62,23 +62,62 @@ def _sent_at(message: Message, *, edited: bool) -> datetime:
     return message.date.astimezone(UTC)
 
 
+def _topic_closed(message: Message) -> bool | None:
+    """A forum service message: the owner closed (True) or reopened (False) the topic it is in; None otherwise."""
+    if message.forum_topic_closed is not None:
+        return True
+    if message.forum_topic_reopened is not None:
+        return False
+    return None
+
+
+def _is_service(message: Message) -> bool:
+    """A forum service message (a topic opened, renamed, closed, reopened; General hidden or shown): no request."""
+    return any(
+        item is not None
+        for item in (
+            message.forum_topic_created,
+            message.forum_topic_edited,
+            message.forum_topic_closed,
+            message.forum_topic_reopened,
+            message.general_forum_topic_hidden,
+            message.general_forum_topic_unhidden,
+        )
+    )
+
+
+def _real_reply(message: Message) -> Message | None:
+    """The message this one replies to. In a forum topic Telegram presents every message as a reply to the topic's
+    first (service) message, `message_thread_id` itself: that is the topic, not a reply, so it counts as none."""
+    reply = message.reply_to_message
+    if reply is None or not message.is_topic_message:
+        return reply
+    if reply.message_id == message.message_thread_id or reply.forum_topic_created is not None:
+        return None
+    return reply
+
+
 def incoming_of(origin: OwnerOrigin, message: Message, *, edited: bool = False) -> IncomingUpdate:
     """One admitted message (or its edit) as the inbox takes it: kind, text, caption, attachment, album, reply, when
     the owner sent it (`_sent_at`), and where it was forwarded from (`inbox.domain.forward_of`: someone else's words
     are material, never a command). A message with neither words nor a file we read (a sticker, a location) is
-    `other`. Anything but the dev bot's minted `OwnerOrigin` raises before anything is read (`require_owner_origin`)."""
+    `other`; a forum service message is `service`. In a forum it also carries its topic (`message_thread_id`,
+    `is_topic_message`), and a group message whether the group is a forum (D4 revised 2026-10-26). Anything but the
+    dev bot's minted `OwnerOrigin` raises before anything is read (`require_owner_origin`)."""
     origin = require_owner_origin(origin, BotName.DEV)
     found = _attachment(message)
     text = message.text
     if edited:
         kind = UpdateKind.EDITED
+    elif _is_service(message):
+        kind = UpdateKind.SERVICE
     elif found is not None:
         kind = found[0]
     elif text is not None:
         kind = inbox_domain.kind_for_text(text)
     else:
         kind = UpdateKind.OTHER
-    reply = message.reply_to_message
+    reply = _real_reply(message)
     return IncomingUpdate(
         bot=origin.bot,
         update_id=origin.update_id,
@@ -93,6 +132,10 @@ def incoming_of(origin: OwnerOrigin, message: Message, *, edited: bool = False) 
         reply_to_message_id=None if reply is None else reply.message_id,
         forward=inbox_domain.forward_of(message.model_dump(mode="json")),
         sent_at=_sent_at(message, edited=edited),
+        message_thread_id=message.message_thread_id,
+        is_topic_message=message.is_topic_message is True,
+        is_forum=message.chat.is_forum is True if message.chat.type == "supergroup" else None,
+        topic_closed=_topic_closed(message),
     )
 
 

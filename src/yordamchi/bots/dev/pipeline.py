@@ -20,6 +20,15 @@ Each burst takes exactly one of these paths, first match wins:
    Words naming a watched server go to `dev/servers` instead: its status (a background job) or a read-only server
    investigation (T31).
 
+Forum topics (D4 revised 2026-10-26; SPEC §3.2.16). A burst written in a project's own topic
+(`topics.project_of_thread`) takes the same path with that project in mind: a bare "to'xta", "davom ettir", "qayta
+yubor", "yangi sessiya" or `/hisobot` acts on it; it is the project an answer is for, so a "ha" or a "2" there binds
+only that project's open items; no clarification is offered it; and step 7 sends it to that project with no routing
+model (`turns.route_topic`, method `topic`). Every answer to a burst goes to the topic it was written in (General:
+none). A burst in General, or in a topic the bot did not open, is routed as before; its work then goes on in the
+project's own topic. With `topics.enabled` off every burst is read as one in General, and the bot's topics are set
+aside at each pass.
+
 Commands, interrupts and answers read only the owner's own words (`TurnInput.own_text`): a message he forwarded is
 material, never an order (T33). Steps that need the owner's authority (4, 5) get the `OwnerOrigin` intake stored
 the update with, judged again by today's access policy (`inbox.origin_of_update`); without one they are skipped.
@@ -72,9 +81,10 @@ from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox.domain import UpdateKind
 from yordamchi.shared.outbox import domain as outbox_domain
 from yordamchi.shared.outbox import service as outbox
-from yordamchi.shared.outbox.domain import About, Kind
+from yordamchi.shared.outbox.domain import About, Kind, Thread
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
+from yordamchi.shared.topics import service as topics
 from yordamchi.shared.voice import service as voice
 
 log = get_log(__name__)
@@ -107,6 +117,19 @@ _OWNER_ONLY: Final = frozenset(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class Where:
+    """Where a burst was written (D4 revised 2026-10-26): its forum topic (`thread.id` None: General, or a group with
+    no Topics), and the project that topic belongs to (None: General, a topic the bot did not open, or
+    `topics.enabled` off)."""
+
+    thread: Thread
+    project: str | None = None
+
+
+GENERAL_BURST: Final = Where(Thread())
+
+
 @dataclass(slots=True)
 class Pipeline:
     """Built once by `bots/dev/runtime.py`. `restarted` lists the projects whose turns the last restart cut off, so a
@@ -135,6 +158,7 @@ class Pipeline:
 
     async def drain(self) -> int:
         """Handle every closed burst, interrupts first, one at a time, each under `guarded()`. Returns how many."""
+        await self._follow_topics_setting()
         handled = 0
         while True:
             closed = await burst.list_closed_bursts(self.deps, limit=BATCH + len(self.failed))
@@ -154,29 +178,50 @@ class Pipeline:
         if item.synthetic:
             await burst.cancel_burst(self.deps, item.burst_id)  # the P2 self-test: nothing to route
             return True
+        where = await self._where(item)
         if (kind := item.interrupt) is not None:
-            await self._interrupt(item, kind)
+            await self._interrupt(item, kind, where)
             return True
         command = self._command_of(item)
         origin = await inbox.origin_of_update(self.deps, item.parts[-1].update_id)
-        if command is not None and command.early and await self._command(item, command, origin):
+        if command is not None and command.early and await self._command(item, command, origin, where):
             return True
         facts = await self._facts(item)
-        resolution = await routing.answer_clarification(self.deps, item, facts)
+        # A clarification is asked where routing runs: never of a burst written in a project's own topic.
+        resolution = await routing.answer_clarification(self.deps, item, facts) if where.project is None else None
         if resolution is not None:
             await self._resolved(item, resolution)
             if resolution.consumed:
                 return True
-        if origin is not None and await self._answered(item, origin):
+        if origin is not None and await self._answered(item, origin, where):
             return True
-        if command is not None and not command.early and await self._command(item, command, origin):
+        if command is not None and not command.early and await self._command(item, command, origin, where):
             return True
         correction = await routing.correct_route(self.deps, item, facts)
         if correction is not None:
-            await self._corrected(correction)
+            await self._corrected(item, correction)
             return True
-        await self._route(item, facts)
+        await self._route(item, facts, where)
         return True
+
+    # --- forum topics (D4 revised 2026-10-26) ---------------------------------------------------------------------
+    async def _where(self, item: TurnInput) -> Where:
+        """The topic the burst was written in, and the project whose topic it is (module docstring)."""
+        if item.thread_id is None:
+            return GENERAL_BURST
+        thread = Thread(item.thread_id)
+        snap = await settings.snapshot(self.deps)
+        if not snap[defaults.TOPICS_ENABLED]:
+            return Where(thread)
+        project = await topics.project_of_thread(self.deps, chat_id=item.chat_id, thread_id=item.thread_id)
+        return Where(thread, project)
+
+    async def _follow_topics_setting(self) -> None:
+        """`topics.enabled` off: the bot's topics are set aside, so its projects' work goes to General from the next
+        message on (a project's next work reopens its topic once the setting is on again)."""
+        snap = await settings.snapshot(self.deps)
+        if not snap[defaults.TOPICS_ENABLED]:
+            await topics.set_topics_aside(self.deps, chat_id=snap[defaults.ACCESS_DEV_GROUP_ID])
 
     # --- facts and replies --------------------------------------------------------------------------------------
     async def _facts(self, item: TurnInput) -> RouteFacts:
@@ -198,7 +243,8 @@ class Pipeline:
     async def _reply(
         self, item: TurnInput, text: BotText, *, kind: Kind = Kind.REPORT, ref: str = "", project: str | None = None
     ) -> str:
-        """Queue one answer to this burst. Returns the outbox key of its first part."""
+        """Queue one answer to this burst, in the topic it was written in (General: none), also when it is about a
+        project that has a topic of its own. Returns the outbox key of its first part."""
         snap = await settings.snapshot(self.deps)
         ref = ref or f"burst-{item.burst_id}"
         await outbox.enqueue_reply(
@@ -209,6 +255,7 @@ class Pipeline:
             ref=ref,
             max_parts=snap[defaults.OUTBOX_MAX_PARTS],
             about=About(project_id=project),
+            thread=Thread(item.thread_id),
         )
         return outbox_domain.dedupe_key(kind, ref, 0)
 
@@ -248,7 +295,7 @@ class Pipeline:
         return tuple(dict.fromkeys(turn.project_id for turn in active if turn.status in _WORKING))
 
     # --- 1. interrupts (SPEC §3.2.5) ----------------------------------------------------------------------------
-    async def _interrupt(self, item: TurnInput, kind: InterruptKind) -> None:
+    async def _interrupt(self, item: TurnInput, kind: InterruptKind, where: Where) -> None:
         if not await burst.cancel_burst(self.deps, item.burst_id):
             return  # another pass handled it
         if kind is InterruptKind.HOLD:
@@ -260,7 +307,8 @@ class Pipeline:
                 await self._reply(item, stopped.reply, kind=Kind.NOTICE)
             return
         instruction = _redirected(text) if kind is InterruptKind.REDIRECT else ""
-        target = await self._replied(item) or await self._named(instruction)
+        # In a project's topic, a bare "to'xta" stops that project, whatever else works.
+        target = await self._replied(item) or await self._named(instruction) or where.project
         if target is None:
             working = await self._working()
             if len(working) > 1:
@@ -290,10 +338,10 @@ class Pipeline:
             return None
         return intents.command_of(item.own_text)
 
-    async def _command(self, item: TurnInput, command: Command, origin: OwnerOrigin | None) -> bool:
+    async def _command(self, item: TurnInput, command: Command, origin: OwnerOrigin | None, where: Where) -> bool:
         """Carry out one recognised command. False when it does not apply after all (the project it names is not
         one of ours, a settings cue sits in work for a named project, or it needs the owner's authority and there
-        is none): the burst goes on down the path."""
+        is none): the burst goes on down the path. A command that names no project acts on the topic's project."""
         project: str | None = None
         if command.project is not None:
             project = await self._named(command.project)
@@ -315,13 +363,14 @@ class Pipeline:
         if origin is not None and needs_origin:
             await self._owner_command(item, command, origin, project)
             return True
-        await self._plain_command(item, command, project)
+        await self._plain_command(item, command, project, where)
         return True
 
-    async def _plain_command(self, item: TurnInput, command: Command, project: str | None) -> None:
+    async def _plain_command(self, item: TurnInput, command: Command, project: str | None, where: Where) -> None:
         if await self._talk(item, command):
             return
         deps, intent = self.deps, command.intent
+        project = project or where.project  # "to'xta", "davom ettir", "yangi sessiya", `/hisobot` in a project topic
         if intent is Intent.SHOW_HEALTH:
             text = await health.show_health(deps, self.health, work=partial(turns.work_status, deps))
             await self._reply(item, text)
@@ -331,7 +380,10 @@ class Pipeline:
             await cost.show_cost(
                 deps, chat_id=item.chat_id, ref=f"burst-{item.burst_id}", reply_to=item.parts[0].message_id
             )
-        elif intent is Intent.NEW_SESSION and project is not None:
+        elif intent is Intent.NEW_SESSION:
+            if project is None:
+                await self._reply(item, S.WHICH_PROJECT_NAME(), kind=Kind.NOTICE)
+                return
             text = await turns.new_session(deps, self.turns, project)
             await self._reply(item, text, kind=Kind.NOTICE, project=project)
         elif intent is Intent.REPORT:
@@ -409,25 +461,34 @@ class Pipeline:
             # `dev/questions` asked which project's question an answer was for: it sends its own confirmation.
             await questions.answer_clarified(self.deps, self.turns, item, asked=asked, project_id=resolution.project_id)
             return
-        await self._reply(item, resolution.reply, kind=Kind.ECHO, ref=f"clarified-{resolution.clarification_id}")
-        if not picked or asked is None or resolution.project_id is None:
-            return
         project, intent = resolution.project_id, resolution.intent or Routed.INSTRUCT
-        if intent in digest_domain.REPORT_INTENTS:
-            await self._report(asked, routing_domain.item_text(asked), project, intent, route_id=resolution.route_id)
-        elif (kind := _TURN_KINDS.get(intent)) is not None:
+        kind = _TURN_KINDS.get(intent)
+        echo_ref = f"clarified-{resolution.clarification_id}"
+        if picked and asked is not None and project is not None and kind is not None:
+            # Work: its echo goes to the project's topic, and where he answered gets one line pointing there.
             images = await turns.save_images(self.deps, asked)
             request = turns_domain.request_from_input(
                 asked, project, kind=kind, route_id=resolution.route_id, images=images
             )
-            await turns.submit_turn(self.deps, self.turns, request)
+            await turns.submit_routed(
+                self.deps, self.turns, request, echo=resolution.reply, ref=echo_ref, from_thread=item.thread_id
+            )
+            return
+        await self._reply(item, resolution.reply, kind=Kind.ECHO, ref=echo_ref)
+        if not picked or asked is None or project is None:
+            return
+        if intent in digest_domain.REPORT_INTENTS:
+            await self._report(asked, routing_domain.item_text(asked), project, intent, route_id=resolution.route_id)
         elif intent in _ROUTED_LATER:
             await self._reply(asked, S.NOT_YET(phase=intents.LATER_PHASE), kind=Kind.NOTICE)
 
     # --- 4. answers to open items -------------------------------------------------------------------------------
-    async def _answered(self, item: TurnInput, origin: OwnerOrigin) -> bool:
-        """A wrong-target revert offer, a gate decision or an agent question took the burst."""
+    async def _answered(self, item: TurnInput, origin: OwnerOrigin, where: Where) -> bool:
+        """A wrong-target revert offer, a gate decision or an agent question took the burst. In a project's topic,
+        that project counts as named: a bare answer there is for its items only."""
         named = routing_domain.find_mentions(item.own_text, await projects.list_projects(self.deps)).named
+        if not named and where.project is not None:
+            named = (where.project,)
         others = bool(await questions.open_items(self.deps)) or bool(await gate.pending_items(self.deps))
         reply = RevertReply.of(item, mentioned_projects=named, others_pending=others)  # own words only (T33)
         revert = await turns.answer_revert(self.deps, origin, reply)
@@ -435,7 +496,7 @@ class Pipeline:
             if await burst.cancel_burst(self.deps, item.burst_id) and revert.reply is not None:
                 await self._reply(item, revert.reply, kind=Kind.NOTICE)
             return True
-        answer = await questions.answer_owner(self.deps, self.turns, origin, item)
+        answer = await questions.answer_owner(self.deps, self.turns, origin, item, topic_project=where.project)
         if answer is None:
             return False
         if answer.outcome is AnswerOutcome.ASKED and answer.clarification_id is not None and answer.message_key:
@@ -443,7 +504,7 @@ class Pipeline:
         return True
 
     # --- 6. "bu X uchun edi" ------------------------------------------------------------------------------------
-    async def _corrected(self, correction: Correction) -> None:
+    async def _corrected(self, item: TurnInput, correction: Correction) -> None:
         snap = await settings.snapshot(self.deps)
         await outbox.enqueue_reply(
             self.deps,
@@ -453,6 +514,7 @@ class Pipeline:
             ref=f"correction-{correction.route_id or correction.to_project}-{correction.burst_id}",
             max_parts=snap[defaults.OUTBOX_MAX_PARTS],
             about=About(project_id=correction.to_project),
+            thread=Thread(item.thread_id),
         )
         if correction.kind is CorrectionKind.MOVED and correction.from_project is not None:
             await turns.correct_wrong_target(
@@ -464,7 +526,11 @@ class Pipeline:
             )
 
     # --- 7. routing ---------------------------------------------------------------------------------------------
-    async def _route(self, item: TurnInput, facts: RouteFacts) -> None:
+    async def _route(self, item: TurnInput, facts: RouteFacts, where: Where) -> None:
+        if where.project is not None:  # written in the project's own topic: its work, no routing model
+            images = await turns.save_images(self.deps, item)
+            await turns.route_topic(self.deps, self.turns, item, where.project, images=images)
+            return
         text = routing_domain.item_text(item)
         snap = await settings.snapshot(self.deps)
         if servers_domain.mentioned_hosts(text, tuple(snap[defaults.SERVERS_HOSTS])):
@@ -517,18 +583,19 @@ class Pipeline:
                 chat_id=item.chat_id,
                 ref=ref,
                 burst_id=item.burst_id,
+                from_thread=item.thread_id,
             )
         elif decision.intent in {Routed.SERVER_STATUS, Routed.INVESTIGATE, *digest_domain.REPORT_INTENTS}:
             self._server_status(item, text, ref=ref)
         elif (kind := _TURN_KINDS.get(decision.intent)) is not None and decision.project_id is not None:
-            if routed.reply is not None:
-                await self._reply(item, routed.reply, kind=Kind.ECHO, ref=ref, project=decision.project_id)
             images = await turns.save_images(self.deps, item)
             merge = decision.outcome is Outcome.MERGE
             request = turns_domain.request_from_input(
                 item, decision.project_id, kind=kind, merge=merge, route_id=routed.route_id, images=images
             )
-            await turns.submit_turn(self.deps, self.turns, request)
+            await turns.submit_routed(
+                self.deps, self.turns, request, echo=routed.reply, ref=ref, from_thread=item.thread_id
+            )
         elif decision.intent in _ROUTED_LATER:
             await self._reply(item, S.NOT_YET(phase=intents.LATER_PHASE), kind=Kind.NOTICE)
 
@@ -549,7 +616,12 @@ class Pipeline:
         self, item: TurnInput, text: str, project: str | None, intent: Routed, *, route_id: int | None = None
     ) -> None:
         question = ReportQuestion(
-            text=text, project_id=project, intent=intent, burst_id=item.burst_id, route_id=route_id
+            text=text,
+            project_id=project,
+            intent=intent,
+            burst_id=item.burst_id,
+            route_id=route_id,
+            thread_id=item.thread_id,
         )
         await self._answer_report(item, question)
 

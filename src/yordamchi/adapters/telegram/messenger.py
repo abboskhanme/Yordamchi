@@ -9,6 +9,9 @@
   the error goes up still `retryable`, and the outbox decides with its `dedupe_key` (SPEC §4.6, dup ≤ 2 %).
   Edits, deletes, reactions, chat actions, pins, leave, drafts and getFile are idempotent and are retried.
 - Files: inbound ≤ 20 MB (getFile), outbound ≤ 50 MB, photos ≤ 10 MB (NFR-CAP-04), checked before any transfer.
+- Forum topics (D4 revised 2026-10-26): every send and typing hint carries `message_thread_id` when the caller names a
+  topic. `createForumTopic` is a send (never resent on an unknown outcome: it would open a second topic);
+  `reopenForumTopic` is idempotent, and a topic that is open already (`TOPIC_NOT_MODIFIED`) counts as reopened.
 - One log line per call: `telegram_call_finished` or `telegram_call_failed` with the API method, chat id,
   outcome, reason, attempts and duration. Never text, captions, file ids or the token.
 
@@ -26,11 +29,13 @@ from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.exceptions import ClientDecodeError, TelegramAPIError
 from aiogram.methods import (
+    CreateForumTopic,
     DeleteMessage,
     EditMessageText,
     GetFile,
     LeaveChat,
     PinChatMessage,
+    ReopenForumTopic,
     SendChatAction,
     SendDocument,
     SendMessage,
@@ -57,7 +62,7 @@ from yordamchi.core.errors import CallTimedOut, ConfigInvalid, ExternalError, Ra
 from yordamchi.core.log import get_log
 from yordamchi.core.retry import DEFAULT_ATTEMPTS, DEFAULT_BASE_DELAY_S, DEFAULT_MAX_DELAY_S, retrying
 from yordamchi.core.text import BotText
-from yordamchi.ports.messenger import ChatAction, Messenger, OutboundFile, ParseMode, SentMessage
+from yordamchi.ports.messenger import ChatAction, ForumTopic, Messenger, OutboundFile, ParseMode, SentMessage
 
 log = get_log(__name__)
 
@@ -69,6 +74,7 @@ _DELETE_REFUSED: Final = frozenset(
     {"message_not_found", "message_cant_be_deleted", "not_enough_rights", "bot_not_member", "chat_not_found"}
 )
 _ALREADY_LEFT: Final = frozenset({"bot_not_member", "chat_not_found"})
+_ALREADY_OPEN: Final = frozenset({"topic_not_modified"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,11 +118,13 @@ class TelegramMessenger:
         reply_to: int | None = None,
         parse_mode: ParseMode = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage:
         method = SendMessage(
             chat_id=chat_id,
             text=text,
+            message_thread_id=thread_id,
             parse_mode=parse_mode,
             disable_notification=disable_notification,
             reply_parameters=_reply(reply_to),
@@ -142,8 +150,11 @@ class TelegramMessenger:
         await self.react(chat_id, message_id, emoji, timeout=timeout)
         await self._call(SetMessageReaction(chat_id=chat_id, message_id=message_id, reaction=[]), timeout=timeout)
 
-    async def chat_action(self, chat_id: int, action: ChatAction, *, timeout: float) -> None:
-        await self._call(SendChatAction(chat_id=chat_id, action=action.value), timeout=timeout)
+    async def chat_action(
+        self, chat_id: int, action: ChatAction, *, thread_id: int | None = None, timeout: float
+    ) -> None:
+        method = SendChatAction(chat_id=chat_id, action=action.value, message_thread_id=thread_id)
+        await self._call(method, timeout=timeout)
 
     async def pin(self, chat_id: int, message_id: int, *, timeout: float) -> None:
         # Silent: the heartbeat pin (SPEC §2.8) must not notify the group each time it moves.
@@ -157,6 +168,16 @@ class TelegramMessenger:
     async def send_draft(self, chat_id: int, draft_id: int, text: BotText, *, timeout: float) -> None:
         method = SendMessageDraft(chat_id=chat_id, draft_id=draft_id, text=text, parse_mode=None)
         await self._call(method, timeout=timeout)
+
+    # --- Messenger: forum topics ---
+    async def create_forum_topic(self, chat_id: int, name: str, *, icon_color: int, timeout: float) -> ForumTopic:
+        method = CreateForumTopic(chat_id=chat_id, name=name, icon_color=icon_color)
+        topic = await self._call(method, timeout=timeout, idempotent=False)
+        return ForumTopic(thread_id=topic.message_thread_id, name=topic.name, icon_color=topic.icon_color)
+
+    async def reopen_forum_topic(self, chat_id: int, thread_id: int, *, timeout: float) -> None:
+        method = ReopenForumTopic(chat_id=chat_id, message_thread_id=thread_id)
+        await self._call_or_refused(method, timeout=timeout, accept=_ALREADY_OPEN)
 
     # --- Messenger: files ---
     async def download(self, file_id: str, *, max_bytes: int, timeout: float) -> bytes:
@@ -185,10 +206,12 @@ class TelegramMessenger:
         caption: BotText | None = None,
         reply_to: int | None = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage:
         method = SendPhoto(
             chat_id=chat_id,
+            message_thread_id=thread_id,
             photo=await _upload(photo, limit=OUTBOUND_PHOTO_MAX_BYTES),
             caption=caption,
             parse_mode=None,
@@ -205,10 +228,12 @@ class TelegramMessenger:
         caption: BotText | None = None,
         reply_to: int | None = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage:
         method = SendDocument(
             chat_id=chat_id,
+            message_thread_id=thread_id,
             document=await _upload(document, limit=OUTBOUND_MAX_BYTES),
             caption=caption,
             parse_mode=None,
@@ -226,10 +251,12 @@ class TelegramMessenger:
         reply_to: int | None = None,
         disable_notification: bool = False,
         duration_s: int | None = None,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage:
         method = SendVoice(
             chat_id=chat_id,
+            message_thread_id=thread_id,
             voice=await _upload(voice, limit=OUTBOUND_MAX_BYTES),
             caption=caption,
             parse_mode=None,
@@ -247,10 +274,12 @@ class TelegramMessenger:
         caption: BotText | None = None,
         reply_to: int | None = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage:
         method = SendVideo(
             chat_id=chat_id,
+            message_thread_id=thread_id,
             video=await _upload(video, limit=OUTBOUND_MAX_BYTES),
             caption=caption,
             parse_mode=None,

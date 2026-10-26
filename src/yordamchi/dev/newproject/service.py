@@ -516,6 +516,10 @@ async def _create(deps: DevDeps, state: NewProjectState, draft_id: int) -> None:
         repo_url=repo_url,
         repo_problem=repo_problem,
     )
+    # D4 revised 2026-10-26: the new project's own forum topic opens with its first work, the plan; the planning
+    # line, the plan's documents and "Rejani tasdiqlaysizmi?" go there, and General (where the draft was told) gets
+    # one line pointing to it.
+    topic = await turns.open_topic(deps, project.id, snap=snap)
     now = deps.clock.now()
     async with deps.db.uow() as s:
         current = await store.get_draft(s, draft_id)  # parts added while the folder was made are in the plan too
@@ -530,6 +534,9 @@ async def _create(deps: DevDeps, state: NewProjectState, draft_id: int) -> None:
             submitted = await turns.submit(s, request=request, at=now)
             await store.set_draft(s, draft_id, plan_turn_id=submitted.turn_id)
             await _tell(s, deps, snap, text, ref=f"{draft_id}-planning", project_id=project.id)
+            await turns.point_to_topic(
+                s, deps, snap, project_id=project.id, topic=topic, from_thread=None, ref=f"newproject-{draft_id}-topic"
+            )
     if moved:
         state.turns.poke()
         log.info("newproject_plan_queued", draft_id=draft_id, project=project.id, repo=repo_url is not None)

@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from tests.factories import (
+    DEV_GROUP_ID,
     FAKE_KEYS,
     GITHUB_OWNER,
     Fakes,
@@ -45,6 +46,7 @@ from yordamchi.ports.agent import TurnResult
 from yordamchi.shared.outbox import store as outbox_store
 from yordamchi.shared.outbox.models import OutboxMessage
 from yordamchi.shared.settings import defaults
+from yordamchi.shared.topics import service as topics
 
 ORIGIN = make_owner_origin()
 NAME = "KitobBot"
@@ -281,6 +283,28 @@ async def test_draft_plan_ha_build_end_to_end(
     assert (row.project_id, row.plan_turn_id, row.build_turn_id) == (NAME, plan_turn_id, built.turn_id)
     assert row.closed_at is not None
     assert S.NEWPROJECT_DONE(project=NAME) in "\n".join(await texts(dev_deps))
+
+
+async def test_in_a_forum_the_new_project_gets_its_own_topic_with_its_plan(
+    dev_deps: DevDeps, fakes: Fakes, state: NewProjectState, root: Path
+) -> None:
+    """D4 revised 2026-10-26: "If I ask in General to create a new project, it creates a separate topic for exactly
+    that project and works with it there." Its plan is its first work: the topic opens then; the planning line, the
+    plan's documents and "Rejani tasdiqlaysizmi?" go there, and General gets one line pointing to it."""
+    async with dev_deps.db.uow() as s:
+        await topics.note_chat(s, chat_id=DEV_GROUP_ID, is_forum=True, at=fakes.clock.now())
+    await reach_approval(dev_deps, fakes, state, root)
+    [created] = fakes.messenger.sent("create_forum_topic")
+    assert created.payload["name"] == NAME
+    async with dev_deps.db.read() as s:
+        thread = await topics.thread_of_project(s, chat_id=DEV_GROUP_ID, project_id=NAME)
+    assert thread is not None
+    rows = await outbox_rows(dev_deps)
+    about_it = [row for row in rows if row.project_id == NAME and row.op in {"send_text", "send_document"}]
+    pointer = [row for row in about_it if row.kind == "echo"]
+    assert [row.thread_id for row in pointer] == [None]  # General's one line
+    assert {row.thread_id for row in about_it if row not in pointer} == {thread}  # the rest, in its topic
+    assert any("tasdiqlaysizmi" in text_of(row) for row in about_it if row.thread_id == thread)
 
 
 async def test_planning_denies_a_code_write_and_the_build_allows_it(

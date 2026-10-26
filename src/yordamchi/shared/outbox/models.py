@@ -3,6 +3,10 @@
 - `outbox_messages`: every Telegram call either bot makes for the owner, written before the call. UNIQUE(dedupe_key)
   makes enqueueing idempotent; `payload_json` holds only scrubbed content and only the keys its op allows. A finished
   row (sent, failed, superseded, cancelled) is deleted after 30 days; a pending or sending row is never touched.
+- `thread_id` (since `0002`): the forum topic a message or a typing hint goes to; NULL is the chat itself (General in
+  a forum). Set when the row is written: the caller's thread (an answer goes where the owner wrote), else the open
+  topic of the project the row is about (`shared/topics`), else NULL. Edits, deletes, reactions and pins name their
+  message, so they carry none.
 - `message_links`: which project, turn, question or decision each message we posted belongs to, so routing can use a
   reply as one signal (SPEC §3.2.6). Kept 90 days. `outbox_id` is a plain column: the outbox row it came from is
   deleted after 30 days, so a foreign key could not hold.
@@ -46,6 +50,7 @@ class OutboxMessage(Base):
     turn_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime]
     sent_at: Mapped[datetime | None]  # the latest successful call (a typing hint updates it on each repeat)
+    thread_id: Mapped[int | None] = mapped_column(BigInteger)  # the forum topic; NULL: the chat itself (0002)
 
 
 class MessageLink(Base):

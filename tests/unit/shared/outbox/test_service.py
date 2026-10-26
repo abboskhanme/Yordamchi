@@ -180,6 +180,7 @@ class _ReadingMessenger(FakeMessenger):
         caption: BotText | None = None,
         reply_to: int | None = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage:
         self.documents.append(document.path.read_bytes())
@@ -189,6 +190,7 @@ class _ReadingMessenger(FakeMessenger):
             caption=caption,
             reply_to=reply_to,
             disable_notification=disable_notification,
+            thread_id=thread_id,
             timeout=timeout,
         )
 
@@ -423,6 +425,7 @@ class _HangingMessenger(FakeMessenger):
         reply_to: int | None = None,
         parse_mode: object = None,
         disable_notification: bool = False,
+        thread_id: int | None = None,
         timeout: float,
     ) -> SentMessage:
         await asyncio.Event().wait()  # an adapter that ignores its own timeout

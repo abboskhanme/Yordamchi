@@ -1181,6 +1181,24 @@ ERR_QA_NOTHING_MORE = Msg("Oxirgi javob allaqachon to'liq edi — qo'shimcha mat
 CHAT_FAILED = Msg("Uzr, hozir javob bera olmadim. Birozdan keyin qayta so'rang.")
 
 
+# --- topics ---
+# The dev group's forum topics (D4 revised 2026-10-26): General for talk and reports, one topic per project that the
+# bot opens on the project's first work. Work routed from General goes on in the project's topic; General keeps one
+# line pointing there (`link`: https://t.me/c/<chat>/<topic>).
+TOPIC_POINTER = Msg("→ {project} · [mavzusida davom etadi]({link})")
+TOPIC_POINTER_PLAIN = Msg("→ {project} · o'z mavzusida davom etadi")
+# Told once when Telegram refused to open a topic for want of the admin right; the work goes on in General.
+TOPICS_NO_RIGHT = Msg(
+    "Loyiha uchun mavzu ocha olmadim: botga guruhda **Manage topics** (mavzularni boshqarish) huquqini bering. "
+    "Hozircha ishlar General'da davom etadi."
+)
+ERR_TOPIC_GONE = Msg("Loyiha mavzusi o'chirilgan ekan — keyingi xabar bilan yangisini ochaman.")
+ERR_TOPIC_CLOSED = Msg("Loyiha mavzusi yopiq ekan — keyingi xabar bilan uni qayta ochaman.")
+ERR_TOPICS_UNAVAILABLE = Msg(
+    "Guruhda mavzu ochib bo'lmadi: guruhda mavzular yoqilmagan yoki botda mavzularni boshqarish huquqi yo'q. "
+    "Hozircha hammasi General'da."
+)
+
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(
     {code: entry for code in ErrorCode if isinstance(entry := globals().get(f"ERR_{code.name}"), Msg)}

@@ -111,6 +111,9 @@ from yordamchi.bots.dev.intents import EARLY, NOT_BUILT, Command, Intent, comman
         ("BonviHR'ni davom ettiramiz", Command(Intent.RESUME_PROJECT, project="BonviHR")),
         ("o'zingga ovozli javob qo'sh", Command(Intent.SELF_UPDATE)),
         ("BonviHR yangi sessiya", Command(Intent.NEW_SESSION, project="BonviHR")),
+        # bare, in a project's forum topic: that project's (D4 revised 2026-10-26)
+        ("yangi sessiya", Command(Intent.NEW_SESSION)),
+        ("Yangi sessiya och.", Command(Intent.NEW_SESSION)),
     ],
 )
 def test_each_phrase_names_its_intent(text: str, expected: Command) -> None:

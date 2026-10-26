@@ -1707,5 +1707,35 @@ PERSONA_DEV_CHAT = Setting(
 )
 
 
+# --- topics ---
+# Owner, 2026-10-26 (D4 revised): the dev group is a forum; General for talk, reports and routing, one topic per
+# project that the bot opens itself on the project's first work. A group with Topics off works as a flat group.
+TOPICS_ENABLED = Setting(
+    "topics.enabled",
+    bool,
+    True,
+    group=Group.ROUTING,
+    bots=DEV,
+    doc="Open a topic per project in a forum dev group and route a topic's messages to its project; off: flat group.",
+)
+TOPICS_RETRY_AFTER_MIN = Setting(
+    "topics.retry_after_min",
+    int,
+    30,
+    check=Range(1, 1440),
+    group=Group.SCHEDULES,
+    bots=DEV,
+    doc="After Telegram refused to open a topic (no 'Manage topics' right), wait this long before trying again.",
+)
+TIMEOUTS_TOPIC_S = Setting(
+    "timeouts.topic_s",
+    float,
+    5.0,
+    check=Range(1, 30),
+    group=Group.TIMEOUTS,
+    bots=DEV,
+    doc="One createForumTopic or reopenForumTopic call; past it the work goes on in General.",
+)
+
 # Every Setting bound above, by key (Registry rejects a duplicate key).
 REGISTRY: Final = Registry.from_namespace(globals())

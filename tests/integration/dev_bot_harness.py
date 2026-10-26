@@ -8,6 +8,10 @@ and lets the real event loop (aiosqlite threads included) catch up between them,
 seconds from the update to the request that answers it.
 
 The data dir is short (`/tmp/yd…`): the control socket's path must fit a unix socket's 104 bytes.
+
+Forum topics (D4 revised 2026-10-26): `forum()` makes the group a forum on Telegram's side (`session.topics`) and in
+every owner message from then on (`chat.is_forum`); `say(…, thread_id=…)` writes in a topic; `in_topic` and
+`in_general` read what was posted where.
 """
 
 import asyncio
@@ -102,18 +106,45 @@ class DevBot:
         assert bot is not None
         await self.app.dispatcher.feed_update(bot, Update.model_validate(raw, context={"bot": bot}))
 
+    def forum(self, *, can_manage: bool = True) -> None:
+        """The owner turned Topics on (and gave the bot "Manage topics", unless `can_manage` is False)."""
+        self.session.topics.forum = True
+        self.session.topics.can_manage = can_manage
+
+    def _chat(self, chat_id: int) -> TelegramJson:
+        chat = tg_chat(chat_id)
+        if chat_id < 0 and self.session.topics.forum:
+            chat["is_forum"] = True
+        return chat
+
     def _message(
-        self, body: TelegramJson, *, user_id: int = OWNER_ID, chat_id: int = DEV_GROUP_ID, reply_to: int | None = None
+        self,
+        body: TelegramJson,
+        *,
+        user_id: int = OWNER_ID,
+        chat_id: int = DEV_GROUP_ID,
+        reply_to: int | None = None,
+        thread_id: int | None = None,
     ) -> tuple[int, TelegramJson]:
         self.next_update += 1
         update_id = self.next_update
         message: TelegramJson = {
             "message_id": 5000 + update_id,
             "date": TELEGRAM_DATE,
-            "chat": tg_chat(chat_id),
+            "chat": self._chat(chat_id),
             "from": tg_user(user_id),
             **body,
         }
+        if thread_id is not None:  # Telegram presents a topic message as a reply to the topic's first message
+            message["message_thread_id"] = thread_id
+            message["is_topic_message"] = True
+            if reply_to is None:
+                message["reply_to_message"] = {
+                    "message_id": thread_id,
+                    "date": TELEGRAM_DATE,
+                    "chat": self._chat(chat_id),
+                    "forum_topic_created": {"name": "topic", "icon_color": 0x6FB9F0},
+                }
         if reply_to is not None:
             message["reply_to_message"] = {
                 "message_id": reply_to,
@@ -131,11 +162,18 @@ class DevBot:
         chat_id: int = DEV_GROUP_ID,
         reply_to: int | None = None,
         forwarded_from: int | None = None,
+        thread_id: int | None = None,
     ) -> int:
         body: TelegramJson = {"text": text}
         if forwarded_from is not None:  # the owner forwards someone else's message
             body["forward_origin"] = {"type": "user", "date": TELEGRAM_DATE, "sender_user": tg_user(forwarded_from)}
-        update_id, raw = self._message(body, user_id=user_id, chat_id=chat_id, reply_to=reply_to)
+        update_id, raw = self._message(body, user_id=user_id, chat_id=chat_id, reply_to=reply_to, thread_id=thread_id)
+        await self.feed(raw)
+        return update_id
+
+    async def topic_closed(self, thread_id: int) -> int:
+        """The owner closed a topic: Telegram posts its service message there."""
+        update_id, raw = self._message({"forum_topic_closed": {}}, thread_id=thread_id)
         await self.feed(raw)
         return update_id
 
@@ -150,11 +188,11 @@ class DevBot:
         await self.feed(raw)
         return update_id
 
-    async def voice(self, data: bytes, *, duration: int = 3) -> int:
+    async def voice(self, data: bytes, *, duration: int = 3, thread_id: int | None = None) -> int:
         file_id = f"voice-{self.next_update + 1}"
         self.session.add_file(file_id, data, file_path=f"voice/{file_id}.oga")
         voice = {"file_id": file_id, "file_unique_id": f"u{file_id}", "duration": duration, "mime_type": "audio/ogg"}
-        update_id, raw = self._message({"voice": voice})
+        update_id, raw = self._message({"voice": voice}, thread_id=thread_id)
         await self.feed(raw)
         return update_id
 
@@ -170,6 +208,16 @@ class DevBot:
         """The texts that hold `needle`, read the same way (a catalog line's markers stripped)."""
         wanted = plain_text(needle)
         return [text for text in self.texts() if wanted in text]
+
+    def in_topic(self, thread_id: int | None, needle: str = "") -> list[str]:
+        """The texts posted (not edited) into forum topic `thread_id` (None: the chat itself, General) that hold
+        `needle`."""
+        wanted = plain_text(needle)
+        posts = (r for r in self.requests("sendMessage") if r.params.get("message_thread_id") == thread_id)
+        return [text for text in map(visible, posts) if wanted in text]
+
+    def in_general(self, needle: str = "") -> list[str]:
+        return self.in_topic(None, needle)
 
     # --- time -----------------------------------------------------------------------------------------------------
     async def settle(self, rounds: int = 3) -> None:

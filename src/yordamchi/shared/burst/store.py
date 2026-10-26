@@ -23,6 +23,7 @@ async def add_burst(
     input_json: JsonValue,
     closed_at: datetime | None = None,
     close_reason: str | None = None,
+    thread_id: int | None = None,
 ) -> Burst:
     row = Burst(
         bot=bot,
@@ -35,6 +36,7 @@ async def add_burst(
         close_reason=close_reason,
         input_json=input_json,
         route_id=None,
+        thread_id=thread_id,
     )
     s.add(row)
     await s.flush()
