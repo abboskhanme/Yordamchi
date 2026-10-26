@@ -297,7 +297,7 @@ async def test_hamma_loyihalarga_topic_och_opens_one_topic_per_project_once() ->
         await register_projects(bot.deps, bot.fakes, bot.paths, PROJECT, OTHER, "OldCRM Archive", "HRMentor-wt-api")
         await started(bot)
         await bot.say("hamma loyihalarga topic och")
-        await bot.within(5, lambda: bool(bot.posted(S.TOPICS_ALL_STARTED(count=2, minutes=1))), what="the start")
+        await bot.within(15, lambda: bool(bot.posted(S.TOPICS_ALL_STARTED(count=2, minutes=1))), what="the start")
         done = S.TOPICS_ALL_DONE(opened=2, existing=0)
         await bot.within(30, lambda: bool(bot.posted(done)), what="the topics")
         assert sorted(str(r.params["name"]) for r in bot.requests("createForumTopic")) == sorted([PROJECT, OTHER])

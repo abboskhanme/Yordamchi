@@ -1189,12 +1189,11 @@ TOPIC_POINTER = Msg("→ {project} · [mavzusida davom etadi]({link})")
 TOPIC_POINTER_PLAIN = Msg("→ {project} · o'z mavzusida davom etadi")
 # Told once when Telegram refused to open a topic for want of the admin right; the work goes on in General.
 # "hamma loyihalarga topic och" (owner, 2026-10-26): every project's topic at once, paced for Telegram.
-TOPICS_ALL_STARTED = Msg("Loyihalar uchun topic ochyapman: {count} ta, taxminan {minutes} daqiqa.")
-TOPICS_ALL_DONE = Msg("Tayyor: {opened} ta yangi topic ochildi, {existing} tasi oldindan bor edi.")
+TOPICS_ALL_STARTED = Msg("Loyihalar uchun mavzu ochyapman: {count} ta, taxminan {minutes} daqiqa.")
+TOPICS_ALL_DONE = Msg("Tayyor: {opened} ta yangi mavzu ochildi, {existing} tasi oldindan bor edi.")
 TOPICS_ALL_SOME_FAILED = Msg("{failed} tasini hozir ocholmadim — ular birinchi ishi bilan o'zi ochiladi.")
 TOPICS_ALL_UNAVAILABLE = Msg(
-    "Topic ocholmadim: guruhda Topics yoqilmagan, botda «Manage topics» huquqi yo'q yoki topiclar o'chirilgan "
-    "(topics.enabled)."
+    "Mavzu ocholmadim: guruhda mavzular yoqilmagan, botda «Manage topics» huquqi yo'q yoki ular sozlamada o'chirilgan."
 )
 TOPICS_NO_RIGHT = Msg(
     "Loyiha uchun mavzu ocha olmadim: botga guruhda **Manage topics** (mavzularni boshqarish) huquqini bering. "

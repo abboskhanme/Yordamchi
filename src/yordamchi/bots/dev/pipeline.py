@@ -455,7 +455,7 @@ class Pipeline:
     async def _open_all_topics(self, item: TurnInput) -> None:
         """ "hamma loyihalarga topic och": the start line now; the topics (paced, ≈ 2 s each) in a background job, so
         nothing else waits; then how many opened."""
-        wanted = turns.topics_wanted(await projects.list_projects(self.deps))
+        wanted = turns_domain.topics_wanted(await projects.list_projects(self.deps))
         minutes = max(1, round(len(wanted) * turns_domain.OPEN_ALL_TOPICS_PAUSE_S / 60))
         await self._reply(item, S.TOPICS_ALL_STARTED(count=len(wanted), minutes=minutes), kind=Kind.NOTICE)
 

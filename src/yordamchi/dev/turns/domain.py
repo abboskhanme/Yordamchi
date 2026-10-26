@@ -26,7 +26,7 @@ from yordamchi.core import strings as S
 from yordamchi.core.json_value import JsonObject, JsonValue
 from yordamchi.core.text import BotText, join
 from yordamchi.dev.gate.domain import Policy
-from yordamchi.dev.projects.domain import shorten
+from yordamchi.dev.projects.domain import Project, shorten
 from yordamchi.ports.agent import DeliveryMode as SendMode
 from yordamchi.ports.agent import Effort, ModelUsage, SessionKind
 from yordamchi.ports.git import FileChange
@@ -1062,3 +1062,9 @@ def delivery_text_cutoff(now: datetime) -> datetime:
 
 def progress_cutoff(now: datetime) -> datetime:
     return now - PROGRESS_KEEP
+
+
+def topics_wanted(found: Sequence[Project]) -> list[str]:
+    """The projects "hamma loyihalarga topic och" opens a topic for: those he works on, not archived, not a worktree
+    copy of another, not gone."""
+    return [project.id for project in found if project.routable and not project.is_worktree]

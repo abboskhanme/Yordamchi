@@ -505,12 +505,6 @@ class TopicsOpened:
     failed: int
 
 
-def topics_wanted(found: Sequence[Project]) -> list[str]:
-    """The projects "hamma loyihalarga topic och" opens a topic for: those he works on, not archived, not a worktree
-    copy of another, not gone."""
-    return [project.id for project in found if project.routable and not project.is_worktree]
-
-
 async def open_all_topics(deps: DevDeps, wanted: Sequence[str]) -> TopicsOpened | None:
     """A topic for each of `wanted`, paced so the group's limit holds (`open_topic` each, so an open one is reused and
     a closed one reopened). None when the first one cannot be had: no forum, `topics.enabled` off, no right."""
