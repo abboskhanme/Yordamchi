@@ -275,6 +275,10 @@ Vaqt 10 daqiqadan eski bo'lsa — bot ishlamayapti.
 1. Qadalgan "Onlayn: …" vaqtiga qarang.
 2. `holat?` deb yozing.
 3. Javob bo'lmasa — Mac'ni tekshiring: yoqiqmi, zaryadkadami, uyg'oqmi, internet bormi.
+   Bot 10 daqiqadan beri Telegram'ga ulana olmasa, Mac ekranida "Yordamchi: … Telegram'ga ulana
+   olmayapti" degan bildirishnoma chiqadi (har uzilishda bir marta). Internet bo'lsa-yu bildirishnoma
+   chiqqan bo'lsa, odatda DNS keshini tozalash yetadi — `docs/DEPLOY.md` §7. Botni qayta ishga tushirish
+   shart emas: u ulanishini har 5 daqiqada o'zi yangilaydi.
 4. Mac'da hammasi joyida bo'lsa — bot jarayonini `docs/DEPLOY.md` §7 ("How the owner checks
    each thing") bo'yicha tekshiring; qayta ishga tushirish — §4.3.
 5. Bot qayta yonganda yozganlaringizni o'zi qayta ishlaydi — qayta yuborish shart emas.

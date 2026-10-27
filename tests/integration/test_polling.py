@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from aiogram import Bot, Dispatcher, Router
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.methods import TelegramMethod
 from aiogram.methods.base import TelegramType
@@ -57,6 +58,10 @@ class PollingSession(RecordingSession):
         self.clock = clock
         self.offline_until: datetime | None = None
         self.polled_at: list[datetime] = []
+        self.closed_at: list[datetime] = []
+
+    async def close(self) -> None:
+        self.closed_at.append(self.clock.now())
 
     async def make_request(
         self, bot: Bot, method: TelegramMethod[TelegramType], timeout: int | None = None
@@ -279,6 +284,62 @@ async def test_polling_resumes_within_60_s_of_connectivity_after_a_10_minute_out
     failed = runner.ticks[: runner.ticks.index(runner.ok_ticks[0])]
     assert len(failed) == len(runner.session.polled_at) - 1  # every failed attempt reached the heartbeat
     assert {tick.error for tick in failed} == {PollErrorKind.NETWORK}  # offline, not dead (T32b)
+
+
+# --- renewing the HTTP session during an outage (2026-10-27) -------------------------------------------------------
+async def test_a_long_network_outage_renews_the_http_session_every_5_min(
+    runner: Runner, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A resolver repaired under a running bot went unseen for up to an hour, because aiogram caches DNS answers for
+    that long. Attempts at 0, 1, 3, 7, 15, 31, 61, 91 … s: the first one ≥ 300 s into the streak renews, then the
+    first one ≥ 300 s after that."""
+    start = runner.clock.now()
+    runner.session.offline_until = start + timedelta(minutes=12)
+    runner.session.script("getUpdates", _batch(tg_message(50)))
+    with caplog.at_level(logging.INFO):
+        async with runner.running():
+            while not runner.ok_ticks:
+                await _until(lambda: runner.clock.pending_sleepers == 1 or bool(runner.ok_ticks))
+                if not runner.ok_ticks:
+                    await runner.clock.advance(runner.clock.sleeps[-1])
+            await _until(lambda: runner.fed == [50])
+
+    assert [at - start for at in runner.session.closed_at] == [timedelta(seconds=301), timedelta(seconds=601)]
+    renewed = [record for record in caplog.records if record.getMessage() == "poll_session_renewed"]
+    assert [getattr(record, LOG_FIELDS_ATTR)["failures"] for record in renewed] == [15, 25]
+
+
+async def test_a_streak_broken_by_a_successful_poll_starts_its_5_min_again(runner: Runner) -> None:
+    """Two 151 s streaks span 332 s in all, but neither lasts 300 s: a flapping network renews nothing."""
+    streak = [_network_down] * 10
+    runner.session.script("getUpdates", *streak, _batch(), *streak)
+    async with runner.running():
+        await runner.advance_through_waits(20)
+    assert runner.session.polled_at[-1] - runner.session.polled_at[0] > timedelta(seconds=300)
+    assert runner.session.closed_at == []
+
+
+async def test_failures_other_than_the_network_never_renew_the_session(runner: Runner) -> None:
+    runner.session.script("getUpdates", *([Answer.fixture("unauthorized")] * 16))
+    async with runner.running():
+        await runner.advance_through_waits(16)
+    assert runner.session.polled_at[-1] - runner.session.polled_at[0] >= timedelta(seconds=300)
+    assert runner.session.closed_at == []
+
+
+async def test_aiogram_builds_a_new_connection_pool_after_close() -> None:
+    """The renewal relies on this: `AiohttpSession.close()` drops the aiohttp session with its connector and DNS cache,
+    and the next request builds new ones."""
+    session = AiohttpSession()
+    first = await session.create_session()
+    await session.close()
+    second = await session.create_session()
+    try:
+        assert first.closed
+        assert second is not first
+        assert second.connector is not first.connector
+    finally:
+        await session.close()
 
 
 # --- the heartbeat hook point and a broken update ------------------------------------------------------------------

@@ -9,7 +9,8 @@
 - `log_update_error`: the `@dp.errors()` handler for whatever escapes; it logs and returns True.
 - `run_polling()`: long polling, each update fed in order to `dp.feed_update`, the offset advanced through the inbox
   after each batch, and a backoff that resumes within 60 s of connectivity (NFR-REL-03). Every attempt reaches the
-  heartbeat hook, a failure with its kind (`poll_error_kind`), so the watchdog can tell offline from dead (T32b).
+  heartbeat hook, a failure with its kind (`poll_error_kind`), so the watchdog can tell offline from dead (T32b). A
+  long network outage renews the HTTP session every 5 min, so a stale DNS cache cannot outlive the outage.
 - `build_dispatcher()`: puts the three together; `bots/<bot>/app.py` passes its routers.
 """
 
@@ -20,7 +21,7 @@ import random
 import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final, NoReturn
 
 from aiogram import Bot, Dispatcher, Router
@@ -194,6 +195,8 @@ class PollConfig:
     initial_backoff_s: float = 1.0
     max_backoff_s: float = 30.0
     jitter: float = 0.2  # each wait is scaled into [1 - jitter, 1], so it never exceeds max_backoff_s
+    # A network failure streak this long renews the HTTP session, and so does every further stretch of it.
+    renew_session_after_s: float = 300.0
     allowed_updates: tuple[str, ...] = ALLOWED_UPDATES
 
 
@@ -277,6 +280,14 @@ def _log_failure(bot: BotName, failed: _PollFailed, *, failures: int, wait: floa
         log.warning("poll_failed", **fields)
 
 
+async def _renew_session(name: BotName, bot: Bot, *, failures: int) -> None:
+    """Close the HTTP session; aiogram opens a new one on the next request. The DNS answers it cached (aiogram keeps
+    them for an hour) and its pooled connections go with it, so a network repaired under a running bot (a flushed
+    resolver, a reconnected VPN) is seen within one renewal, not after the cache expires (2026-10-27 outage)."""
+    await bot.session.close()
+    log.info("poll_session_renewed", bot=name.value, failures=failures)
+
+
 async def run_polling(
     deps: SharedDeps,
     dispatcher: Dispatcher,
@@ -292,21 +303,34 @@ async def run_polling(
     mid-batch refetches the batch, and the inbox's idempotency key makes the replay harmless (NFR-REL-05). `heartbeat`
     runs after every `getUpdates` attempt (SPEC §2.8, T32b): a success before its batch is fed, a failure with its
     kind before the backoff wait. A failing heartbeat ends the runner, so `forever` restarts it and the stale attempts
-    stay visible to the watchdog.
+    stay visible to the watchdog. While the failures are network failures, the HTTP session is renewed every
+    `renew_session_after_s` (`_renew_session`).
     """
     offset = await inbox.get_poll_offset(deps)
     failures = 0
+    renew_after = timedelta(seconds=config.renew_session_after_s)
+    network_since: datetime | None = None  # the first network failure of this streak, or its last renewal
     log.info("polling_started", bot=deps.bot.value, offset=offset)
     while True:
         result = await _get_updates(bot, offset=offset, config=config, recovering=failures > 0)
         if isinstance(result, _PollFailed):
             failures += 1
+            kind = poll_error_kind(result.error)
             wait = _wait_after(failures, result.error, config)
             _log_failure(deps.bot, result, failures=failures, wait=wait)
+            now = deps.clock.now()
             if heartbeat is not None:
-                await heartbeat(PollTick(at=deps.clock.now(), updates=0, error=poll_error_kind(result.error)))
+                await heartbeat(PollTick(at=now, updates=0, error=kind))
+            if kind is not PollErrorKind.NETWORK:
+                network_since = None
+            elif network_since is None:
+                network_since = now
+            elif now - network_since >= renew_after:
+                await _renew_session(deps.bot, bot, failures=failures)
+                network_since = now
             await deps.clock.sleep(wait)
             continue
+        network_since = None
         if failures:
             log.info("polling_resumed", bot=deps.bot.value, failures=failures)
             failures = 0

@@ -49,6 +49,10 @@ CRASH_LOOP = Msg(
 )
 NO_LAST_ERROR = Msg("yozilmagan")
 
+# --- a banner on the Mac while Telegram is out of reach (`notify.py`, owner request 2026-10-27) ---
+MAC_TITLE = Msg("Yordamchi")
+BOTS_OFFLINE = Msg("{bots} {minutes} daqiqadan beri Telegram'ga ulana olmayapti. Mac'da internet va DNS'ni tekshiring.")
+
 # --- backups (SPEC §9.2) ---
 BACKUP_FAILED = Msg(
     "{db} bazasining {date} zaxira nusxasi olinmadi yoki tekshiruvdan o'tmadi ({problem}). "
@@ -97,6 +101,12 @@ SUPERVISOR_ERROR = Msg("Supervisor ichida xato ({job}). Tafsilotlar: ~/Library/L
 
 def bot_name(bot: str) -> str:
     return BOT_NAMES.get(bot, bot)
+
+
+def bot_names(bots: list[str]) -> str:
+    """The names joined for a sentence: "Dev bot", "Dev bot va Shaxsiy bot", "A, B va C"."""
+    names = [bot_name(bot) for bot in bots]
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} va {names[-1]}"
 
 
 def update_reason(code: str) -> str:

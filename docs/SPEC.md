@@ -187,6 +187,13 @@ survives (STACK §4.6).
   `S.WAKE_GAP(from_, to, n)` "Mac uxlagan edi HH:MM–HH:MM, N ta xabar qayta ishlanmoqda" (NFR-REL-04).
 - **Network drop.** `getUpdates` errors back off 1→2→4…≤ 30 s (jitter), so it resumes ≤ 60 s after
   connectivity (NFR-REL-03). The outbox keeps queued messages.
+- **Long outage** (owner request 2026-10-27, after a 9.5 h silent outage: the macOS resolver answered only IPv6
+  for api.telegram.org, and aiogram kept the bad answer in its 1 h DNS cache after the resolver was repaired):
+  - every 5 min of network failures in a row, the poller closes its HTTP session (`PollConfig.renew_session_after_s`);
+    the next request opens a new one with a fresh DNS cache and new connections. A process restart is not used: it
+    would cut running Claude sessions for a fault that lives in one connection pool;
+  - after 10 min offline, the watchdog shows one banner on the Mac (`osascript display notification`), naming every
+    bot offline by then: `S_SUP.BOTS_OFFLINE`. One per outage; Telegram cannot carry the news of its own outage.
 
 ## 3. Modules, features and key flows
 

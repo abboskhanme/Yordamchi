@@ -1,5 +1,6 @@
 """Watchdog (SPEC §2.8, NFR-REL-01): dead process, stale heartbeat, crash loop, update suppression, sleep and wake,
-and offline versus dead (T32b): poll attempts, network outages, other poll failures, and files from before T32b.
+and offline versus dead (T32b): poll attempts, network outages, other poll failures, and files from before T32b; and
+the banner on the Mac after 10 min offline (2026-10-27).
 
 Time is virtual. `run_for` ticks every 15 s, like production, because a longer gap between ticks means the Mac slept.
 """
@@ -7,11 +8,14 @@ Time is virtual. `run_for` ticks every 15 s, like production, because a longer g
 import json
 import os
 import unittest
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from yordamchi_supervisor import strings as S
 from yordamchi_supervisor.launchd import LaunchCtl
+from yordamchi_supervisor.notify import OSASCRIPT, SCRIPT, Notifier
+from yordamchi_supervisor.proc import RunResult
 from yordamchi_supervisor.state import StateFile
 from yordamchi_supervisor.telegram import Alerter
 from yordamchi_supervisor.testing import (
@@ -32,6 +36,23 @@ PERSONAL = "uz.yordamchi.personal"
 KICK_DEV = ["/bin/launchctl", "kickstart", "-k", f"gui/{UID}/{DEV}"]
 
 
+class FakeOsascript:
+    """A `Runner` for `osascript`: records each banner's argv and answers with `returncode`."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.timeouts: list[float] = []
+        self.returncode = 0
+
+    def run(self, argv: Sequence[str], *, timeout: float) -> RunResult:
+        self.calls.append(list(argv))
+        self.timeouts.append(timeout)
+        return RunResult(returncode=self.returncode)
+
+    def banners(self) -> list[str]:
+        return [call[-1] for call in self.calls]
+
+
 class WatchdogCase(unittest.TestCase):
     def setUp(self) -> None:
         self.data = TempData()
@@ -39,6 +60,7 @@ class WatchdogCase(unittest.TestCase):
         self.clock = FakeClock(START)
         self.launchctl = FakeLaunchctl()
         self.opener = FakeOpener()
+        self.osascript = FakeOsascript()
         self.timeline: list[tuple[datetime, str]] = []
         self.watchdog = self.build()
 
@@ -58,6 +80,7 @@ class WatchdogCase(unittest.TestCase):
             self.data.log,
             self.data.scrubber,
             StateFile(self.data.paths.state_file),
+            notifier=Notifier(self.osascript, self.data.log),
         )
 
     def tick(self, **advance: float) -> datetime:
@@ -409,7 +432,7 @@ class PollCase(WatchdogCase):
 
 
 class Offline(PollCase):
-    def test_a_30_minute_outage_with_fresh_attempts_restarts_nothing_and_tells_nobody(self) -> None:
+    def test_a_30_minute_outage_with_fresh_attempts_restarts_nothing_and_alerts_nobody_on_telegram(self) -> None:
         self.attempt()
         self.tick()
         self.poll_for(1800, "network")
@@ -478,6 +501,99 @@ class Offline(PollCase):
         self.respawned(7)  # ... and a third is: counting resumed
         self.poll_for(60, "none")
         self.assertEqual(len(self.loop_alerts()), 1)
+
+
+class OfflineBanner(PollCase):
+    """Telegram cannot carry the news of its own outage: after 10 min offline, one banner on the Mac per outage."""
+
+    def go_offline(self) -> None:
+        """A healthy poll, then the first network failure: the watchdog sees the bot offline from now."""
+        self.attempt()
+        self.tick()
+        self.poll_for(30, "network")
+
+    def test_one_banner_after_10_min_offline_and_no_second_one_in_the_same_outage(self) -> None:
+        self.go_offline()
+        self.poll_for(585, "network")
+        self.assertEqual(self.osascript.calls, [])
+        self.poll_for(15, "network")
+        self.assertEqual(self.osascript.banners(), [S.BOTS_OFFLINE(bots="Dev bot", minutes=10)])
+        self.poll_for(3600, "network")
+        self.assertEqual(len(self.osascript.calls), 1)
+        self.assertEqual(self.launchctl.kicks(), [])
+        self.assertEqual(self.opener.sent, [])
+
+    def test_an_outage_shorter_than_10_min_shows_nothing(self) -> None:
+        self.go_offline()
+        self.poll_for(570, "network")
+        self.poll_for(30, "none")
+        self.poll_for(1800, "none")
+        self.assertEqual(self.osascript.calls, [])
+
+    def test_the_next_outage_gets_its_own_banner(self) -> None:
+        self.go_offline()
+        self.poll_for(600, "network")
+        self.poll_for(30, "none")
+        self.poll_for(30, "network")
+        self.poll_for(600, "network")
+        self.assertEqual(len(self.osascript.calls), 2)
+
+    def test_a_restart_during_the_outage_does_not_start_it_again(self) -> None:
+        self.go_offline()
+        self.poll_for(300, "network")
+        self.respawned(1)
+        self.tick(seconds=15)
+        self.poll_for(300, "network")
+        self.assertEqual(len(self.osascript.calls), 1)
+
+    def test_the_texts_reach_osascript_as_arguments_never_as_script(self) -> None:
+        self.go_offline()
+        self.poll_for(600, "network")
+        [call] = self.osascript.calls
+        script = [call[i + 1] for i, item in enumerate(call) if item == "-e"]
+        self.assertEqual(call[0], OSASCRIPT)
+        self.assertEqual(script, list(SCRIPT))
+        self.assertEqual(call[-3:], ["--", S.MAC_TITLE(), S.BOTS_OFFLINE(bots="Dev bot", minutes=10)])
+        self.assertTrue(all(0 < timeout <= 60 for timeout in self.osascript.timeouts))
+        [shown] = self.events("mac_notified")
+        self.assertEqual(shown["kind"], "bots_offline")
+        self.assertNotIn("Telegram'ga", self.data.log_text())
+
+    def test_a_banner_that_fails_is_logged_and_not_retried(self) -> None:
+        self.osascript.returncode = 1
+        self.go_offline()
+        self.poll_for(1200, "network")
+        self.assertEqual(len(self.osascript.calls), 1)
+        [failed] = self.events("mac_notify_failed")
+        self.assertEqual(failed["returncode"], 1)
+
+
+class OfflineBannerBothBots(PollCase):
+    """Both bots lose Telegram together: one banner names both."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.launchctl.jobs[PERSONAL] = FakeJob(pid=4343)
+
+    def rewrite(self) -> None:
+        super().rewrite()
+        self.data.write_poll_heartbeat(
+            "personal",
+            at=self.clock.now(),
+            pid=self.launchctl.jobs[PERSONAL].pid or 0,
+            started_at="p1",
+            attempt_at=self.attempt_at,
+            kind=self.kind,
+            failures=self.failures,
+            ok_at=self.ok_at,
+        )
+
+    def test_one_banner_names_both_bots(self) -> None:
+        self.attempt()
+        self.tick()
+        self.poll_for(30, "network")
+        self.poll_for(1800, "network")
+        self.assertEqual(self.osascript.banners(), [S.BOTS_OFFLINE(bots="Dev bot va Shaxsiy bot", minutes=10)])
 
 
 class OtherPollFailures(PollCase):

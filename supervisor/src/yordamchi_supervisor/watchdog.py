@@ -16,7 +16,10 @@ The last sign of life (T32b). A bot in normal mode writes, after every `getUpdat
 - attempts that work, or fail on the network, count: a loop that keeps trying lives. With no attempt for 120 s the
   loop is stuck or dead and is restarted (`poll_loop_stuck`);
 - while the attempts are fresh and fail on the network, the bot is **offline, not dead**: no kickstart and no alert,
-  only `bot_offline` and then `bot_back_online` in the log. The bot itself tells the owner once it is back;
+  only `bot_offline` and then `bot_back_online` in the log. The bot itself tells the owner once it is back, and renews
+  its HTTP session every 5 min meanwhile (`bots/common.py`). Telegram cannot carry the news of its own outage, so
+  after 10 min offline the owner gets one banner on the Mac per outage (`notify.py`, owner request 2026-10-27), one
+  for all the bots offline by then;
 - any other failure (a revoked token, a 409, a 429) is judged as before T32b: no successful poll for 120 s, counted
   from no earlier than when this watchdog first saw that failure (`polls_failing`);
 - a file from before T32b, a paused bot (its 30 s timer keeps the file fresh while it does not poll) and a process
@@ -40,6 +43,7 @@ from yordamchi_supervisor import strings as S
 from yordamchi_supervisor.clock import from_timestamp
 from yordamchi_supervisor.launchd import JobStatus, LaunchCtl
 from yordamchi_supervisor.log import JsonLog, Scrubber
+from yordamchi_supervisor.notify import Notifier
 from yordamchi_supervisor.paths import BOTS, Bot, SupervisorPaths, label
 from yordamchi_supervisor.state import StateFile, parse_instant
 from yordamchi_supervisor.telegram import Alerter
@@ -51,6 +55,7 @@ KICK_COOLDOWN: Final = timedelta(seconds=30)  # never two kickstarts of one job 
 CRASH_WINDOW: Final = timedelta(minutes=10)
 CRASH_COUNT: Final = 3
 CRASH_ALERT_EVERY: Final = timedelta(minutes=30)
+OFFLINE_NOTIFY_AFTER: Final = timedelta(minutes=10)
 WAKE_GAP: Final = timedelta(seconds=60)  # a tick gap this long means the Mac slept (ticks are 15 s apart)
 MAX_ERROR_LINE: Final = 500
 STATE_SECTION: Final = "watchdog"
@@ -177,6 +182,7 @@ class _BotWatch:
     run_events: deque[datetime] = field(default_factory=deque)
     last_loop_alert_at: datetime | None = None
     offline_since: datetime | None = None  # first check that saw the bot offline (T32b)
+    offline_notified: bool = False  # this outage already had its banner on the Mac
     failing_since: datetime | None = None  # first check that saw its polls fail for another reason (T32b)
 
     def forget_history(self) -> None:
@@ -187,6 +193,7 @@ class _BotWatch:
         self.start_events.clear()
         self.run_events.clear()
         self.offline_since = None
+        self.offline_notified = False
         self.failing_since = None
 
 
@@ -200,6 +207,8 @@ class Watchdog:
         scrubber: Scrubber,
         state: StateFile,
         bots: tuple[Bot, ...] = BOTS,
+        *,
+        notifier: Notifier | None = None,
     ) -> None:
         self._paths = paths
         self._launchctl = launchctl
@@ -208,6 +217,7 @@ class Watchdog:
         self._scrub = scrubber
         self._state = state
         self._bots = bots
+        self._notifier = notifier
         self._watch: dict[Bot, _BotWatch] = {bot: _BotWatch() for bot in bots}
         self._last_tick: datetime | None = None
         self._woke_at: datetime | None = None
@@ -229,6 +239,7 @@ class Watchdog:
         self._stale_logged = set(updates.stale)
         for bot in self._bots:
             self._check(bot, now, updates.active, updates.status)
+        self._notify_offline(now)
 
     # --- one bot -------------------------------------------------------------------------------------------------
     def _check(self, bot: Bot, now: datetime, update_id: str | None, update_status: str | None) -> None:
@@ -316,6 +327,7 @@ class Watchdog:
             self._log.info("bot_offline", bot=bot, failures=failures)
         elif not offline and since is not None:
             watch.offline_since = None
+            watch.offline_notified = False
             offline_s = int((now - since).total_seconds())
             kind = None if heartbeat is None else heartbeat.last_poll_error_kind
             if kick_reason is None and kind == KIND_NONE:
@@ -340,6 +352,24 @@ class Watchdog:
         if age > HEARTBEAT_STALE:
             return code, S.REASON_HEARTBEAT_STALE(seconds=int(age.total_seconds()))
         return None
+
+    def _notify_offline(self, now: datetime) -> None:
+        """Once a bot has been offline for 10 min, one banner names it and every other bot offline by then that has
+        not had one in this outage. A failed banner is not retried: the log has it."""
+        if self._notifier is None:
+            return
+        waiting = {bot: since for bot in self._bots if (since := self._offline_unnotified(bot)) is not None}
+        if not waiting or now - min(waiting.values()) < OFFLINE_NOTIFY_AFTER:
+            return
+        for bot in waiting:
+            self._watch[bot].offline_notified = True
+        minutes = int((now - min(waiting.values())).total_seconds() // 60)
+        text = S.BOTS_OFFLINE(bots=S.bot_names(list(waiting)), minutes=minutes)
+        self._notifier.notify("bots_offline", title=S.MAC_TITLE(), text=text)
+
+    def _offline_unnotified(self, bot: Bot) -> datetime | None:
+        watch = self._watch[bot]
+        return None if watch.offline_notified else watch.offline_since
 
     @staticmethod
     def _starts_in_window(watch: _BotWatch, now: datetime) -> int:

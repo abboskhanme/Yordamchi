@@ -6,7 +6,7 @@ The loop wakes every `LOOP_STEP` and runs each due `Job`:
 |---|---|---|
 | `heartbeat` | 15 s | `run/supervisor.heartbeat.json`: `pid`, `version`, `release`, `started_at`, `last_tick_at` |
 | `caffeinate` | 15 s | keeps `caffeinate -s -w <pid>` running |
-| `watchdog` | 15 s | dead process, stale heartbeat, crash loop (`watchdog.py`) |
+| `watchdog` | 15 s | dead process, stale heartbeat, crash loop, a Mac banner after 10 min offline (`watchdog.py`) |
 | `alerts` | 30 s | retries alerts queued during a network drop |
 | `backups` | 60 s | the daily 04:00 backup, when due (`backups.py`) |
 | `log_trim` | 60 s | copy-truncates the launchd logs over 5 MB (`logtrim.py`) |
@@ -52,6 +52,7 @@ from yordamchi_supervisor.keychain import KeychainError, SecurityKeychain, Token
 from yordamchi_supervisor.launchd import LaunchCtl
 from yordamchi_supervisor.log import JsonLog, Scrubber, install_excepthook
 from yordamchi_supervisor.logtrim import trim_launchd_logs
+from yordamchi_supervisor.notify import Notifier
 from yordamchi_supervisor.paths import SupervisorPaths, resolve
 from yordamchi_supervisor.proc import (
     Child,
@@ -133,7 +134,9 @@ class Supervisor:
         self.alerter = Alerter(paths.env_file("dev"), log, scrubber, clock, keychain=keychain, opener=opener)
         self.caffeinate = Caffeinate(spawner, log, owner_pid=pid)
         launchctl = LaunchCtl(runner, uid)
-        self.watchdog = Watchdog(paths, launchctl, self.alerter, log, scrubber, self.state)
+        self.watchdog = Watchdog(
+            paths, launchctl, self.alerter, log, scrubber, self.state, notifier=Notifier(runner, log)
+        )
         self.backups = Backups(paths, self.alerter, log, self.state)
         self.updater = Updater(
             paths,
@@ -224,7 +227,8 @@ def single_instance(lock_file: Path) -> Iterator[bool]:
 
 # --- --selftest: one inert tick of everything -----------------------------------------------------------------------
 class _InertRunner:
-    """Answers every `launchctl` call as "no such service": the trial never touches a real job."""
+    """Answers every `launchctl` call as "no such service" (and `osascript` as failed): the trial never touches a real
+    job and shows no banner."""
 
     def run(self, argv: Sequence[str], *, timeout: float) -> RunResult:
         return RunResult(returncode=113)
