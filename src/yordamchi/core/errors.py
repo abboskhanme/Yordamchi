@@ -131,6 +131,12 @@ class ErrorCode(StrEnum):
     TOPIC_GONE = "topic_gone"
     TOPIC_CLOSED = "topic_closed"
     TOPICS_UNAVAILABLE = "topics_unavailable"
+    # --- files ---
+    FILE_TOO_LONG = "file_too_long"
+    FILE_UNREADABLE = "file_unreadable"
+    AUDIO_ENCODE_FAILED = "audio_encode_failed"
+    DOCUMENT_INVALID = "document_invalid"
+    DOCUMENT_FAILED = "document_failed"
 
 
 class YordamchiError(Exception):
@@ -784,3 +790,41 @@ class TopicsUnavailable(ExternalError):
     def __init__(self, *, reason: str) -> None:
         super().__init__(ErrorCode.TOPICS_UNAVAILABLE, retryable=False)
         self.reason = reason
+
+
+# --- files ---
+# UC-37 (SPEC §3.2.17): files the owner sends, read for the assistant, and the documents it makes.
+class FileTooLong(DomainError):
+    """An audio file longer than `files.audio_max_min`: its transcript would not fit one reading."""
+
+    def __init__(self, *, max_minutes: int) -> None:
+        super().__init__(ErrorCode.FILE_TOO_LONG, max_minutes=max_minutes)
+
+
+class FileUnreadable(DomainError):
+    """A Word, Excel or PowerPoint file that is not the zip it claims to be (damaged, or password-protected)."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.FILE_UNREADABLE)
+
+
+class AudioEncodeFailed(ExternalError):
+    """ffmpeg could not turn the file into MP3 (no audio stream, or a codec it cannot decode). Stderr is never kept."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.AUDIO_ENCODE_FAILED, retryable=False)
+
+
+class DocumentInvalid(DomainError):
+    """`make_document` arguments the domain refuses. `problem` is a fixed snake_case reason for the model, never
+    content: `format`, `content`, `sheets`, `too_large`."""
+
+    def __init__(self, *, problem: str) -> None:
+        super().__init__(ErrorCode.DOCUMENT_INVALID, problem=problem)
+
+
+class DocumentFailed(ExternalError):
+    """The writer could not produce the file (the library refused the content, or the PDF printer failed)."""
+
+    def __init__(self, *, format: str) -> None:  # noqa: A002  # the document format, as the tool names it
+        super().__init__(ErrorCode.DOCUMENT_FAILED, retryable=False, format=format)

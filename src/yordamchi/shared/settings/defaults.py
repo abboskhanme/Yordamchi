@@ -1737,5 +1737,108 @@ TIMEOUTS_TOPIC_S = Setting(
     doc="One createForumTopic or reopenForumTopic call; past it the work goes on in General.",
 )
 
+# --- files ---
+# UC-37, SPEC §3.2.17 (owner, 2026-10-29): any file the owner sends is read for the assistant; an audio recording is
+# transcribed by the video reader's provider and model (`speech.video_provider`, `video.*_model`). Sizes are MB of
+# 2**20 bytes; Telegram hands bots files of at most 20 MB.
+FILES_MAX_MB = Setting(
+    "files.max_mb",
+    int,
+    20,
+    check=Range(1, 20),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Largest file read from a chat message (Telegram hands bots files of at most 20 MB).",
+)
+FILES_TEXT_MAX_CHARS = Setting(
+    "files.text_max_chars",
+    int,
+    150000,
+    check=Range(5000, 400000),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Most characters of one file's text (or transcript) handed to the assistant; the rest is cut.",
+)
+FILES_PDF_MAX_PAGES = Setting(
+    "files.pdf_max_pages",
+    int,
+    100,
+    check=Range(1, 100),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Longest PDF the assistant reads whole (Claude reads at most 100 pages per document).",
+)
+FILES_MAX_PDFS = Setting(
+    "files.max_pdfs",
+    int,
+    3,
+    check=Range(1, 5),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Most PDFs read for one answer; more are refused with a note.",
+)
+FILES_AUDIO_MAX_MIN = Setting(
+    "files.audio_max_min",
+    int,
+    150,
+    check=Range(1, 300),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Longest audio recording transcribed in one reading (a longer one asks to be sent in parts).",
+)
+FILES_AUDIO_KBPS = Setting(
+    "files.audio_kbps",
+    int,
+    32,
+    check=Range(16, 128),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="MP3 bitrate an audio file is compressed to before transcription (mono 16 kHz; speech needs no more).",
+)
+FILES_SEND_TRANSCRIPT = Setting(
+    "files.send_transcript",
+    bool,
+    True,
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Send an audio file's full transcript to the owner as a .txt file with the answer.",
+)
+TIMEOUTS_AUDIO_FILE_S = Setting(
+    "timeouts.audio_file_s",
+    float,
+    360.0,
+    check=Range(30, 900),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="One audio file in total: download, compression and the transcript, the fallback provider included.",
+)
+FILES_MAX_DOCUMENTS = Setting(
+    "files.max_documents",
+    int,
+    5,
+    check=Range(1, 10),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Most documents the assistant makes for one answer (make_document).",
+)
+FILES_DOCUMENT_MAX_MB = Setting(
+    "files.document_max_mb",
+    int,
+    20,
+    check=Range(1, 50),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Largest document the assistant makes; a bigger one is refused (Telegram's bot upload cap is 50 MB).",
+)
+TIMEOUTS_DOCUMENT_S = Setting(
+    "timeouts.document_s",
+    float,
+    45.0,
+    check=Range(5, 180),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="Writing one document (a PDF starts a browser to print it).",
+)
+
 # Every Setting bound above, by key (Registry rejects a duplicate key).
 REGISTRY: Final = Registry.from_namespace(globals())

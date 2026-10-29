@@ -22,6 +22,8 @@ import asyncio
 import base64
 import mimetypes
 import time
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, Final
 
 import httpx
@@ -53,6 +55,7 @@ MIB: Final = 1024 * 1024
 INLINE_MAX_BYTES: Final = 70 * MIB
 THINKING_LEVEL: Final = "low"
 DEFAULT_MIME: Final = "video/mp4"
+AUDIO_MIME: Final = "audio/mp3"
 # Telegram and macOS names → the names the Interactions API lists (`VideoContentMimeType`).
 _MIME_ALIASES: Final = {
     "video/quicktime": "video/mov",
@@ -89,6 +92,26 @@ def build_request(
     request: dict[str, Any] = {
         "model": clean_model_id(model),
         "input": [video_part(source, data), {"type": "text", "text": prompt}],
+        "system_instruction": instruction,
+        "store": False,
+    }
+    if thinking:
+        request["generation_config"] = {"thinking_level": thinking}
+    return request
+
+
+def audio_part(data: bytes, mime: str) -> dict[str, Any]:
+    declared = mime.split(";", 1)[0].strip().lower()
+    return {"type": "audio", "data": base64.b64encode(data).decode("ascii"), "mime_type": declared or AUDIO_MIME}
+
+
+def build_audio_request(
+    data: bytes, mime: str, *, instruction: str, prompt: str, model: str, thinking: str | None
+) -> dict[str, Any]:
+    """The `interactions.create` keyword arguments for one reading of an audio file (UC-37)."""
+    request: dict[str, Any] = {
+        "model": clean_model_id(model),
+        "input": [audio_part(data, mime), {"type": "text", "text": prompt}],
         "system_instruction": instruction,
         "store": False,
     }
@@ -136,6 +159,16 @@ def usage_units(response: Any) -> dict[str, int]:
     return units
 
 
+type _Build = Callable[[str | None], dict[str, Any]]  # the thinking level to try → the request
+
+
+def _inline_bytes(request: Mapping[str, Any]) -> int:
+    """The size of the inline file in a request (base64 counted back to bytes), for the log; 0 for a URL."""
+    parts = request.get("input", [])
+    encoded = sum(len(part.get("data", "")) for part in parts if isinstance(part, dict))
+    return encoded * 3 // 4
+
+
 class GeminiMediaAnalyzer:
     """`MediaAnalyzer` on a direct Google key. `api_key` is the key or a callable returning the vault's current one."""
 
@@ -172,29 +205,49 @@ class GeminiMediaAnalyzer:
     async def analyze_video(
         self, source: VideoSource, *, instruction: str, prompt: str, model: str, timeout: float
     ) -> MediaAnalysis:
-        started = time.monotonic()
         model_id = clean_model_id(model)
+        data = await self._file_bytes(source.path) if source.path is not None else None
+
+        def build(thinking: str | None) -> dict[str, Any]:
+            return build_request(
+                source, data, instruction=instruction, prompt=prompt, model=model_id, thinking=thinking
+            )
+
         kind = "url" if source.url is not None else "file"
+        return await self._read(build, model=model_id, source=kind, from_url=source.url is not None, timeout=timeout)
+
+    async def analyze_audio(
+        self, path: Path, *, mime: str, instruction: str, prompt: str, model: str, timeout: float
+    ) -> MediaAnalysis:
+        model_id = clean_model_id(model)
+        data = await self._file_bytes(path)
+
+        def build(thinking: str | None) -> dict[str, Any]:
+            return build_audio_request(
+                data, mime, instruction=instruction, prompt=prompt, model=model_id, thinking=thinking
+            )
+
+        return await self._read(build, model=model_id, source="audio", from_url=False, timeout=timeout)
+
+    async def _read(self, build: _Build, *, model: str, source: str, from_url: bool, timeout: float) -> MediaAnalysis:
+        started = time.monotonic()
         attempts = 0
         try:
             key = await resolve_key(self._api_key, provider=PROVIDER)
-            data = await self._file_bytes(source)
 
             async def attempt() -> MediaAnalysis:
                 nonlocal attempts
                 attempts += 1
                 client = await self._client_for(key)
-                return await self._create(
-                    client, source, data, instruction=instruction, prompt=prompt, model=model_id, timeout=timeout
-                )
+                return await self._create(client, build, model=model, from_url=from_url, timeout=timeout)
 
             analysis = await retrying(attempt, timeout=timeout, operation=OPERATION)
         except ExternalError as error:
             log.warning(
                 "video_call_failed",
                 provider=PROVIDER,
-                model=model_id,
-                source=kind,
+                model=model,
+                source=source,
                 code=error.code.value,
                 retryable=error.retryable,
                 attempts=attempts,
@@ -204,16 +257,13 @@ class GeminiMediaAnalyzer:
         return MediaAnalysis(
             text=analysis.text,
             provider=PROVIDER,
-            model=model_id,
+            model=model,
             latency_ms=int((time.monotonic() - started) * 1000),
             units=analysis.units,
         )
 
     @staticmethod
-    async def _file_bytes(source: VideoSource) -> bytes | None:
-        if source.path is None:
-            return None
-        path = source.path
+    async def _file_bytes(path: Path) -> bytes:
         try:
             size = (await asyncio.to_thread(path.stat)).st_size
             if size > INLINE_MAX_BYTES:
@@ -223,23 +273,13 @@ class GeminiMediaAnalyzer:
             raise ProviderUnavailable(provider=PROVIDER, retryable=False) from exc
 
     async def _create(
-        self,
-        client: genai.Client,
-        source: VideoSource,
-        data: bytes | None,
-        *,
-        instruction: str,
-        prompt: str,
-        model: str,
-        timeout: float,
+        self, client: genai.Client, build: _Build, *, model: str, from_url: bool, timeout: float
     ) -> MediaAnalysis:
         """One logical attempt. A rejected thinking level is retried at once without it (not a failure)."""
         interactions: Any = client.aio.interactions
         while True:
             thinking = self._thinking.get(model, THINKING_LEVEL)
-            request = build_request(
-                source, data, instruction=instruction, prompt=prompt, model=model, thinking=thinking
-            )
+            request = build(thinking)
             started = time.monotonic()
             try:
                 response = await interactions.create(**request, timeout=timeout)
@@ -248,7 +288,7 @@ class GeminiMediaAnalyzer:
                     self._thinking[model] = None
                     log.info("video_thinking_level_rejected", provider=PROVIDER, model=model)
                     continue
-                error = translate_video_error(exc, from_url=source.url is not None)
+                error = translate_video_error(exc, from_url=from_url)
                 log.info(
                     "video_attempt_failed",
                     provider=PROVIDER,
@@ -259,7 +299,7 @@ class GeminiMediaAnalyzer:
                     duration_ms=int((time.monotonic() - started) * 1000),
                 )
                 raise error from exc
-            return self._answer(response, model=model, started=started, data_bytes=len(data or b""))
+            return self._answer(response, model=model, started=started, data_bytes=_inline_bytes(request))
 
     @staticmethod
     def _answer(response: Any, *, model: str, started: float, data_bytes: int) -> MediaAnalysis:

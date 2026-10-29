@@ -110,8 +110,8 @@ class PersonalApp:
         """NFR-SEC-08: the personal session, opened with exactly the tools an answer gets, reports the allowlist.
         Raises `PersonalToolsMismatch` when it does not; False when Claude could not be reached to check."""
         chat_id = await access.resolve_home_chat(self.deps)
-        tools = await self.pipeline.media_tools(chat_id, ref=PROBE_REF)
-        return await qa.verify_tools(self.deps, toolsets=(tools,))
+        tools = await self.pipeline.answer_tools(chat_id, ref=PROBE_REF)
+        return await qa.verify_tools(self.deps, toolsets=tools)
 
     async def start(self, *, polling: bool = True) -> None:
         """The start pass, then every loop. `polling=False` (tests) leaves the poller out: updates come through
@@ -215,8 +215,8 @@ class PersonalApp:
             return
         self.warmed_version = snap.version
         chat_id = await access.resolve_home_chat(self.deps)
-        tools = await self.pipeline.media_tools(chat_id, ref=WARM_REF)
-        await qa.warm_conversation(self.deps, chat_id, toolsets=(tools,))
+        tools = await self.pipeline.answer_tools(chat_id, ref=WARM_REF)
+        await qa.warm_conversation(self.deps, chat_id, toolsets=tools)
 
     async def _publish_secrets(self) -> None:
         """The masking set (the personal bot writes no hash file). A missing master key is a degraded capability

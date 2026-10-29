@@ -14,7 +14,9 @@ Each burst takes exactly one of these paths, first match wins:
    are read first (`media.read_burst`: videos and links with "Ko'ryapman", photos saved for the image blocks), then
    `qa.answer` writes the text and its voice note. "to'liqroq" and "yangi suhbat" wait in the same line, so they act
    on the answer before them. The assistant gets the `yordamchi_media` tools for this answer (`media.toolset`), whose
-   artefact jobs (a screenshot, a file, a video) run beside it and send their files when ready.
+   artefact jobs (a screenshot, a file, a video) run beside it and send their files when ready. Files the owner sent
+   are read beside the media (`files.read_burst`, UC-37: texts, PDFs, audio transcripts), and the documents the
+   assistant made with `yordamchi_files` (`files.toolset`) are queued after its answer.
 
 Commands, interrupts and answers read only the owner's own words (`TurnInput.own_text`): a message he forwarded is
 material, never an order (T33). A burst is marked done (`burst.cancel_burst`: the bot handled it itself) once its
@@ -37,6 +39,8 @@ from yordamchi.core import strings as S
 from yordamchi.core.log import get_log
 from yordamchi.core.text import BotText
 from yordamchi.personal.deps import PersonalDeps
+from yordamchi.personal.files import domain as files_domain
+from yordamchi.personal.files import service as files
 from yordamchi.personal.media import service as media
 from yordamchi.personal.qa import domain as qa_domain
 from yordamchi.personal.qa import service as qa
@@ -292,15 +296,38 @@ class Pipeline:
         return True
 
     async def _answer(self, item: TurnInput) -> None:
-        """Media first (UC-31: "Ko'ryapman", then the material), then the assistant's text and voice (UC-30)."""
+        """Media and files first (UC-31: "Ko'ryapman", then the material; UC-37: texts, PDFs, transcripts), then the
+        assistant's text and voice (UC-30), then the documents it made."""
         found = await media.read_burst(self.deps, item)
-        for index, text in enumerate(dict.fromkeys(found.failures)):
+        read = await files.read_burst(self.deps, item)
+        for index, text in enumerate(dict.fromkeys((*found.failures, *read.failures))):
             await self._reply(item, text, kind=Kind.NOTICE, ref=f"media-{item.burst_id}-{index}")
-        if found.only_failed:
-            return
-        question = replace(qa_domain.question_of(item), material=found.material)
-        tools = await self.media_tools(item.chat_id, ref=f"qa-{item.burst_id}")
-        await qa.answer(self.deps, question, images=found.images, toolsets=(tools,))
+        question = qa_domain.question_of(item)
+        files_only_failed = bool(read.failures) and question.empty and not found.material and not found.images
+        if not read.read and (found.only_failed or files_only_failed):
+            return  # nothing to answer from and nothing else asked: the failure notes were the reply (UC-31 F)
+        question = replace(question, material=(*found.material, *read.material))
+        made = files.MadeDocuments()
+        tools = await self.answer_tools(item.chat_id, ref=f"qa-{item.burst_id}", made=made)
+        try:
+            await qa.answer(self.deps, question, images=found.images, documents=read.pdfs, toolsets=tools)
+        finally:
+            await files.send_documents(
+                self.deps, made, chat_id=item.chat_id, ref=f"doc-{item.burst_id}", reply_to=item.own_reply_to
+            )
+
+    async def answer_tools(
+        self, chat_id: int, *, ref: str, made: files.MadeDocuments | None = None
+    ) -> tuple[AssistantToolset, ...]:
+        """Every in-process toolset an answer gets: `yordamchi_media` and `yordamchi_files`. `made` collects the
+        documents of this answer (a probe or warm-up passes none: nothing is sent from those)."""
+        snap = await settings.snapshot(self.deps)
+        documents = files.toolset(
+            self.deps,
+            made=made if made is not None else files.MadeDocuments(),
+            limits=files_domain.document_limits(snap),
+        )
+        return (await self.media_tools(chat_id, ref=ref), documents)
 
     async def media_tools(self, chat_id: int, *, ref: str) -> AssistantToolset:
         """This answer's `yordamchi_media` tools; their artefact jobs run beside it under `guarded()`."""

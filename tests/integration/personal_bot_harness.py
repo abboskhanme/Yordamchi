@@ -108,6 +108,27 @@ class PersonalBot:
         await self.feed(self._message({"voice": voice}))
         return self.next_update
 
+    async def document(
+        self, data: bytes, *, file_name: str, mime: str, caption: str | None = None, audio: bool = False
+    ) -> int:
+        """A file the owner sends (UC-37): a document, or with `audio` an audio message (a music-player file)."""
+        file_id = f"doc-{self.next_update + 1}"
+        self.session.add_file(file_id, data, file_path=f"documents/{file_id}")
+        attachment: TelegramJson = {
+            "file_id": file_id,
+            "file_unique_id": f"u{file_id}",
+            "file_name": file_name,
+            "mime_type": mime,
+            "file_size": len(data),
+        }
+        if audio:
+            attachment["duration"] = 60
+        body: TelegramJson = {"audio" if audio else "document": attachment}
+        if caption is not None:
+            body["caption"] = caption
+        await self.feed(self._message(body))
+        return self.next_update
+
     # --- requests out ---------------------------------------------------------------------------------------------
     def requests(self, *methods: str) -> list[WireRequest]:
         return [r for r in self.session.requests if not methods or r.api_method in methods]

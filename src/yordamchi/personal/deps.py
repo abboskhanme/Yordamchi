@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from yordamchi.ports.assistant import Assistant
+from yordamchi.ports.documents import DocumentWriter
 from yordamchi.ports.media import MediaAnalyzer
 from yordamchi.ports.web import WebTools
 from yordamchi.shared.deps import SharedDeps
@@ -21,4 +22,5 @@ from yordamchi.shared.deps import SharedDeps
 class PersonalDeps(SharedDeps):
     media_analyzers: Mapping[str, MediaAnalyzer]  # provider name → video reader ("google", "openrouter")
     web: WebTools
+    documents: DocumentWriter  # the files `make_document` writes (UC-37)
     fallback_assistant: Assistant | None = None

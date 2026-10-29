@@ -170,6 +170,7 @@ def _request(
     now: datetime,
     images: Sequence[Path],
     toolsets: tuple[AssistantToolset, ...],
+    documents: Sequence[Path] = (),
 ) -> AssistantRequest:
     return AssistantRequest(
         kind=KIND,
@@ -179,6 +180,7 @@ def _request(
         settings_version=snap.version,
         effort=snap[defaults.MODELS_QA_EFFORT],
         images=tuple(images),
+        documents=tuple(documents),
         conversation=conversation.session_id,
         instructions=_instructions(snap, now=now, seed=conversation.seed),
         prompt_version=snap.version,
@@ -550,14 +552,16 @@ async def answer(
     question: QaQuestion,
     *,
     images: Sequence[Path] = (),
+    documents: Sequence[Path] = (),
     toolsets: Sequence[AssistantToolset] = (),
 ) -> QaOutcome | None:
     """The personal bot's reply to one closed burst (module docstring): the text is queued first, then its voice note
     follows under the same ref (`voice.service.send_voice`, T71; the text never waits for it). None when nothing was
     answered: the burst was answered before (a rerun after a crash), it was empty (the owner is told), or the answer
     timed out with no fallback (the owner is told). `toolsets` are this turn's extra in-process tools (T76
-    integrations; media briefs from T73 travel in `question.material`)."""
-    outcome = await _answer(deps, question, images=images, toolsets=toolsets)
+    integrations; media briefs from T73 travel in `question.material`). `documents` are the PDFs the owner sent
+    (UC-37), read by Claude itself; the fallback model does not get them."""
+    outcome = await _answer(deps, question, images=images, documents=documents, toolsets=toolsets)
     if outcome is not None and outcome.voice_script:
         await _speak(deps, question, outcome)
     return outcome
@@ -589,6 +593,7 @@ async def _answer(
     *,
     images: Sequence[Path],
     toolsets: Sequence[AssistantToolset],
+    documents: Sequence[Path] = (),
 ) -> QaOutcome | None:
     started = time.monotonic()
     snap = await settings.snapshot(deps)
@@ -598,11 +603,11 @@ async def _answer(
             if await store.find_answer_by_burst(s, question.burst_id) is not None:
                 log.info("qa_already_answered", burst_id=question.burst_id)
                 return None
-    if question.empty and not images:
+    if question.empty and not images and not documents:
         await _queue(deps, snap, question.chat_id, S.QA_EMPTY_QUESTION(), ref=_ref(question))
         return None
     status = None
-    if not question.forwarded and not question.material and not images:
+    if not question.forwarded and not question.material and not images and not documents:
         status = await bridge.status_reply(
             deps, question.own_text, timezone=snap[defaults.UI_TIMEZONE], timeout=snap[defaults.TIMEOUTS_BRIDGE_S]
         )
@@ -620,6 +625,7 @@ async def _answer(
         now=now,
         images=images,
         toolsets=_toolsets(deps, snap, tool_log, toolsets),
+        documents=documents,
     )
     drafts = _Drafts(
         deps,

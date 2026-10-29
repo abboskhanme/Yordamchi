@@ -7,6 +7,8 @@ The size-fit policy for videos is the caller's (`personal/artefacts/domain.py`):
 the longest duration worth downloading and, after the download, whether and how to re-encode. The adapter only
 carries those decisions out.
 
+`compress_audio` (UC-37) turns an audio file the owner sent into the one format the speech readers share.
+
 `read_page` (UC-31, T73) returns a page's readable text for `personal/media`, which hands it to the assistant as
 data. Everything in a `PageText` is web content: untrusted, never an instruction.
 """
@@ -56,6 +58,16 @@ class Clip:
 
 
 @dataclass(frozen=True, slots=True)
+class CompressedAudio:
+    """An audio file re-encoded for a speech reader (UC-37): mono 16 kHz MP3."""
+
+    path: Path
+    mime: str  # "audio/mpeg"
+    size_bytes: int
+    duration_s: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class PageText:
     """The readable text of one web page (title, description, then the main text in reading order)."""
 
@@ -94,6 +106,11 @@ class WebTools(Protocol):
         self, source: Path, *, dest_dir: Path, video_kbps: int, audio_kbps: int, max_height: int, timeout: float
     ) -> DownloadedVideo:
         """H.264/AAC MP4 at the given bitrates, scaled down to `max_height` (never up)."""
+        ...
+
+    async def compress_audio(self, source: Path, *, dest_dir: Path, kbps: int, timeout: float) -> CompressedAudio:
+        """Any audio (or a video's sound) as mono 16 kHz MP3 at `kbps`: one format every speech reader takes, and a
+        smaller request (UC-37). A file ffmpeg cannot decode raises `AudioEncodeFailed`."""
         ...
 
     async def read_page(self, url: str, *, max_chars: int, max_bytes: int, timeout: float) -> PageText:

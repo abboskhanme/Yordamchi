@@ -59,6 +59,7 @@ if TYPE_CHECKING:
     from yordamchi.bots.personal.runtime import Closer, PersonalApp
     from yordamchi.persistence.uow import Database
     from yordamchi.ports.assistant import Assistant
+    from yordamchi.ports.documents import DocumentWriter
     from yordamchi.ports.media import MediaAnalyzer
     from yordamchi.ports.speech import Synthesizer, Transcriber
     from yordamchi.ports.web import WebTools
@@ -314,6 +315,14 @@ async def log_notice(config: PersonalConfig, text: BotText) -> None:
     logger.info("startup_notice_skipped", reason="dry_run")
 
 
+def _documents() -> "DocumentWriter":
+    """The documents the assistant makes (UC-37): python-docx, openpyxl, and Chromium for PDFs."""
+    from yordamchi.adapters.office.writer import OfficeDocumentWriter
+    from yordamchi.adapters.web.browser import print_pdf
+
+    return OfficeDocumentWriter(print_pdf=print_pdf)
+
+
 def _web_tools(boot: Boot) -> "WebTools":
     """Screenshots, file fetches, page text and video downloads (T74): Chromium, urllib, yt-dlp and the static
     ffmpeg from `DATA/bin`; Node from `~/.local/bin` runs yt-dlp's YouTube challenges."""
@@ -429,6 +438,7 @@ def build(boot: Boot, clock: Clock) -> "PersonalApp":
         mcp=McpHttpClient(),  # the personal integrations gateway (T76) is not built: nothing calls it yet
         media_analyzers=keyed.analyzers,
         web=_web_tools(boot),
+        documents=_documents(),
         fallback_assistant=keyed.fallback,
     )
     keys.append(deps)

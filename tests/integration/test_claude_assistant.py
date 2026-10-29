@@ -7,6 +7,7 @@ measure warm-ask latency.
 """
 
 import asyncio
+import base64
 import json
 import stat
 import statistics
@@ -717,6 +718,29 @@ async def test_an_image_goes_as_a_base64_block(tmp_path: Path) -> None:
     content = factory.clients[0].sent[0]["message"]["content"]
     assert [block["type"] for block in content] == ["text", "image"]
     assert content[1]["source"]["media_type"] == "image/png"
+    await assistant.close(timeout=TIMEOUT)
+
+
+async def test_a_pdf_goes_as_a_base64_document_block_after_the_images(tmp_path: Path) -> None:
+    image, pdf = tmp_path / "shot.png", tmp_path / "doc.pdf"
+    image.write_bytes(b"\x89PNG fake")
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    factory = Factory(_asks("assistant_routing", 1))
+    assistant = _assistant(tmp_path, factory)
+    await assistant.ask(_routing(images=(image,), documents=(pdf,)), timeout=TIMEOUT)
+    content = factory.clients[0].sent[0]["message"]["content"]
+    assert [block["type"] for block in content] == ["text", "image", "document"]
+    assert content[2]["source"]["media_type"] == "application/pdf"
+    assert base64.b64decode(content[2]["source"]["data"]) == pdf.read_bytes()
+    await assistant.close(timeout=TIMEOUT)
+
+
+async def test_a_document_that_is_no_pdf_is_refused(tmp_path: Path) -> None:
+    other = tmp_path / "doc.docx"
+    other.write_bytes(b"PK")
+    assistant = _assistant(tmp_path, Factory(_asks("assistant_routing", 1)))
+    with pytest.raises(ConfigInvalid):
+        await assistant.ask(_routing(documents=(other,)), timeout=TIMEOUT)
     await assistant.close(timeout=TIMEOUT)
 
 

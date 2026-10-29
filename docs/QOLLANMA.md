@@ -313,6 +313,17 @@ Shaxsiy chatda yozing yoki ovozli xabar yuboring — guruh shart emas. Bot faqat
 - **Havola, YouTube, video (≤ 20 MB)** — bot avval "Ko'ryapman…" deydi, keyin nima ekanini, asosiy
   fikrlarini va o'z fikrini aytadi. Faqat havolaning o'zini yuborsangiz, bot ~10 soniya kutadi:
   ortidan savol yozishingiz mumkin. Login yoki pullik sahifani ko'ra olmasa, shuni aytadi.
+- **Istalgan fayl** — PDF, Word (`.docx`), Excel (`.xlsx`), PowerPoint (`.pptx`), matn, CSV yoki audio yozuvni
+  yuboring (≤ 20 MB). Izohga nima qilishni yozing: "xulosa qil", "tarjima qil", "jadvalga sol", "xatolarini top".
+  Izohsiz yuborsangiz, bot fayl nima ekanini va asosiy fikrlarini aytadi. Eski `.doc`/`.xls` va arxivlarni o'qimaydi:
+  ularni PDF yoki DOCX qilib yuboring.
+- **Yig'ilish yozuvi** (mp3, m4a, wav, ogg… ≤ 20 MB, 2,5 soatgacha) — bot "Tinglayapman…" deydi, yozuvni matnga
+  aylantiradi (kim gapirgani va vaqti bilan) va **transkriptni `.txt` fayl qilib** yuboradi. Keyin qisqa xulosa,
+  qarorlar va topshiriqlar (kim, nima, qachongacha) yozadi hamda **bayonnomani Word fayl** qilib yuboradi. Izohda
+  boshqacha so'rasangiz ("faqat topshiriqlarni Excel'ga", "rus tilida bayonnoma"), shuni qiladi. Buning uchun
+  Gemini yoki OpenRouter kaliti kerak (pastda).
+- **Hujjat tayyorlash**: "shu bo'yicha xat yozib ber, Word qilib", "jadvalni Excel qilib yubor", "PDF hisobot
+  tayyorla" — bot DOCX, PDF, XLSX, MD yoki TXT faylni javobdan keyin yuboradi.
 - **Skrinshot va fayllar**: "example.com saytining skrinshoti", "shu sahifadagi rasmni yubor",
   "shu videoni yubor" (YouTube ham) — bot faylni tayyorlab, javobdan keyin yuboradi (≤ 50 MB).
 - **Loyiha holati**: "BonviHR qanday?" — dev botning ma'lumotidan o'qiydi, oxirida "Ma'lumot: … oldin".

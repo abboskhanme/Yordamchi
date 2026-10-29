@@ -6,7 +6,7 @@ a 300 MB video costs nothing), the successive sizes re-encodes produce, and a fa
 
 from pathlib import Path
 
-from yordamchi.ports.web import Clip, DownloadedVideo, FetchedFile, PageText, Screenshot, WebTools
+from yordamchi.ports.web import Clip, CompressedAudio, DownloadedVideo, FetchedFile, PageText, Screenshot, WebTools
 
 
 def _write(path: Path, data: bytes = b"", *, size: int | None = None) -> Path:
@@ -34,6 +34,7 @@ class FakeWebTools:
         self.encode_sizes: list[int] = []  # one per re-encode; empty → half the source
         self.page_title = "Fake page"
         self.page_text = "A fake page about one thing. " * 10
+        self.audio_duration_s: float | None = 60.0
 
     def _call(self, method: str, url: str, **kwargs: object) -> None:
         self.calls.append((method, url))
@@ -105,6 +106,12 @@ class FakeWebTools:
             title="Fake video",
             height=max_height,
         )
+
+    async def compress_audio(self, source: Path, *, dest_dir: Path, kbps: int, timeout: float) -> CompressedAudio:
+        self._call("compress_audio", str(source), kbps=kbps, timeout=timeout)
+        data = b"fake mp3"
+        path = _write(dest_dir / f"audio-{kbps}k.mp3", data)
+        return CompressedAudio(path=path, mime="audio/mpeg", size_bytes=len(data), duration_s=self.audio_duration_s)
 
     async def read_page(self, url: str, *, max_chars: int, max_bytes: int, timeout: float) -> PageText:
         self._call("read_page", url, max_chars=max_chars, max_bytes=max_bytes, timeout=timeout)

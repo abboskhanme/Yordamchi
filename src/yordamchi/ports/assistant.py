@@ -127,6 +127,7 @@ class AssistantRequest:
     settings_version: int  # the snapshot version; a higher one rotates the warm client
     effort: str | None = None
     images: tuple[Path, ...] = ()
+    documents: tuple[Path, ...] = ()  # `qa`: PDF files, sent as `document` blocks after the images (UC-37)
     output_schema: Mapping[str, JsonValue] | None = None  # structured output (routing)
     conversation: str | None = None  # the personal conversation key; None = a stateless ask
     instructions: str = ""  # the current owner-editable block, sent with every ask as context (SPEC §5.4)

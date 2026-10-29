@@ -10,6 +10,8 @@ browser or a reset connection), and every Playwright wait gets the time that is 
 A page that never goes quiet still gets its picture: navigation waits for `domcontentloaded`, then up to
 `LOAD_WAIT_S` for `load` and `IDLE_WAIT_S` for network idle, each best-effort. The full-page PNG is clipped at
 `FULL_PAGE_MAX_PX` (an infinite feed would otherwise grow without end; Chromium's texture limit is 16,384 px).
+
+`print_pdf` (UC-37) prints the documents the personal assistant makes: no URL is opened, the page is set from HTML.
 """
 
 import asyncio
@@ -21,10 +23,11 @@ from pathlib import Path
 from typing import Final, Literal, Protocol
 
 from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import FloatRect, async_playwright
+from playwright.async_api import FloatRect, PdfMargins, Route, async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from yordamchi.adapters.web import translate
+from yordamchi.core.errors import CallTimedOut, DocumentFailed
 from yordamchi.core.retry import retrying
 from yordamchi.ports.web import Screenshot
 
@@ -181,3 +184,38 @@ class PlaywrightBrowser:
         except PlaywrightError as error:
             raise translate.from_playwright(error, site=site, operation="screenshot") from None
         return Screenshot(viewport_png=_private(viewport_png), full_page_png=_private(full_png), title=title)
+
+
+# --- printing (UC-37) ------------------------------------------------------------------------------------------------
+PDF_MARGIN: Final = PdfMargins(top="18mm", bottom="18mm", left="16mm", right="16mm")
+
+
+async def _refuse_request(route: Route) -> None:
+    await route.abort()
+
+
+async def print_pdf(html: str, out: Path, *, timeout: float) -> None:
+    """`html` (built by `adapters/office`, every text escaped) printed as an A4 PDF at `out` (0600) by a fresh headless
+    Chromium with JavaScript off and every network request refused: the page can only show what it holds. A browser
+    failure raises `DocumentFailed("pdf")`, the clock `CallTimedOut("document")`."""
+    deadline = _Deadline.after(timeout)
+    try:
+        async with asyncio.timeout(timeout), async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            try:
+                context = await browser.new_context(
+                    java_script_enabled=False, accept_downloads=False, service_workers="block", storage_state=None
+                )
+                await context.route("**/*", _refuse_request)
+                page = await context.new_page()
+                await page.set_content(html, wait_until="load", timeout=deadline.ms())
+                await page.pdf(path=out, format="A4", margin=PDF_MARGIN, print_background=True)
+            finally:
+                with contextlib.suppress(PlaywrightError, TimeoutError):
+                    async with asyncio.timeout(CLOSE_TIMEOUT_S):
+                        await browser.close()
+    except TimeoutError:
+        raise CallTimedOut(operation="document") from None
+    except PlaywrightError as error:
+        raise DocumentFailed(format="pdf") from error
+    _private(out)

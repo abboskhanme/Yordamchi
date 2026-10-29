@@ -23,6 +23,7 @@ IMAGE_TYPES: Final = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
+DOCUMENT_TYPES: Final = {".pdf": "application/pdf"}
 
 
 def version_of(text: str) -> str | None:
@@ -65,20 +66,24 @@ async def probe(
     )
 
 
-async def user_content(text: str, images: Sequence[Path]) -> str | list[dict[str, Any]]:
-    """Plain text, or text plus base64 image blocks."""
-    if not images:
+async def user_content(text: str, images: Sequence[Path], documents: Sequence[Path] = ()) -> str | list[dict[str, Any]]:
+    """Plain text, or text plus base64 image blocks, then base64 PDF `document` blocks (UC-37)."""
+    if not images and not documents:
         return text
     blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
     for path in images:
         media_type = IMAGE_TYPES.get(path.suffix.lower())
         if media_type is None:
             raise ConfigInvalid(key="images", problem="unsupported_image_type")
-        data = await asyncio.to_thread(path.read_bytes)
-        blocks.append(
-            {
-                "type": "image",
-                "source": {"type": "base64", "media_type": media_type, "data": base64.b64encode(data).decode("ascii")},
-            }
-        )
+        blocks.append({"type": "image", "source": await _base64_source(path, media_type)})
+    for path in documents:
+        media_type = DOCUMENT_TYPES.get(path.suffix.lower())
+        if media_type is None:
+            raise ConfigInvalid(key="documents", problem="unsupported_document_type")
+        blocks.append({"type": "document", "source": await _base64_source(path, media_type)})
     return blocks
+
+
+async def _base64_source(path: Path, media_type: str) -> dict[str, str]:
+    data = await asyncio.to_thread(path.read_bytes)
+    return {"type": "base64", "media_type": media_type, "data": base64.b64encode(data).decode("ascii")}

@@ -202,3 +202,37 @@ async def test_logs_carry_outcome_and_tokens_but_no_key_url_or_answer(
     fields = [str(getattr(record, "yd_fields", {})) for record in caplog.records]
     assert "gen-synthetic-video-0001" in fields[1]
     assert all(OPENROUTER_KEY not in line and YOUTUBE not in line and analysis.text not in line for line in fields)
+
+
+# --- audio files (UC-37) ---------------------------------------------------------------------------------------------
+async def test_an_audio_file_goes_as_input_audio(server: OpenRouterServer, tmp_path: Path) -> None:
+    server.script(CHAT, load("openrouter", "chat_video_ok"))
+    recording = tmp_path / "audio-32k.mp3"
+    recording.write_bytes(b"ID3 fake mp3")
+    analysis = await adapter(server).analyze_audio(
+        recording,
+        mime="audio/mpeg",
+        instruction="Transcribe verbatim.",
+        prompt="Transcribe.",
+        model=MODEL,
+        timeout=30.0,
+    )
+    [request] = server.requests_to(CHAT)
+    system, user = request.json["messages"]
+    assert system == {"role": "system", "content": "Transcribe verbatim."}
+    text_part, audio_part = user["content"]
+    assert text_part == {"type": "text", "text": "Transcribe."}
+    assert audio_part["type"] == "input_audio"
+    assert audio_part["input_audio"]["format"] == "mp3"
+    assert base64.b64decode(audio_part["input_audio"]["data"]) == recording.read_bytes()
+    assert "provider" not in request.json
+    assert analysis.cost_usd_micros == 5370
+
+
+def test_the_audio_format_follows_the_type_or_defaults_to_mp3() -> None:
+    from yordamchi.adapters.openrouter.video import audio_format
+
+    assert audio_format("audio/mpeg") == "mp3"
+    assert audio_format("audio/x-wav; codecs=1") == "wav"
+    assert audio_format("audio/mp4") == "m4a"
+    assert audio_format("application/octet-stream") == "mp3"

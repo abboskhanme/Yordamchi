@@ -22,7 +22,8 @@ import base64
 import json
 import mimetypes
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, Final
 
 import aiohttp
@@ -50,6 +51,18 @@ MIB: Final = 1024 * 1024
 DATA_URL_MAX_BYTES: Final = 50 * MIB
 DEFAULT_MIME: Final = "video/mp4"
 _MIME_ALIASES: Final = {"video/quicktime": "video/mov", "video/mpg": "video/mpeg"}
+AUDIO_FORMAT: Final = "mp3"
+_AUDIO_FORMATS: Final = {
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/flac": "flac",
+    "audio/aac": "aac",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+}
 _REASONING: Final = {"effort": "low", "exclude": True}
 _URL_REFUSALS: Final = ("youtube", "video url", "fetch", "private", "unavailable", "not accessible")
 
@@ -96,6 +109,33 @@ def chat_payload(
     return payload
 
 
+def audio_format(mime: str) -> str:
+    """OpenRouter's `input_audio.format` for a type (`audio/mpeg` → `mp3`); MP3 when it cannot tell."""
+    declared = mime.split(";", 1)[0].strip().lower()
+    return _AUDIO_FORMATS.get(declared, AUDIO_FORMAT)
+
+
+def audio_payload(
+    data: bytes, mime: str, *, instruction: str, prompt: str, model: str, reasoning: bool
+) -> dict[str, Any]:
+    """One reading of an audio file (UC-37): the prompt and an `input_audio` part."""
+    audio = {"data": base64.b64encode(data).decode("ascii"), "format": audio_format(mime)}
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": instruction},
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}, {"type": "input_audio", "input_audio": audio}],
+            },
+        ],
+        "stream": False,
+    }
+    if reasoning:
+        payload["reasoning"] = dict(_REASONING)
+    return payload
+
+
 def _message(body: object) -> str:
     error = body.get("error") if isinstance(body, dict) else None
     return str(error.get("message", "")).lower() if isinstance(error, dict) else ""
@@ -107,6 +147,9 @@ def translate_video_status(status: int, body: object, headers: Mapping[str, str]
     if from_url and status in {400, 404, 422} and any(word in _message(body) for word in _URL_REFUSALS):
         return WebContentUnavailable(site=YOUTUBE_SITE)
     return translate_status(status, body, headers, operation=OPERATION)
+
+
+type _Build = Callable[[bool], dict[str, Any]]  # whether to send `reasoning` → the request
 
 
 class OpenRouterMediaAnalyzer:
@@ -142,18 +185,46 @@ class OpenRouterMediaAnalyzer:
     async def analyze_video(
         self, source: VideoSource, *, instruction: str, prompt: str, model: str, timeout: float
     ) -> MediaAnalysis:
-        started = time.monotonic()
+        data = await self._file_bytes(source.path) if source.path is not None else None
+
+        def build(reasoning: bool) -> dict[str, Any]:
+            return chat_payload(source, data, instruction=instruction, prompt=prompt, model=model, reasoning=reasoning)
+
         kind = "url" if source.url is not None else "file"
+        return await self._read(
+            build,
+            model=model,
+            source=kind,
+            from_url=source.url is not None,
+            data_bytes=len(data or b""),
+            timeout=timeout,
+        )
+
+    async def analyze_audio(
+        self, path: Path, *, mime: str, instruction: str, prompt: str, model: str, timeout: float
+    ) -> MediaAnalysis:
+        data = await self._file_bytes(path)
+
+        def build(reasoning: bool) -> dict[str, Any]:
+            return audio_payload(data, mime, instruction=instruction, prompt=prompt, model=model, reasoning=reasoning)
+
+        return await self._read(
+            build, model=model, source="audio", from_url=False, data_bytes=len(data), timeout=timeout
+        )
+
+    async def _read(
+        self, build: _Build, *, model: str, source: str, from_url: bool, data_bytes: int, timeout: float
+    ) -> MediaAnalysis:
+        started = time.monotonic()
         attempts = 0
         try:
             key = await resolve_key(self._api_key, provider=PROVIDER)
-            data = await self._file_bytes(source)
 
             async def attempt() -> MediaAnalysis:
                 nonlocal attempts
                 attempts += 1
                 return await self._chat(
-                    key, source, data, instruction=instruction, prompt=prompt, model=model, timeout=timeout
+                    key, build, model=model, from_url=from_url, data_bytes=data_bytes, timeout=timeout
                 )
 
             analysis = await retrying(attempt, timeout=timeout, operation=OPERATION)
@@ -162,7 +233,7 @@ class OpenRouterMediaAnalyzer:
                 "video_call_failed",
                 provider=PROVIDER,
                 model=model,
-                source=kind,
+                source=source,
                 code=error.code.value,
                 retryable=error.retryable,
                 attempts=attempts,
@@ -179,10 +250,7 @@ class OpenRouterMediaAnalyzer:
         )
 
     @staticmethod
-    async def _file_bytes(source: VideoSource) -> bytes | None:
-        if source.path is None:
-            return None
-        path = source.path
+    async def _file_bytes(path: Path) -> bytes:
         try:
             size = (await asyncio.to_thread(path.stat)).st_size
             if size > DATA_URL_MAX_BYTES:
@@ -217,22 +285,11 @@ class OpenRouterMediaAnalyzer:
         return status, headers, body
 
     async def _chat(
-        self,
-        key: str,
-        source: VideoSource,
-        data: bytes | None,
-        *,
-        instruction: str,
-        prompt: str,
-        model: str,
-        timeout: float,
+        self, key: str, build: _Build, *, model: str, from_url: bool, data_bytes: int, timeout: float
     ) -> MediaAnalysis:
-        from_url = source.url is not None
         while True:
             reasoning = self._reasoning.get(model, True)
-            payload = chat_payload(
-                source, data, instruction=instruction, prompt=prompt, model=model, reasoning=reasoning
-            )
+            payload = build(reasoning)
             started = time.monotonic()
             status, headers, body = await self._request(payload, key=key, timeout=timeout)
             duration_ms = int((time.monotonic() - started) * 1000)
@@ -264,7 +321,7 @@ class OpenRouterMediaAnalyzer:
                 provider=PROVIDER,
                 model=model,
                 request_id=request_id if isinstance(request_id, str) else headers.get("x-generation-id"),
-                video_bytes=len(data or b""),
+                video_bytes=data_bytes,
                 chars=len(text),
                 input_tokens=units.get("input_tokens"),
                 duration_ms=duration_ms,

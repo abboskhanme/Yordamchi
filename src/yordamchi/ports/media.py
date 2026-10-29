@@ -1,4 +1,5 @@
-"""MediaAnalyzer: video and YouTube understanding (SPEC §3.1 new port; §3.2.14; P3). Google, then OpenRouter.
+"""MediaAnalyzer: video and YouTube understanding (SPEC §3.1 new port; §3.2.14; P3), and audio files (UC-37, §3.2.17).
+Google, then OpenRouter.
 
 The caller (`personal/media`) renders both texts from `prompts/personal/` and picks the provider and model from its
 settings snapshot. `instruction` is the reader's standing order (what to produce, and that anything said or shown in
@@ -49,4 +50,12 @@ class MediaAnalyzer(Protocol):
         """One reading of the video within `timeout` in total (retries included). Vendor failures arrive as the
         `core.errors` hierarchy: `AuthFailed`, `QuotaExhausted`, `RateLimited`, `CallTimedOut`,
         `ProviderUnavailable`, `WebContentUnavailable` (a private or removed YouTube video), `WebContentTooLarge`."""
+        ...
+
+    async def analyze_audio(
+        self, path: Path, *, mime: str, instruction: str, prompt: str, model: str, timeout: float
+    ) -> MediaAnalysis:
+        """One reading of a local audio file (UC-37: a meeting's transcript) within `timeout` in total, retries
+        included. `mime` is the file's type (`personal/files` hands over MP3 from `WebTools.compress_audio`). The
+        same failures as `analyze_video`; a file over the adapter's inline cap raises `WebContentTooLarge`."""
         ...

@@ -235,3 +235,40 @@ async def test_logs_carry_outcome_and_tokens_but_no_key_url_or_answer(
     fields = [str(getattr(record, "yd_fields", {})) for record in caplog.records]
     assert "input_tokens" in fields[1]
     assert all(GOOGLE_KEY not in line and YOUTUBE not in line and analysis.text not in line for line in fields)
+
+
+# --- audio files (UC-37) ---------------------------------------------------------------------------------------------
+async def test_an_audio_file_goes_inline_as_an_audio_part(google: GoogleServer, tmp_path: Path) -> None:
+    google.script(load("gemini", "interaction_video_ok"))
+    recording = tmp_path / "audio-32k.mp3"
+    recording.write_bytes(b"ID3 fake mp3")
+    analysis = await adapter(google).analyze_audio(
+        recording,
+        mime="audio/mpeg",
+        instruction="Transcribe verbatim.",
+        prompt="Transcribe.",
+        model="gemini-3.8-flash",
+        timeout=30.0,
+    )
+    [body] = google.bodies()
+    audio_part, text_part = body["input"][0]["content"]
+    assert audio_part["type"] == "audio"
+    assert audio_part["mime_type"] == "audio/mpeg"
+    assert base64.b64decode(audio_part["data"]) == recording.read_bytes()
+    assert text_part == {"type": "text", "text": "Transcribe."}
+    assert body["system_instruction"] == "Transcribe verbatim."
+    assert body["store"] is False
+    assert analysis.provider == "google"
+
+
+async def test_an_audio_file_over_the_inline_cap_is_refused(
+    google: GoogleServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(video, "INLINE_MAX_BYTES", 10)
+    recording = tmp_path / "a.mp3"
+    recording.write_bytes(b"x" * 11)
+    with pytest.raises(WebContentTooLarge):
+        await adapter(google).analyze_audio(
+            recording, mime="audio/mpeg", instruction="i", prompt="p", model="gemini-3.8-flash", timeout=5.0
+        )
+    assert google.requests == []

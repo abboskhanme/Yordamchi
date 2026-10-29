@@ -609,7 +609,9 @@ class ClaudeAssistant:
         key = self._key(profile)
         pool = self._pool(request.kind, request.conversation)
         # The instructions ride the UserPromptSubmit hook when short, else they open the message (guard.py).
-        content = await cli.user_content(message_with_context(request.prompt, request.instructions), request.images)
+        content = await cli.user_content(
+            message_with_context(request.prompt, request.instructions), request.images, request.documents
+        )
         await self._bounded(pool.lock.acquire(), idle)
         try:
             pool.profile = profile

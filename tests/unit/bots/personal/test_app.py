@@ -190,7 +190,7 @@ async def test_a_tool_list_outside_the_allowlist_refuses_the_start_and_is_rememb
     assert notices.sent == [(OWNER_ID, S.PERSONAL_STARTUP_TOOLS_REFUSED())]
     [probe] = fakes.assistant.requests
     assert probe.kind == "qa"
-    assert [toolset.server for toolset in probe.toolsets] == ["yordamchi_bridge", "yordamchi_media"]
+    assert [toolset.server for toolset in probe.toolsets] == ["yordamchi_bridge", "yordamchi_media", "yordamchi_files"]
     assert fakes.assistant.resets == [("qa", probe.conversation)]  # the throwaway conversation is closed
     memory = json.loads(app.tools_marker(paths).read_text())
     assert (memory["release"], memory["cli"]) == (RELEASE, "2.1.309")
@@ -270,11 +270,13 @@ ALLOWLIST = sorted(
         "mcp__yordamchi_media__screenshot",
         "mcp__yordamchi_media__fetch_file",
         "mcp__yordamchi_media__download_video",
+        "mcp__yordamchi_files__make_document",  # UC-37
     ]
 )
 SERVERS = [
     {"name": "yordamchi_bridge", "status": "connected", "source": "sdk"},
     {"name": "yordamchi_media", "status": "connected", "source": "sdk"},
+    {"name": "yordamchi_files", "status": "connected", "source": "sdk"},
 ]
 
 
@@ -314,7 +316,11 @@ async def test_the_real_session_refuses_an_extra_tool_and_runs_the_personal_colu
         assert env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"
         for name in proc.REFUSED_ENV_VARS:
             assert name not in env
-        assert set(cast("dict[str, Any]", options.mcp_servers)) == {"yordamchi_bridge", "yordamchi_media"}
+        assert set(cast("dict[str, Any]", options.mcp_servers)) == {
+            "yordamchi_bridge",
+            "yordamchi_media",
+            "yordamchi_files",
+        }
     finally:
         await assistant.close(timeout=5.0)
 

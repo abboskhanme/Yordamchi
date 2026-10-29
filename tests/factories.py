@@ -20,6 +20,7 @@ from sqlalchemy import insert, select
 from tests.fakes.agent import FakeAgentRuntime
 from tests.fakes.assistant import FakeAssistant
 from tests.fakes.clock import DEFAULT_START, FakeClock
+from tests.fakes.documents import FakeDocumentWriter
 from tests.fakes.git import FakeGit, FakeGitHub
 from tests.fakes.keystore import InMemoryKeystore
 from tests.fakes.mac_host import FakeMacHost
@@ -146,6 +147,7 @@ class Fakes:
     remote_shell: FakeRemoteShell = field(default_factory=FakeRemoteShell)
     media: FakeMediaAnalyzer = field(default_factory=FakeMediaAnalyzer)
     web: FakeWebTools = field(default_factory=FakeWebTools)
+    documents: FakeDocumentWriter = field(default_factory=FakeDocumentWriter)
 
 
 def make_dev_deps(*, db: Database, paths: Paths, fakes: Fakes, peer_db: Database | None = None) -> DevDeps:
@@ -187,6 +189,7 @@ def make_personal_deps(*, db: Database, paths: Paths, fakes: Fakes, peer_db: Dat
         mcp=fakes.mcp,
         media_analyzers={fakes.media.provider: fakes.media},
         web=fakes.web,
+        documents=fakes.documents,
     )
 
 

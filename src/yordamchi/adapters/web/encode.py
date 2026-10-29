@@ -1,4 +1,5 @@
-"""`FfmpegEncoder`: re-encode a video to fit the send cap, and read a file's duration (static ffmpeg/ffprobe 9.0.2
+"""`FfmpegEncoder`: re-encode a video to fit the send cap, compress an audio file for the speech readers (UC-37), and
+read a file's duration (static ffmpeg/ffprobe 9.0.2
 in `DATA/bin`, STACK §2).
 
 Runs through `core.proc` only: an argv list, never a shell, its own process group, killed on timeout. The bitrates
@@ -14,10 +15,10 @@ from pathlib import Path
 from typing import Final
 
 from yordamchi.core import proc
-from yordamchi.core.errors import CallTimedOut, NotInstalled, VideoEncodeFailed
+from yordamchi.core.errors import AudioEncodeFailed, CallTimedOut, NotInstalled, VideoEncodeFailed
 from yordamchi.core.log import get_log
 from yordamchi.core.proc import ProcResult
-from yordamchi.ports.web import DownloadedVideo
+from yordamchi.ports.web import CompressedAudio, DownloadedVideo
 
 log = get_log(__name__)
 
@@ -25,6 +26,8 @@ PROBE_TIMEOUT_S: Final = 15.0
 ENCODERS_TIMEOUT_S: Final = 10.0
 SOFTWARE_ENCODER: Final = "libx264"
 HARDWARE_ENCODER: Final = "h264_videotoolbox"
+AUDIO_RATE_HZ: Final = 16000
+AUDIO_MIME: Final = "audio/mpeg"
 
 type Runner = Callable[..., Awaitable[ProcResult]]
 
@@ -49,6 +52,18 @@ def encode_argv(
         str(out),
     ]  # fmt: skip
     return argv
+
+
+def audio_argv(ffmpeg: Path, source: Path, out: Path, *, kbps: int) -> list[str]:
+    """The first audio stream as mono 16 kHz MP3 at a constant `kbps` (speech needs no more; UC-37)."""
+    return [
+        str(ffmpeg), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+        "-i", str(source),
+        "-map", "0:a:0", "-vn",
+        "-ac", "1", "-ar", str(AUDIO_RATE_HZ),
+        "-c:a", "libmp3lame", "-b:a", f"{kbps}k",
+        str(out),
+    ]  # fmt: skip
 
 
 def probe_argv(ffprobe: Path, path: Path) -> list[str]:
@@ -145,3 +160,19 @@ class FfmpegEncoder:
             title="",
             height=max_height,
         )
+
+    async def compress_audio(self, source: Path, *, dest_dir: Path, kbps: int, timeout: float) -> CompressedAudio:
+        if not self._ffmpeg.exists():
+            raise NotInstalled(binary="ffmpeg")
+        out = dest_dir / f"audio-{kbps}k.mp3"
+        result = await self._call(
+            audio_argv(self._ffmpeg, source, out, kbps=kbps), timeout=timeout, operation="audio_encode"
+        )
+        size = out.stat().st_size if out.exists() else 0
+        if result.returncode != 0 or size == 0:
+            with contextlib.suppress(OSError):
+                out.unlink(missing_ok=True)
+            log.warning("audio_encode_failed", exit_code=result.returncode, duration_ms=result.duration_ms)
+            raise AudioEncodeFailed
+        out.chmod(0o600)
+        return CompressedAudio(path=out, mime=AUDIO_MIME, size_bytes=size, duration_s=await self.duration(out))

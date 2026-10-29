@@ -359,6 +359,15 @@ answer (for example Bonvi HR, Wunderkind) → the bot uses it automatically, wit
 supplying anything again. The personal bot calls only read-only tools, or tools the owner
 explicitly allowed when adding the integration.
 
+**UC-37 Analyse any file; meeting recordings and documents** (owner, 2026-10-29). The owner sends
+any file (PDF, Word, Excel, PowerPoint, text, CSV, an audio recording) → the bot reads it and
+answers about it, or does what he asked with it. A meeting recording is transcribed (speakers and
+times; the transcript is sent as a `.txt` file), then summarised with decisions and action items,
+and the minutes document is made. On request the bot makes documents (DOCX, PDF, XLSX, MD, TXT)
+and sends them as files.
+- F: an unreadable type (archive, legacy `.doc`) → it says which types it reads. Over 20 MB → as
+  UC-31 F. No speech key for audio → as UC-31 (the key request).
+
 **UC-36 Read project status (read-only bridge).** "BonviHR qanday?" → answered from the dev bot's
 project digest (UC-15). The personal bot has **no path to instruct the dev bot or any executor**.
 

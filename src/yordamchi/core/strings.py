@@ -1207,6 +1207,34 @@ ERR_TOPICS_UNAVAILABLE = Msg(
     "Hozircha hammasi General'da."
 )
 
+# --- files ---
+# UC-37 (SPEC §3.2.17): any file the owner sends is read for the assistant; an audio recording is transcribed first
+# (a minute or two for a long meeting, so it is acked at once). `name` is the file's own name as he sent it.
+FILE_LISTENING = Msg("Tinglayapman… Yozuv uzun bo'lsa, bir-ikki daqiqa olishi mumkin.")
+FILE_UNSUPPORTED = Msg(
+    "«{name}» — bu turdagi faylni o'qiy olmayman. `.pdf`, `.docx`, `.xlsx`, `.pptx`, matn yoki audio qilib yuboring."
+)
+FILE_EMPTY = Msg("«{name}» ichida o'qiladigan matn topmadim.")
+FILE_TOO_MANY_PDFS = Msg("Bir xabarda ko'pi bilan {limit} ta PDF o'qiyman — qolganini alohida yuboring.")
+FILE_PDF_TOO_LONG = Msg(
+    "«{name}» {pages} betlik — bir martada {limit} betgacha o'qiyman. Kerakli betlarini alohida yuboring."
+)
+FILE_TRANSCRIPT_CAPTION = Msg("«{name}» transkripti")
+# The transcription failed with every provider tried; {reason} joins STT_REASON_PROVIDER parts, as for videos.
+FILE_AUDIO_FAILED = Msg("Yozuvni matnga aylantira olmadim: {reason}.")
+FILE_AUDIO_NO_KEY = Msg(
+    "Yozuvni matnga aylantirish uchun kalit yo'q. Google (AIza… yoki AQ.…) yoki OpenRouter (sk-or-v1-…) kalitini "
+    "chatga yuboring — o'zim sozlayman."
+)
+FILE_AUDIO_OFF = Msg("Audio va video tahlili o'chirilgan. Yoqish uchun: «video tahlilini yoq».")
+ERR_FILE_TOO_LONG = Msg("Yozuv {max_minutes} daqiqadan uzun. Uni qismlarga bo'lib yuboring.")
+ERR_FILE_UNREADABLE = Msg("Faylni ochib bo'lmadi — u buzilgan yoki parol bilan himoyalangan bo'lishi mumkin.")
+ERR_AUDIO_ENCODE_FAILED = Msg(
+    "Fayldan ovozni ajratib bo'lmadi — unda audio yo'q yoki formati tanish emas. MP3 yoki M4A qilib yuboring."
+)
+ERR_DOCUMENT_INVALID = Msg("Hujjatni tayyorlab bo'lmadi: ma'lumot to'liq emas ({problem}).")
+ERR_DOCUMENT_FAILED = Msg("{format} hujjatini yaratib bo'lmadi. Boshqa formatda tayyorlab beraymi?")
+
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(
     {code: entry for code in ErrorCode if isinstance(entry := globals().get(f"ERR_{code.name}"), Msg)}

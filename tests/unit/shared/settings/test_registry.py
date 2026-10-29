@@ -168,6 +168,22 @@ SPEC_KEYS.append("persona.dev_chat")  # SPEC §5.4: persona never in the frozen 
 # Owner, 2026-10-26 (D4 revised): the dev group's forum topics (SPEC §3.2.16). The switch back to a flat group; how
 # long a refusal (no "Manage topics" right) is remembered before the bot tries again; and A4's bound on the topic calls.
 SPEC_KEYS.extend(["topics.enabled", "topics.retry_after_min", "timeouts.topic_s"])
+# Owner, 2026-10-29 (UC-37): files the owner sends and the documents the assistant makes (SPEC §3.2.17, §4.3).
+SPEC_KEYS.extend(
+    [
+        "files.max_mb",
+        "files.text_max_chars",
+        "files.pdf_max_pages",
+        "files.max_pdfs",
+        "files.audio_max_min",
+        "files.audio_kbps",
+        "files.send_transcript",
+        "files.max_documents",
+        "files.document_max_mb",
+        "timeouts.audio_file_s",
+        "timeouts.document_s",
+    ]
+)
 
 # SPEC §4.3 and CONVENTIONS §5: these must never change without one question.
 SAFEGUARD_PREFIXES = ("access.", "caps.")

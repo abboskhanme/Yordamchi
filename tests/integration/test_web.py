@@ -33,6 +33,7 @@ from yordamchi.adapters.web.encode import FfmpegEncoder, encode_argv, parse_dura
 from yordamchi.adapters.web.tools import LocalWebTools
 from yordamchi.adapters.web.ytdl import YoutubeDLLike, YtDlpDownloader
 from yordamchi.core.errors import (
+    AudioEncodeFailed,
     CallTimedOut,
     ErrorCode,
     ExternalError,
@@ -803,3 +804,33 @@ def test_every_mapping_is_an_external_error() -> None:
     ]
     assert all(isinstance(error, ExternalError) for error in samples)
     assert isinstance(samples[0], ProviderUnavailable)
+
+
+# --- audio compression (UC-37) ----------------------------------------------------------------------------------------
+async def test_compress_audio_writes_a_private_mono_mp3(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    _fake_ffmpeg(bin_dir)
+    _fake_ffprobe(bin_dir, prints="1834.2")
+    source = tmp_path / "audio.m4a"
+    source.write_bytes(b"src")
+    audio = await _encoder(bin_dir).compress_audio(source, dest_dir=tmp_path, kbps=32, timeout=10.0)
+    assert audio.path == tmp_path / "audio-32k.mp3"
+    assert (audio.size_bytes, audio.duration_s, audio.mime) == (4096, 1834.2, "audio/mpeg")
+    assert _mode(audio.path) == 0o600
+    argv = (bin_dir / "argv.txt").read_text()
+    assert "-map 0:a:0 -vn -ac 1 -ar 16000 -c:a libmp3lame -b:a 32k" in argv
+
+
+async def test_compress_audio_failure_leaves_no_file(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    _fake_ffmpeg(bin_dir, exit_code=1)
+    source = tmp_path / "audio.bin"
+    source.write_bytes(b"src")
+    with pytest.raises(AudioEncodeFailed):
+        await _encoder(bin_dir).compress_audio(source, dest_dir=tmp_path, kbps=32, timeout=10.0)
+    assert not (tmp_path / "audio-32k.mp3").exists()
+
+
+async def test_compress_audio_without_ffmpeg_is_not_installed(tmp_path: Path) -> None:
+    with pytest.raises(NotInstalled):
+        await _encoder(tmp_path / "nowhere").compress_audio(tmp_path / "a.mp3", dest_dir=tmp_path, kbps=32, timeout=5)

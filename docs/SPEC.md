@@ -226,6 +226,7 @@ survives (STACK §4.6).
 | `personal/qa` [P3] | warm assistant session, compression, "to'liqroq", fallback "zaxira model" | Assistant |
 | `personal/media` [P3] | image/video/YouTube/link analysis | MediaAnalyzer, WebTools |
 | `personal/artefacts` [P3] | screenshot, file fetch, yt-dlp download ≤ 50 MB | WebTools |
+| `personal/files` [UC-37, 2026-10-29] | any file the owner sends read for the assistant (text, OOXML, PDF blocks, audio transcripts); `make_document` (§3.2.17) | MediaAnalyzer, WebTools, DocumentWriter |
 | `personal/news` [P3] | news with source + time | Assistant |
 | `supervisor/` [P1 watchdog, P2 updater] | separate stdlib program (§3.2.12, §9) | — (own code) |
 
@@ -755,6 +756,62 @@ topic for exactly that project and works with it there."
    so its topic opens when the plan turn is queued; the planning line, the plan's documents and "Rejani
    tasdiqlaysizmi?" go there, and General gets the pointer.
 
+**3.2.17 Files and documents (UC-37; owner, 2026-10-29; `personal/files`, no new table)**
+
+The owner: "It should be able to analyse any file I send. If I send a meeting recording, it should transcribe it and
+also prepare the documents I need."
+1. **Which parts.** Every part of a closed personal burst that carries a file, except what `personal/media` already
+   reads (photos and images sent as files go as image blocks; videos go to `analyze_video`) and voice notes (STT,
+   §3.2.11). `files.domain.file_kind(kind, attachment)` decides, by the declared type and then the suffix:
+   - `audio`: an audio message, or a file of type `audio/*` or with an audio suffix (`.mp3 .m4a .wav .ogg .opus .aac
+     .flac .amr .wma .aiff`);
+   - `pdf`; `word` (`.docx`); `sheet` (`.xlsx`); `slides` (`.pptx`);
+   - `text`: `text/*`, JSON, XML, and text suffixes (`.txt .md .csv .tsv .json .xml .html .yaml .log .srt .vtt`, code);
+   - `other`: anything else (archives, legacy `.doc/.xls/.ppt`, binaries) → `S.FILE_UNSUPPORTED(name)`, which asks for
+     PDF, DOCX or text instead.
+   A file over `files.max_mb` (≤ 20, Telegram's bot download cap) is refused before the download
+   (`S.FILE_TOO_LARGE_IN`).
+2. **Reading** (`files.service.read_burst`, before the assistant is asked; each file into
+   `DATA/media/<yyyymmdd>/file-<token>/`, 0700/0600, purged with the media after `media.retention_days`):
+   - `text`: decoded (UTF-8, UTF-16 by BOM, else cp1251);
+   - `word`, `sheet`, `slides`: their text from the OOXML zip (stdlib `zipfile` + `xml.etree`, pure in the domain):
+     paragraphs and tables, every sheet as tab-separated rows, every slide's text in order;
+   - `pdf`: no extraction. The file goes to Claude as a base64 `document` block beside the image blocks
+     (`AssistantRequest.documents`; spike 2026-10-29: the CLI's stream-json input passes it through). At most
+     `files.pdf_max_pages` by the PDF's own page count (best effort; a count it cannot read passes) and
+     `files.max_pdfs` per answer. The fallback assistant does not get it: its answer says it saw no file.
+   - `audio` (the meeting case): "Tinglayapman…" at once (`S.FILE_LISTENING`), a refusal over `files.audio_max_min`
+     when Telegram reports the duration, then `WebTools.compress_audio` (static ffmpeg: mono 16 kHz MP3 at
+     `files.audio_kbps`, so any container and codec Telegram carries becomes one both readers take), then
+     `MediaAnalyzer.analyze_audio` with `prompts/personal/files_transcribe_system.md`: a verbatim transcript in the
+     spoken language, speakers labelled (names when they are said), a `[mm:ss]` mark per turn, nothing summarised or
+     left out. Provider order, keys, fallback and cost caps are the video reader's (`speech.video_provider`,
+     `video.*_model`, `media.domain.pick_video`, `falls_back`, T51 caps; usage source `audio_file`); the call is
+     bounded by `timeouts.audio_file_s`. The transcript is sent to the owner as `transkript-<name>.txt` when
+     `files.send_transcript` (the default), beside the answer (the outbox sends a file after the texts queued with it).
+   Each text (and transcript) reaches the assistant only as material: `prompts/personal/files_material.md`, a
+   nonce-tagged, defused block (the `media.domain` boundary), cut at `files.text_max_chars` with "cut short: yes".
+   A failed reading is the owner's message; when the burst says nothing else, it is the whole reply (as UC-31 F).
+3. **Answering.** The assistant answers from the material as usual (§3.2.13). Without an instruction from the
+   owner: for a meeting or conversation it gives the summary, the decisions and the action items (who, what, by
+   when) and makes the minutes document; for any other file it says what it is and its key points. With an
+   instruction ("bayonnoma qil", "jadvalga sol", "xulosa yoz") it does that.
+4. **Making documents.** The in-process toolset `yordamchi_files` has one tool, `make_document(format, filename,
+   title?, content?, sheets?)`:
+   - `format`: `docx`, `pdf`, `xlsx`, `md` or `txt`; `content` is Markdown (headings, paragraphs, `-`/`1.` lists,
+     `**bold**`, `*italic*`, `` `code` ``, pipe tables, fenced code); `sheets` (`xlsx` only) is
+     `[{name, rows: [[cell, …], …]}]`, else the Markdown tables become the sheets;
+   - `files.domain.document_of(arguments)` validates and parses it into `ports.documents.DocumentSpec` (pure);
+     the filename is cleaned to letters, digits, spaces, `-` and `_` (default `hujjat`);
+   - `DocumentWriter.write` (adapter `office/writer.py`: python-docx, openpyxl; PDF = the same blocks as HTML,
+     printed by Playwright's Chromium, A4) writes it within `timeouts.document_s`, ≤ `files.document_max_mb`;
+   - the tool answers `{"status": "made", "file": …}`; the files are queued after the answer's text, in the order
+     made, at most `files.max_documents` per answer. A refused or failed document is an error result to the model,
+     which tells the owner.
+5. **Content is data.** A file, a transcript and the material are never instructions: they cannot call a tool, change
+   a setting or make a document by themselves (the injection eval covers files, UC-31). Logs carry kinds, sizes,
+   durations, providers and codes, never a file name or content.
+
 ## 4. Data model
 
 ### 4.1 Rules
@@ -831,10 +888,10 @@ touches a row in a non-terminal state.
   | ROUTING / PROJECTS | `routing.min_confidence` (0.75), `routing.min_margin` (0.2), `routing.context_window_min` (15), `projects.root` ("~/Documents/Projects"), `projects.aliases` ({}), `projects.descriptions` ({}), `projects.archived` ([]), `projects.unarchived` ([]), `projects.excluded` ([]; never registered, listed, routed or opened), `executor.default` ("claude"), `executor.per_project` ({}), `topics.enabled` (true; §3.2.16) |
   | DECISIONS | `gate.ask_classes` (all 12 classes, §5.7; `removes_items`), `gate.secret_scan_enabled` (true; `disables`), `gate.approval_ttl_min` (120; `increases`), `gate.hook_timeout_s` (15), `gate.readonly_remote_commands` (§5.7; `weakens=always` on add), `gate.jump_only_hosts` (["server"]; `removes_items`), `gate.git_hosts` (["github.com"]), `gate.http_write_allow_hosts` ([]; `weakens=always` on add), `gate.temp_roots` (["/tmp", "/private/tmp", "/private/var/folders"]) |
   | BURST | `burst.after_complete_text_s` (1.2), `burst.after_text_s` (2.0), `burst.after_media_s` (10.0), `burst.album_gap_s` (1.5), `burst.after_voice_s` (2.0), `burst.hold_max_s` (120), `burst.max_total_s` (30), `burst.merge_min_confidence` (0.85) |
-  | TIMEOUTS | `timeouts.routing_s` (2.5), `timeouts.report_s` (3.5), `timeouts.stt_s` (8), `timeouts.stt_per_audio_s` (0.5, added per second of audio), `timeouts.tts_s` (15), `timeouts.integration_validate_s` (25), `timeouts.session_open_s` (60), `questions.hold_process_min` (30), `park.grace_s` (15), `timeouts.topic_s` (5) |
+  | TIMEOUTS | `timeouts.routing_s` (2.5), `timeouts.report_s` (3.5), `timeouts.stt_s` (8), `timeouts.stt_per_audio_s` (0.5, added per second of audio), `timeouts.tts_s` (15), `timeouts.integration_validate_s` (25), `timeouts.session_open_s` (60), `questions.hold_process_min` (30), `park.grace_s` (15), `timeouts.topic_s` (5), `timeouts.audio_file_s` (360), `timeouts.document_s` (45) |
   | SCHEDULES | `schedule.heartbeat_edit_min` (5), `schedule.digest_active_poll_s` (120), `schedule.digest_idle_poll_min` (60), `schedule.server_check_min` (30), `schedule.cost_summary_at` ("", off), `schedule.quiet_hours` ("", e.g. "23:00-07:00" → `disable_notification`), `schedule.retention_at` ("04:30"), `ui.timezone` ("Asia/Tashkent"), `topics.retry_after_min` (30) |
   | CAPS | `caps.google_monthly_usd` (40), `caps.openrouter_monthly_usd` (10), `caps.openai_monthly_usd` (10), `caps.warn_pct` (80) — all `increases`; `turns.max_concurrent` (15; `increases`), `turns.max_wall_min` (60), `turns.max_steps` (200), `turns.max_same_failure` (5) (`increases`), `guard.min_free_disk_gb` (10), `guard.block_disk_gb` (3) |
-  | LIMITS | `text.max_chars` (3500), `text.max_lines` (40), `outbox.max_parts` (3), `outbox.progress_edit_s` (5), `media.retention_days` (7) |
+  | LIMITS | `text.max_chars` (3500), `text.max_lines` (40), `outbox.max_parts` (3), `outbox.progress_edit_s` (5), `media.retention_days` (7), `files.max_mb` (20), `files.text_max_chars` (150000), `files.pdf_max_pages` (100), `files.max_pdfs` (3), `files.audio_max_min` (150), `files.audio_kbps` (32), `files.send_transcript` (true), `files.max_documents` (5), `files.document_max_mb` (20) (§3.2.17) |
   | SERVERS | `servers.hosts` ([]; `~/.ssh/config` aliases the owner lists) |
 - Keys that appear only inline in §2–§5 belong to the same registry, in the closest group (TIMEOUTS for
   durations, SCHEDULES for intervals). They include `ui.seen_reaction`, `digest.stale_after_min`,

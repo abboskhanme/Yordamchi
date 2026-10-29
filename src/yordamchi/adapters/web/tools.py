@@ -23,7 +23,7 @@ from yordamchi.adapters.web.ytdl import YtDlpDownloader
 from yordamchi.core.errors import CallTimedOut, WebNoMedia, YordamchiError
 from yordamchi.core.log import get_log
 from yordamchi.core.paths import Paths
-from yordamchi.ports.web import Clip, DownloadedVideo, FetchedFile, PageText, Screenshot, WebTools
+from yordamchi.ports.web import Clip, CompressedAudio, DownloadedVideo, FetchedFile, PageText, Screenshot, WebTools
 
 log = get_log(__name__)
 
@@ -197,6 +197,16 @@ class LocalWebTools:
             return await _logged("video_encode", call, lambda video: video.size_bytes)
         except TimeoutError:
             raise CallTimedOut(operation="video_encode") from None
+
+    async def compress_audio(self, source: Path, *, dest_dir: Path, kbps: int, timeout: float) -> CompressedAudio:
+        async def call() -> CompressedAudio:
+            async with asyncio.timeout(timeout):
+                return await self._encoder.compress_audio(source, dest_dir=dest_dir, kbps=kbps, timeout=timeout)
+
+        try:
+            return await _logged("audio_encode", call, lambda audio: audio.size_bytes)
+        except TimeoutError:
+            raise CallTimedOut(operation="audio_encode") from None
 
     async def read_page(self, url: str, *, max_chars: int, max_bytes: int, timeout: float) -> PageText:
         async def call() -> PageText:

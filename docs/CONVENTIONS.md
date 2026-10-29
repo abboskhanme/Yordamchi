@@ -127,7 +127,8 @@ src/yordamchi/<shared|dev|personal>/<feature>/
 | `Git` · `GitHub` | `git/` · `github/` (CLIs) | real git on `tmp_path` repos · fake |
 | `RemoteShell` · `McpClient` | `ssh/` (OpenSSH, `~/.ssh/config`) · `mcp/` | fake · fixture MCP server (UC-35) |
 | `WebTools` (screenshot, download) · `MacHost` (memory/disk, Mac attach, ClaudeManager) | `web/` · `macos/` | fakes |
-| `MediaAnalyzer` (video and YouTube understanding; SPEC §3.1, P3) | `gemini/video.py` | `openrouter/video.py`; `FakeMediaAnalyzer` |
+| `MediaAnalyzer` (video and YouTube understanding, audio files; SPEC §3.1, P3, UC-37) | `gemini/video.py` | `openrouter/video.py`; `FakeMediaAnalyzer` |
+| `DocumentWriter` (DOCX, PDF, XLSX, MD, TXT the assistant makes; UC-37) | `office/writer.py` (PDF via `web/browser.print_pdf`) | `FakeDocumentWriter` |
 | `Keystore` · `Clock` | `keystore/` (Keychain or 0600 file: the architect decides) · `system_clock.py` | in-memory · `FakeClock` (virtual time) |
 
 A new adapter is `adapters/<vendor>/<capability>.py` holding `<Vendor><Port>` (`GeminiTranscriber`; `GitCli` when the
