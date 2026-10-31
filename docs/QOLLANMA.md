@@ -370,3 +370,11 @@ Shaxsiy chatda yozing yoki ovozli xabar yuboring — guruh shart emas. Bot faqat
 - **Ovoz tanlash**: "ovozing yoqmadi" — bot 3 ta raqamlangan ovoz namunasini yuboradi. Yoqqanini "ikkinchisi" yoki "2"
   deb yozing — keyingi javoblar o'sha ovozda keladi. Boshqa xabar yozsangiz, ovoz o'zgarmaydi. Bepul Edge ovozida
   faqat 2 ta o'zbekcha ovoz bor (ayol va erkak).
+
+## 12. Windows'da faqat shaxsiy bot
+
+Boshqa odam shaxsiy botni Windows kompyuterida terminaldan ishga tushirishi mumkin (supervisor ham, dev bot ham
+kerak emas). Yo'riqnoma README'ning "Windows: personal bot only" bo'limida: repo klonlanadi,
+`uv run python scripts\windows\setup.py` bot tokeni va Telegram ID'ni so'raydi, keyin `scripts\windows\run.cmd`
+botni ishga tushiradi. Bot har 3 kunda GitHub'dan yangilanadi; yangilanish ishlamasa, eski versiyaga qaytadi.
+Ovoz uchun Gemini kalitini botga chatda yuboring.

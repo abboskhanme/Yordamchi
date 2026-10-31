@@ -241,6 +241,7 @@ Waves: {T50 T51 T52 T54 T55} → {T53 T56 T57} → T58 → T59 → T60.
 - [x] (DONE 2026-10-31; voice samples UC-34 with it) T76 gateway `yordamchi_int` + personal integrations half — build-integration — deps: T50, T70 — UC-35, UC-08 personal
 - [x] (DONE 2026-10-24, before T75/T76: news and integrations answer NOT_YET) T77 `bots/personal` wiring + tool-list equality refusal (S5 decision) [sequential] — build-backend — deps: T70–T76 — NFR-SEC-08
 - [x] (DONE 2026-10-31) SPEC §3.2.18 personal agent mode: slice A (agent session in the workspace, the agent `init` check, `timeouts.agent_*`) and slice B (`personal/agent` guard on the gate classifier, one «ha»/«yo'q» question in chat, grants and refusals, `tests/integration/test_personal_agent.py`) — build-backend — D15
+- [x] (DONE 2026-10-31) SPEC §2.9 Windows, personal bot only: DPAPI store and platform seams, `scripts/windows/setup.py`, the self-updating `scripts/windows/run.py`, CI `windows.yml` (real-Windows run still pending)
 - [x] (DONE 2026-10-31) SPEC §3.2.12 "Upstream updates": the supervisor's `upstream` job (fetch `origin main` every 3 days, app then supervisor, no push, ff-only `main`), `YORDAMCHI_REPO_DIR` from the installer, the dev bot's switch-back watch for upstream supervisors — ship-devops
 - [ ] T78 P3 evals: UC-30 quality ≥ 30 (owner-reviewed), injection ≥ 10, burst full ≥ 40 both bots, bridge isolation, fixture MCP — test-backend — deps: T77
 - [ ] T79 P3 latency, qa-security, install personal plist, QOLLANMA, DoD — deps: T78

@@ -1,0 +1,52 @@
+# Windows: the personal bot only (README "Windows: personal bot only"). The Windows code paths are not type-checked or
+# run on the owner's Mac, so this job is their only real check: the Windows unit tests, a non-interactive setup with a
+# fake token, and the bot's --dry-run (everything up to the tool check: no model, no poll, no message).
+name: windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  personal-bot:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Windows unit tests
+        run: >
+          uv run pytest -q -p no:cacheprovider
+          tests/unit/core/test_windows.py
+          tests/unit/adapters/test_windows_adapters.py
+          tests/unit/bots/personal/test_app_windows.py
+          tests/unit/ops/test_windows_setup.py
+          tests/unit/ops/test_windows_run.py
+
+      - name: Setup with a fake token
+        shell: pwsh
+        run: |
+          $token = "123456789:" + ("A" * 35)
+          $token | uv run python scripts\windows\setup.py --owner-id 1 --token-stdin
+
+      - name: Dry run
+        shell: pwsh
+        run: |
+          # A stand-in `claude` so the start-up binary check passes; the dry run never launches it.
+          $fake = Join-Path $env:RUNNER_TEMP "fake-claude"
+          New-Item -ItemType Directory -Force -Path $fake | Out-Null
+          Set-Content -Path (Join-Path $fake "claude.cmd") -Value "@echo 2.1.0 (Claude Code)"
+          $env:PATH = "$fake;$env:PATH"
+          uv run python -m yordamchi.bots.personal.app --dry-run

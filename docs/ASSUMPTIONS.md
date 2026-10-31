@@ -462,3 +462,9 @@ question. Correct any line and it changes.
 - [2026-10-31] Which `claude` does the Windows bot spawn? → `%USERPROFILE%\.local\bin\claude.exe` (the native installer's place), else the first `claude.exe` on PATH → the Agent SDK refuses an npm `.cmd` shim; the startup binary check still accepts any `claude` on PATH.
 - [2026-10-31] Control socket and stop signals on Windows? → no control socket (`build_app(control_socket=False)`: no supervisor, no Unix sockets); SIGINT/SIGTERM/SIGBREAK via `signal.signal` + `call_soon_threadsafe` where the Proactor loop has no `add_signal_handler` → a terminal runner stops the bot with Ctrl+Break.
 - [2026-10-31] Host metrics on Windows? → keep `MacOsHost`; its `sysctl`/`ps` probes fail and degrade by themselves → a `WindowsHost` adds nothing the personal bot needs today.
+- [2026-10-31] Windows setup: does a command-line flag override an existing env value? → yes; otherwise existing values stay → re-running setup must never silently drop the owner's settings
+- [2026-10-31] Where does the Windows setup live? → `scripts/windows/setup.py`, not importing `scripts/install.py` → `src/` lint bans print/subprocess, and install.py cannot import on Windows (`os.getuid`)
+- [2026-10-31] Windows runner: what after a failed update? → roll back (reset --keep, sync, DB copy back) and skip that commit until origin/main moves → no update loop
+- [2026-10-31] Windows runner updating itself? → exit code 3 when `scripts/windows/` changed; `run.cmd`/`run.ps1` start the new runner → a running script cannot replace itself
+- [2026-10-31] Windows runner: back up `personal.db` before migrating? → yes, `backups\pre-update` → a migration failure must not lose data
+- [2026-10-31] Windows limits accepted for now → agent-mode gate unverified with `C:\` paths; a timeout kills only the direct child; Gemini/OpenRouter keys pasted in chat (setup has no owner origin to vault them) → owner asked for "just the bot", verified by CI only

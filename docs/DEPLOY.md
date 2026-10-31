@@ -126,6 +126,27 @@ logs and the three plists is created (`~/.config/yordamchi` stays as an empty 07
 - **Chat self-update** (`o'zingga … qo'sh`) still finds the copy through the project registry: the clone must be a
   folder named `Yordamchi` under `projects.root` (default `~/Documents/Projects`; `sozlama: projects.root <folder>`).
 
+### 1.3 Windows: the personal bot only (owner 2026-10-31)
+
+No supervisor, launchd, installer or dev bot: `scripts/windows/setup.py` once, then `scripts\windows\run.cmd` in a
+terminal (commands in README "Windows: personal bot only").
+- **Where things are.** DATA = `%LOCALAPPDATA%\Yordamchi` (`personal.env`, `db\personal.db`, `run\updater.json`,
+  `logs\runner.log`, `backups\pre-update`); the DPAPI-sealed secrets (bot token, vault master key) live in
+  `%APPDATA%\Yordamchi\secrets`, outside DATA. `YORDAMCHI_DATA_DIR` / `YORDAMCHI_ENV_FILE` still override.
+- **Setup.** Token by getpass (or one stdin line with `--token-stdin`), `--owner-id`, `--group-id`; a flag replaces an
+  existing value, otherwise existing values stay. The master key is created only when absent. Then
+  `alembic upgrade head` on `personal.db` and a read-back of the config.
+- **Runner.** The bot runs as `python -m yordamchi.bots.personal.app` in its own process group; Ctrl+C sends
+  `CTRL_BREAK_EVENT`, then kills after 20 s. Crash restarts back off 2 s → 300 s (reset after 10 stable minutes). Updates:
+  first check 1 min after start, then every 3 days (a failed fetch retries after 1 h); only on a clean `main` that is
+  behind `origin/main`: stop the bot, `merge --ff-only`, `uv sync --frozen`, back up `personal.db`, migrate, start. A
+  failure goes back (`reset --keep`, sync, DB copy restored) and that commit is skipped until GitHub moves on. An update
+  that changes `scripts/windows/` makes the runner exit 3 so `run.cmd` starts the new runner.
+- **Stop updates.** `git remote rename origin github`; rename it back to resume.
+- **Not verified on a real Windows machine yet** (only CI, `.github/workflows/windows.yml`): real DPAPI calls, Ctrl+C
+  through `uv run`, `uv sync` while the runner's Python is running, `run.cmd`'s loop, and agent mode's gate with
+  `C:\` paths.
+
 ## 2. What runs where
 
 | Job | Program | Plist | Logs |

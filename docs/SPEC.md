@@ -195,6 +195,19 @@ survives (STACK §4.6).
   - after 10 min offline, the watchdog shows one banner on the Mac (`osascript display notification`), naming every
     bot offline by then: `S_SUP.BOTS_OFFLINE`. One per outage; Telegram cannot carry the news of its own outage.
 
+### 2.9 Windows: the personal bot only (owner 2026-10-31)
+Other people run only the personal bot on Windows, from a terminal: no supervisor, launchd, installer or dev bot.
+- **Platform seams** (composition roots only, each behind a `platform` parameter): `core/config.load_paths` → DATA
+  `%LOCALAPPDATA%\Yordamchi`, config `%APPDATA%\Yordamchi`; `core/keychain.DpapiStore` (`core/dpapi.py`, user-scope
+  DPAPI, one sealed file per item under `Paths.secret_store`) instead of `/usr/bin/security`; `core/proc` uses
+  `os.pathsep` and `process.kill()`; the personal app binds no control socket, falls back to `signal.signal` for
+  Ctrl+C/Ctrl+Break, finds `claude.exe` and `ffmpeg` on `PATH`; the assistant's kill uses `taskkill /T /F`.
+- **Setup and runner**: `scripts/windows/setup.py` (token, owner id, master key if absent, migrations) and
+  `scripts/windows/run.py` (restarts with backoff; every 3 days fast-forwards to `origin/main`, syncs, migrates,
+  restarts, and rolls back a failed update). DEPLOY §1.3.
+- **Limits**: agent mode's gate is not verified with Windows paths; a timeout kills only the direct child; the Gemini or
+  OpenRouter key is pasted to the bot in chat. CI: `.github/workflows/windows.yml`.
+
 ## 3. Modules, features and key flows
 
 ### 3.1 Feature map (CONVENTIONS §1/§4 shape; phase in brackets)
