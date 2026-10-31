@@ -821,6 +821,38 @@ also prepare the documents I need."
    a setting or make a document by themselves (the injection eval covers files, UC-31). Logs carry kinds, sizes,
    durations, providers and codes, never a file name or content.
 
+**3.2.18 Personal agent mode (owner, 2026-10-31; reverses the restricted personal session of §5.3 / S5)**
+
+The owner: "Telegram men va Claude orasida shunchaki ko'prik vazifasini o'tasin … terminalda aytsam qiladiyu, nega
+Telegramdan aytsam qilmaydi". The personal bot's answer is a **full Claude Code session**, as in his terminal; Telegram
+stays the bridge (burst, voice, media and files in; text, voice and files out — unchanged).
+1. **Session** (`adapters/claude/assistant.py`, the `qa` kind with `AssistantProfile.agent` set):
+   - cwd = `agent.workspace_dir` (default `~/Documents/Projects/_shaxsiy`, created 0700 at start; never a Yordamchi
+     data or release dir);
+   - `tools` = the CLI's preset (Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, Task, TodoWrite, …) plus the
+     in-process toolsets; no `--restricted`; `permission_mode="bypassPermissions"`; `setting_sources=[]`;
+     `strict_mcp_config=True` and `ENABLE_CLAUDEAI_MCP_SERVERS=false` stay (integrations are Yordamchi's, D11);
+   - the guard is the **gate classifier** (`dev/gate/domain.classify`, pure; the one import the personal side takes
+     from `dev`, C7-personal amended) with `Policy.FULL` and `project_root` = the workspace. Facts the dev bot reads
+     from git and the project registry are unknown here, so the classifier fails toward asking (§5.7 "an extra
+     question is acceptable");
+   - the `init` check becomes: every in-process toolset is a `connected` SDK server, no other MCP server is present,
+     and the preset holds `Bash` (proves agent mode). The exact-allowlist equality (NFR-SEC-08) applies only while
+     `agent.enabled` is false.
+2. **Asking** (the §5.7 ask classes: deploy, server_write, data_loss_db, fs_destroy, spend, third_party_send, …):
+   the guard denies at once with the gate's pending message, and the pipeline posts ONE question in the chat
+   (`S.AGENT_ASK(number, what)`), kept in memory like the settings question. "ha" stores a grant for exactly that
+   call (`input_sha256`, `gate.approval_ttl_min`) and queues a follow-up into the same conversation
+   ("approved: retry"), so the agent carries on; "yo'q" tells the agent it was refused. Any other message drops it.
+   **Forbidden** calls (Yordamchi's data, keys, credentials, the bots' processes, `~/.claude/settings*.json`) are
+   denied and never asked.
+3. **Time**: an agent answer may run long (installs, builds): `timeouts.agent_s` (default 900) and
+   `timeouts.agent_idle_s` (default 300) replace `timeouts.qa_s` / `timeouts.qa_idle_s` in agent mode; "to'xta" stops it
+   as before. The fallback model answers only plain questions (it has no tools).
+4. **Untrusted content** stays data (§3.2.14 rule). The gate is the backstop against a page or a forwarded message that
+   talks the agent into a dangerous command; the owner accepted the remaining risk (2026-10-31).
+5. `agent.enabled` (default true, personal) switches it; false gives back the restricted session of §5.3.
+
 ## 4. Data model
 
 ### 4.1 Rules
@@ -910,6 +942,8 @@ touches a row in a non-terminal state.
 - Personal-only additions (2026-10-31, T75/T76/UC-34): `timeouts.integration_call_s` (30),
   `integrations.result_max_chars` (20000), `integrations.response_max_kb` (1024), `news.max_items` (7),
   `news.max_age_h` (36), `voice.sample_voices` ("Kore,Charon,Aoede,Puck,Leda,Fenrir"), `voice.sample_count` (3).
+  Personal agent mode (2026-10-31, §3.2.18): `agent.enabled` (true; `enables`: turning it on asks),
+  `agent.workspace_dir` ("~/Documents/Projects/_shaxsiy"), `timeouts.agent_s` (900), `timeouts.agent_idle_s` (300).
 - `test_registry` fails if any of these lacks `weakens`: `access.*`, `gate.ask_classes`,
   `gate.secret_scan_enabled`, `gate.jump_only_hosts`, `caps.*`, `turns.max_concurrent`.
 

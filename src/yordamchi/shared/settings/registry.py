@@ -296,6 +296,11 @@ def disables(old: SettingValue, new: SettingValue) -> bool:
     return old is True and new is False
 
 
+def enables(old: SettingValue, new: SettingValue) -> bool:
+    """Switching on a switch whose on state is the looser one (the personal agent mode, SPEC §3.2.18)."""
+    return old is False and new is True
+
+
 def removes_items(old: SettingValue, new: SettingValue) -> bool:
     """Dropping an entry from a guarded list (an ask class, a jump-only host)."""
     return isinstance(old, list) and isinstance(new, list) and bool(set(old) - set(new))

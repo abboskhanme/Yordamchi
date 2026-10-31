@@ -21,6 +21,11 @@ model-facing description (rendered from `prompts/**` by the caller), a JSON sche
 calls with the model's arguments. A tool's result is **data** for the model, never an instruction. The toolset
 *signature* (names, descriptions, schemas) is a launch option; the handlers are taken from every request, so they can
 close over this turn's settings snapshot.
+
+**Agent mode** (SPEC §3.2.18): a `qa` request with `agent` set runs as a full Claude Code session in
+`agent.workspace` (the CLI's preset tools, `bypassPermissions`, no `--restricted`). Every tool call except the
+in-process toolsets goes through `agent.guard` first; like the tool handlers, the guard is taken from each request and
+is not part of the launch signature, while the workspace is (a change rebuilds the client and resumes the session).
 """
 
 import re
@@ -30,7 +35,7 @@ from pathlib import Path
 from typing import Final, Literal, Protocol
 
 from yordamchi.core.json_value import JsonValue
-from yordamchi.ports.agent import RuntimeStatus
+from yordamchi.ports.agent import GuardFn, RuntimeStatus
 
 type AssistantKind = Literal["routing", "report", "settings", "chat", "qa"]
 
@@ -102,6 +107,21 @@ class AssistantToolset:
 
 
 @dataclass(frozen=True, slots=True)
+class AgentMode:
+    """The personal session as a full Claude Code agent (SPEC §3.2.18). `workspace` is its cwd, an absolute path the
+    adapter creates 0700; `guard` decides every non-toolset tool call and must answer at once (it never waits for the
+    owner: an ask is a deny with the pending message). Equality is the launch part: the guard is not compared."""
+
+    workspace: Path
+    guard: GuardFn = field(compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.workspace.is_absolute():
+            msg = "the agent workspace must be an absolute path"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True, slots=True)
 class AssistantProfile:
     """What a warm client is launched with: the part of a request that is fixed per kind and settings snapshot."""
 
@@ -116,6 +136,7 @@ class AssistantProfile:
     resume: bool = False  # the conversation already has turns: a new client resumes it
     toolsets: tuple[AssistantToolset, ...] = ()
     max_web_searches: int | None = None  # the CLI's per-session WebSearch cap (STACK §4.8)
+    agent: AgentMode | None = None  # `qa`: a full Claude Code session (SPEC §3.2.18); None = the restricted one
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +156,7 @@ class AssistantRequest:
     resume: bool = False  # `qa`: the conversation already has turns (a fresh process resumes it)
     toolsets: tuple[AssistantToolset, ...] = ()  # `qa`: in-process tools; handlers from this request are used
     max_web_searches: int | None = None  # `qa`: `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION`
+    agent: AgentMode | None = None  # `qa`: agent mode (SPEC §3.2.18); the guard from this request is used
 
     @property
     def profile(self) -> AssistantProfile:
@@ -149,6 +171,7 @@ class AssistantRequest:
             resume=self.resume,
             toolsets=self.toolsets,
             max_web_searches=self.max_web_searches,
+            agent=self.agent,
         )
 
 

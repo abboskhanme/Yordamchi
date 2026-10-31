@@ -55,6 +55,16 @@ The `init` check is `allowlist ⊆ init.tools ⊆ allowlist + harness` and the M
 `connected`; anything else refuses the session with `PersonalToolsMismatch` (never retried, never used). Tool calls
 run the request's handlers, bounded by each tool's `timeout_s`; a failure is an error result the model reads.
 
+**Agent mode (SPEC §3.2.18; `profile.agent` set).** The same `qa` pool and conversation, launched as a full Claude
+Code session: cwd = `agent.workspace` (created 0700; refused inside Yordamchi's data dir), `tools=None` (the CLI
+preset), `bypassPermissions`, no `--restricted`, `allowed_tools` = the in-process tools, `AskUserQuestion` disallowed
+(the owner is asked in chat by the caller's guard, never through a held question); `setting_sources=[]`,
+`strict_mcp_config=True`, the clean env and `ENABLE_CLAUDEAI_MCP_SERVERS=false` stay. The PreToolUse guard allows the
+in-process tools and hands every other call to the guard of the latest ask (`agent.guard`; the one the client was
+launched with until then). The `init` check: `Bash` and every in-process tool present (the preset may add any
+built-in), and the MCP servers exactly the toolsets, all `connected`. The workspace is a launch option: turning
+agent mode on or off, or moving the workspace, rebuilds the client and resumes the conversation.
+
 Logs: kind, session id, codes, counts, durations, versions, cost. Never prompts, instructions or answers.
 """
 
@@ -102,6 +112,7 @@ from yordamchi.ports.agent import (
     AgentEvent,
     Effort,
     FailureCode,
+    GuardFn,
     GuardVerdict,
     Progress,
     RuntimeFailed,
@@ -112,6 +123,7 @@ from yordamchi.ports.agent import (
     UsageLimited,
 )
 from yordamchi.ports.assistant import (
+    AgentMode,
     Assistant,
     AssistantDelta,
     AssistantKind,
@@ -138,6 +150,11 @@ QA_CWD: Final = "assistant"  # DATA/sessions/assistant (SPEC §2.2)
 QA_WEB_SEARCHES_ENV: Final = "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION"
 QA_WEB_SEARCHES_DEFAULT: Final = 1000  # STACK §4.8; the caller passes `qa.web_searches_max`
 QA_DENY_MESSAGE: Final = "personal_tool_not_allowed"
+# The personal agent session (SPEC §3.2.18).
+AGENT_REQUIRED_TOOL: Final = "Bash"  # in `init.tools` only when the CLI preset is on
+AGENT_DISALLOWED: Final = ("AskUserQuestion",)  # the owner is asked in chat via the guard, never by a held question
+AGENT_GUARD_TIMEOUT_S: Final = 10.0  # the caller's guard may read its grants from the database
+AGENT_NO_GUARD: Final = "agent_guard_unavailable"
 TOOL_UNAVAILABLE: Final = "tool_unavailable"
 TOOL_TIMED_OUT: Final = "tool_timed_out"
 TOOL_FAILED: Final = "tool_failed"
@@ -197,6 +214,7 @@ class _LaunchKey:
     schema: str | None
     tools: str | None = None  # `qa`: the toolset signature
     web_searches: int | None = None  # `qa`: the WebSearch cap
+    workspace: str | None = None  # `qa` agent mode: its cwd; None = the restricted session (SPEC §3.2.18)
 
     @classmethod
     def of(cls, profile: AssistantProfile) -> "_LaunchKey":
@@ -206,6 +224,8 @@ class _LaunchKey:
         if profile.kind != QA_KIND:
             if profile.toolsets:
                 raise ConfigInvalid(key="toolsets", problem="dev_kinds_have_no_tools")
+            if profile.agent is not None:
+                raise ConfigInvalid(key="agent", problem="dev_kinds_have_no_agent")
             return cls(system_prompt=profile.system_prompt, effort=profile.effort, schema=schema)
         _check_conversation(profile)
         return cls(
@@ -214,6 +234,7 @@ class _LaunchKey:
             schema=schema,
             tools=_toolset_signature(profile.toolsets),
             web_searches=profile.max_web_searches or QA_WEB_SEARCHES_DEFAULT,
+            workspace=None if profile.agent is None else str(profile.agent.workspace),
         )
 
     @property
@@ -248,6 +269,7 @@ class _Client:
     context_tokens: int = 0
     context: str = ""  # this ask's instructions; the UserPromptSubmit hook returns it as additionalContext
     handlers: dict[str, ToolHandler] = field(default_factory=dict)  # `qa`: this ask's tool handlers, by full name
+    guard: GuardFn | None = None  # `qa` agent mode: the latest ask's guard (kept for turns the CLI starts itself)
     turn_over: bool = True  # False from the send until the turn's result: a client left mid-turn is discarded
     dead: bool = False
     closing: bool = False
@@ -440,10 +462,24 @@ def _cwd_name(kind: AssistantKind) -> str:
     return QA_CWD if kind == QA_KIND else kind
 
 
+def _in_process(profile: AssistantProfile) -> frozenset[str]:
+    """Every in-process tool, by its full `mcp__` name."""
+    return frozenset(name for toolset in profile.toolsets for name in toolset.tool_names)
+
+
 def _qa_expected(profile: AssistantProfile) -> frozenset[str]:
-    """The personal allowlist: the two web tools plus every in-process tool, by its full `mcp__` name."""
-    names = {name for toolset in profile.toolsets for name in toolset.tool_names}
-    return frozenset(QA_BUILTIN_TOOLS) | names
+    """The personal allowlist: the two web tools plus every in-process tool. In agent mode, the tools `init` must
+    hold: every in-process tool and `Bash` (SPEC §3.2.18)."""
+    if profile.agent is not None:
+        return _in_process(profile) | {AGENT_REQUIRED_TOOL}
+    return frozenset(QA_BUILTIN_TOOLS) | _in_process(profile)
+
+
+def _check_workspace(agent: AgentMode, data_dir: Path) -> None:
+    """The agent's cwd is never Yordamchi's own data (sessions, releases, databases, keys)."""
+    workspace = Path(os.path.normpath(agent.workspace))
+    if workspace.is_relative_to(Path(os.path.normpath(data_dir))):
+        raise ConfigInvalid(key="agent.workspace_dir", problem="inside_data_dir")
 
 
 def _json_arguments(arguments: Any) -> dict[str, JsonValue]:
@@ -580,7 +616,10 @@ class ClaudeAssistant:
     def _key(self, profile: AssistantProfile) -> _LaunchKey:
         if profile.kind not in SUPPORTED_KINDS:
             raise ConfigInvalid(key="assistant_kind", problem="unsupported_kind")
-        return _LaunchKey.of(profile)
+        key = _LaunchKey.of(profile)
+        if profile.agent is not None:
+            _check_workspace(profile.agent, self._sessions_dir.parent)
+        return key
 
     @staticmethod
     def _pool_key(kind: AssistantKind, conversation: str | None) -> tuple[AssistantKind, str | None]:
@@ -663,6 +702,8 @@ class ClaudeAssistant:
             client.handlers = {
                 toolset.qualified(tool): tool.handler for toolset in request.toolsets for tool in toolset.tools
             }
+            if request.agent is not None:
+                client.guard = request.agent.guard
             client.translator.sent(command_uuid)
             sdk = client.sdk
             if sdk is None:
@@ -960,6 +1001,8 @@ class ClaudeAssistant:
 
     def _qa_spec(self, profile: AssistantProfile, cwd: Path, client: _Client, expected: frozenset[str]) -> SessionSpec:
         """SPEC §5.3 personal column: the allowlist hook, `dontAsk`, strict MCP, `--restricted` (S5)."""
+        if profile.agent is not None:
+            return self._agent_spec(profile, cwd, client, expected)
 
         async def allowlist(call: ToolCall) -> GuardVerdict:
             if call.tool_name in expected:
@@ -984,6 +1027,41 @@ class ClaudeAssistant:
             expected_tools=expected,
             extra_args=QA_EXTRA_ARGS,
             hook_timeout_s=GUARD_TIMEOUT_S,
+        )
+
+    def _agent_spec(
+        self, profile: AssistantProfile, cwd: Path, client: _Client, expected: frozenset[str]
+    ) -> SessionSpec:
+        """SPEC §3.2.18: the CLI preset under `bypassPermissions`, gated by the caller's guard (the dev executor's
+        shape: the same `GuardBridge`, fail closed); the in-process tools stay allowed as in the restricted session."""
+        in_process = _in_process(profile)
+
+        async def gate(call: ToolCall) -> GuardVerdict:
+            if call.tool_name in in_process:
+                return GuardVerdict(allow=True)
+            guard = client.guard
+            if guard is None:
+                return GuardVerdict(allow=False, message=AGENT_NO_GUARD, reason_code=AGENT_NO_GUARD)
+            return await guard(call)
+
+        env = {**ASSISTANT_ENV, QA_WEB_SEARCHES_ENV: str(client.key.web_searches or QA_WEB_SEARCHES_DEFAULT)}
+        return SessionSpec(
+            kind="coding",  # never read by build_options or the bridge; the closest shape (bypass, edits)
+            cwd=cwd,
+            model=profile.model,
+            guard=gate,
+            effort=cast("Effort | None", profile.effort),
+            context_provider=lambda: client.context,
+            setting_sources=(),
+            tools=None,  # the CLI preset: every built-in tool
+            allowed_tools=tuple(sorted(in_process)),
+            disallowed_tools=AGENT_DISALLOWED,
+            permission_mode="bypassPermissions",
+            sdk_servers=tuple(toolset.server for toolset in profile.toolsets),
+            strict_mcp=True,
+            env=env,
+            expected_tools=expected,
+            hook_timeout_s=AGENT_GUARD_TIMEOUT_S,
         )
 
     def _sdk_servers(self, client: _Client, profile: AssistantProfile) -> dict[str, Any]:
@@ -1013,9 +1091,15 @@ class ClaudeAssistant:
             session_id=session_id,
             model=profile.model,
             settings_version=profile.settings_version,
-            translator=StreamTranslator(session_id=session_id, expected_tools=expected, expected_servers=servers),
+            translator=StreamTranslator(
+                session_id=session_id,
+                expected_tools=expected,
+                expected_servers=servers,
+                exact_tools=profile.agent is None,
+            ),
+            guard=None if profile.agent is None else profile.agent.guard,
         )
-        cwd = self._sessions_dir / _cwd_name(profile.kind)
+        cwd = self._sessions_dir / _cwd_name(profile.kind) if profile.agent is None else profile.agent.workspace
         try:
             await asyncio.to_thread(_ensure_dir, cwd)
             spec = self._spec(profile, cwd, client, expected)

@@ -74,6 +74,12 @@ def tools_match(expected: frozenset[str], reported: Sequence[str]) -> bool:
     return expected <= actual <= expected | HARNESS_TOOLS
 
 
+def tools_include(required: frozenset[str], reported: Sequence[str]) -> bool:
+    """The personal agent session (SPEC §3.2.18): the CLI preset may add any built-in, so only the required tools are
+    checked (the in-process tools and `Bash`, which proves the preset is on)."""
+    return required <= frozenset(reported)
+
+
 MCP_CONNECTED: Final = "connected"
 
 
@@ -216,9 +222,11 @@ class StreamTranslator:
         session_id: str,
         expected_tools: frozenset[str] | None = None,
         expected_servers: frozenset[str] | None = None,
+        exact_tools: bool = True,
     ) -> None:
         self.session_id = session_id
         self.expected_tools = expected_tools
+        self.exact_tools = exact_tools  # False: `expected_tools` need only be present (personal agent mode)
         self.expected_servers = expected_servers  # the personal session's in-process MCP servers (NFR-SEC-08)
         self.ready = False
         self.refused = False
@@ -342,7 +350,7 @@ class StreamTranslator:
             return []  # N3: a later init is an update, never a new session
         self.ready = True
         tools = tuple(str(tool) for tool in msg.get("tools") or ())
-        if self.expected_tools is not None and not tools_match(self.expected_tools, tools):
+        if self.expected_tools is not None and not self._tools_ok(tools):
             self.refused = True
             return [RuntimeFailed(code="protocol", retryable=False)]
         if self.expected_servers is not None and not servers_match(self.expected_servers, msg.get("mcp_servers")):
@@ -361,6 +369,10 @@ class StreamTranslator:
                 cli_version=self.cli_version or "",
             )
         ]
+
+    def _tools_ok(self, tools: Sequence[str]) -> bool:
+        expected = self.expected_tools or frozenset()
+        return tools_match(expected, tools) if self.exact_tools else tools_include(expected, tools)
 
     def _on_state(self, state: Any) -> list[AgentEvent]:
         self.state_events = True

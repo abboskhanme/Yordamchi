@@ -11,6 +11,7 @@ from yordamchi.shared.settings.defaults import REGISTRY
 from yordamchi.shared.settings.registry import (
     BOTH,
     AnySetting,
+    BotScope,
     Check,
     Duration,
     FromBootstrap,
@@ -30,6 +31,7 @@ from yordamchi.shared.settings.registry import (
     always,
     decreases,
     disables,
+    enables,
     increases,
     removes_items,
     to_values,
@@ -80,6 +82,8 @@ SPEC_KEYS.extend(
         "voice.sample_count",
     ]
 )
+# The personal agent mode (SPEC §3.2.18), added to SPEC §4.3 with it (2026-10-31).
+SPEC_KEYS.extend(["agent.enabled", "agent.workspace_dir", "timeouts.agent_s", "timeouts.agent_idle_s"])
 # SPEC §5.6 (revised after T22) names the scheduler's pressure threshold inline (T24).
 SPEC_KEYS.append("guard.max_pressure_level")
 # SPEC §3.2.4 server checks (T31): log paths, the "disk ≥ 90 %" style thresholds, and the bounds the T22 wiring note
@@ -247,6 +251,15 @@ def test_every_safeguard_declares_how_it_weakens() -> None:
     ]
     assert len(guarded) >= len(SAFEGUARD_KEYS) + 3 + 4
     assert [setting.key for setting in guarded if setting.weakens is None] == []
+
+
+def test_turning_the_personal_agent_mode_on_weakens() -> None:
+    """SPEC §3.2.18: agent mode on is the looser state, so switching it on from chat asks the owner (UC-09)."""
+    assert (enables(False, True), enables(True, False)) == (True, False)
+    setting = REGISTRY[defaults.AGENT_ENABLED.key]
+    assert setting.bots is BotScope.PERSONAL
+    assert domain.weakens(setting, False, True)
+    assert not domain.weakens(setting, True, False)
 
 
 def test_claude_model_choices_that_bill_credits_weaken() -> None:

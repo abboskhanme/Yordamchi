@@ -6,8 +6,10 @@ voice script. UC-31/NFR-SEC-09: forwarded content is data, and a compromised mod
 project-status question is answered from the bridge, and the status tool's data carries the freshness line.
 """
 
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -42,12 +44,14 @@ from yordamchi.persistence.uow import Database
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.personal.qa import service, store
 from yordamchi.personal.qa.domain import MARK_VOICE, VoiceStatus
-from yordamchi.ports.assistant import AssistantReply, AssistantRequest
+from yordamchi.ports.agent import GuardVerdict, ToolCall
+from yordamchi.ports.assistant import AgentMode, AssistantReply, AssistantRequest
 from yordamchi.shared.cost import store as cost_store
 from yordamchi.shared.outbox.models import OutboxMessage
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
 from yordamchi.shared.settings import store as settings_store
+from yordamchi.shared.settings.registry import Setting
 
 PERSONA_KEY = defaults.PERSONA_PERSONAL.key
 
@@ -487,3 +491,89 @@ async def test_retention_clears_old_texts(personal_deps: PersonalDeps, personal_
         row = await store.find_answer_by_burst(s, 1)
     assert row is not None
     assert row.text_full is None
+
+
+# --- agent mode (SPEC §3.2.18) -------------------------------------------------------------------------------------
+async def _allow(call: ToolCall) -> GuardVerdict:
+    del call
+    return GuardVerdict(allow=True)
+
+
+AGENT = AgentMode(workspace=Path("/Users/owner/Documents/Projects/_shaxsiy"), guard=_allow)
+
+
+class TimedAssistant(FakeAssistant):
+    """Records the bound each ask got (the fake's stream passes its idle timeout to `ask`)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.timeouts: list[float] = []
+
+    async def ask(self, request: AssistantRequest, *, timeout: float) -> AssistantReply:
+        self.timeouts.append(timeout)
+        return await super().ask(request, timeout=timeout)
+
+
+def _record_timeouts(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    seen: list[float] = []
+    real = asyncio.timeout
+
+    def recording(delay: float | None) -> asyncio.Timeout:
+        if delay is not None:
+            seen.append(delay)
+        return real(delay)
+
+    monkeypatch.setattr(asyncio, "timeout", recording)
+    return seen
+
+
+async def test_agent_mode_carries_the_agent_and_its_context(personal_deps: PersonalDeps, fakes: Fakes) -> None:
+    fakes.assistant.reply_with("qa", reply(QA_REPLY))
+    await service.answer(personal_deps, make_qa_question(), agent=AGENT)
+    request = fakes.assistant.requests[0]
+    assert request.agent == AGENT
+    assert request.system_prompt == prompts.render("personal/qa_system")  # the frozen prompt is unchanged
+    owner_block, _, agent_block = request.instructions.partition("\n- Agent mode:")
+    assert owner_block.startswith("Current instructions from the owner:")
+    assert "/Users/owner/Documents/Projects/_shaxsiy" in agent_block
+    assert "approval" in agent_block
+
+
+async def test_without_agent_mode_the_request_is_unchanged(personal_deps: PersonalDeps, fakes: Fakes) -> None:
+    fakes.assistant.reply_with("qa", reply(QA_REPLY))
+    await service.answer(personal_deps, make_qa_question())
+    request = fakes.assistant.requests[0]
+    assert request.agent is None
+    assert "Agent mode" not in request.instructions
+
+
+@pytest.mark.parametrize(
+    ("agent", "whole", "idle"),
+    [
+        (AGENT, defaults.TIMEOUTS_AGENT_S, defaults.TIMEOUTS_AGENT_IDLE_S),
+        (None, defaults.TIMEOUTS_QA_S, defaults.TIMEOUTS_QA_IDLE_S),
+    ],
+)
+async def test_agent_mode_picks_the_agent_timeouts(
+    personal_deps: PersonalDeps,
+    monkeypatch: pytest.MonkeyPatch,
+    agent: AgentMode | None,
+    whole: Setting[float],
+    idle: Setting[float],
+) -> None:
+    timed = TimedAssistant()
+    timed.reply_with("qa", reply(QA_REPLY))
+    seen = _record_timeouts(monkeypatch)
+    await service.answer(replace(personal_deps, assistant=timed), make_qa_question(), agent=agent)
+    assert timed.timeouts == [idle.default]
+    assert whole.default in seen
+    others = {defaults.TIMEOUTS_AGENT_S.default, defaults.TIMEOUTS_QA_S.default} - {whole.default}
+    assert not others & set(seen)
+
+
+async def test_warm_and_verify_take_the_agent(personal_deps: PersonalDeps, fakes: Fakes) -> None:
+    await service.warm_conversation(personal_deps, OWNER_ID, agent=AGENT)
+    assert fakes.assistant.warmed[0].agent == AGENT
+    assert await service.verify_tools(personal_deps, agent=AGENT) is True
+    assert fakes.assistant.requests[-1].agent == AGENT
+    assert "- Agent mode:" in fakes.assistant.requests[-1].instructions

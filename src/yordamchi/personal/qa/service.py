@@ -50,7 +50,7 @@ from yordamchi.persistence import bulk
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.personal.qa import domain, store
 from yordamchi.personal.qa.domain import Limits, ParsedAnswer, QaQuestion, RotateReason, VoiceStatus
-from yordamchi.ports.assistant import AssistantDelta, AssistantReply, AssistantRequest, AssistantToolset
+from yordamchi.ports.assistant import AgentMode, AssistantDelta, AssistantReply, AssistantRequest, AssistantToolset
 from yordamchi.shared.bridge import domain as bridge_domain
 from yordamchi.shared.bridge import service as bridge
 from yordamchi.shared.cost import service as cost
@@ -71,6 +71,7 @@ FALLBACK_PROMPT: Final = "personal/qa_fallback_system"
 CONTEXT_PROMPT: Final = "personal/qa_context"
 EXTRA_PROMPT: Final = "personal/qa_context_extra"
 PREVIOUS_PROMPT: Final = "personal/qa_context_previous"
+AGENT_PROMPT: Final = "personal/qa_context_agent"  # agent mode only (SPEC §3.2.18); qa_system.md stays as recorded
 PROBE_PROMPT: Final = "personal/qa_probe"
 REPLY_KIND: Final = Kind.RESULT
 USAGE_SOURCE: Final = "qa"
@@ -131,8 +132,16 @@ def _limits(snap: Snapshot) -> Limits:
 
 
 # --- the per-turn instructions (SPEC §5.4) ---------------------------------------------------------------------------
-def _instructions(snap: Snapshot, *, now: datetime, seed: str | None) -> str:
-    """The owner-editable block, rendered from this turn's settings: it rides every ask."""
+def _instructions(snap: Snapshot, *, now: datetime, seed: str | None, agent: AgentMode | None = None) -> str:
+    """The owner-editable block, rendered from this turn's settings: it rides every ask. In agent mode the agent's
+    own lines follow it (SPEC §3.2.18)."""
+    block = _owner_block(snap, now=now, seed=seed)
+    if agent is None:
+        return block
+    return block + "\n" + prompts.render(AGENT_PROMPT, workspace=str(agent.workspace)).strip()
+
+
+def _owner_block(snap: Snapshot, *, now: datetime, seed: str | None) -> str:
     zone = snap[defaults.UI_TIMEZONE]
     extra = snap[defaults.PROMPT_PERSONAL_EXTRA].strip()
     limits = _limits(snap)
@@ -171,6 +180,7 @@ def _request(
     images: Sequence[Path],
     toolsets: tuple[AssistantToolset, ...],
     documents: Sequence[Path] = (),
+    agent: AgentMode | None = None,
 ) -> AssistantRequest:
     return AssistantRequest(
         kind=KIND,
@@ -182,12 +192,20 @@ def _request(
         images=tuple(images),
         documents=tuple(documents),
         conversation=conversation.session_id,
-        instructions=_instructions(snap, now=now, seed=conversation.seed),
+        instructions=_instructions(snap, now=now, seed=conversation.seed, agent=agent),
         prompt_version=snap.version,
         resume=conversation.resume,
         toolsets=toolsets,
         max_web_searches=snap[defaults.QA_WEB_SEARCHES_MAX],
+        agent=agent,
     )
+
+
+def _timeouts(snap: Snapshot, request: AssistantRequest) -> tuple[float, float]:
+    """The whole answer and the stream's silence: an agent answer may install and build (SPEC §3.2.18 item 3)."""
+    if request.agent is not None:
+        return snap[defaults.TIMEOUTS_AGENT_S], snap[defaults.TIMEOUTS_AGENT_IDLE_S]
+    return snap[defaults.TIMEOUTS_QA_S], snap[defaults.TIMEOUTS_QA_IDLE_S]
 
 
 # --- conversations ---------------------------------------------------------------------------------------------------
@@ -265,28 +283,37 @@ async def new_conversation(deps: PersonalDeps, chat_id: int) -> BotText:
     return text
 
 
-async def warm_conversation(deps: PersonalDeps, chat_id: int, *, toolsets: Sequence[AssistantToolset] = ()) -> None:
+async def warm_conversation(
+    deps: PersonalDeps,
+    chat_id: int,
+    *,
+    toolsets: Sequence[AssistantToolset] = (),
+    agent: AgentMode | None = None,
+) -> None:
     """Start the warm session of this chat's conversation before its next question (startup, after "yangi suhbat").
-    `toolsets` are the ones its answers get (`answer`'s), so the warm session is the one they use. Best effort: a
-    failure only means the next ask starts cold."""
+    `toolsets` and `agent` are the ones its answers get (`answer`'s), so the warm session is the one they use. Best
+    effort: a failure only means the next ask starts cold."""
     snap = await settings.snapshot(deps)
     now = deps.clock.now()
     conversation = await _conversation(deps, snap, chat_id, now=now)
     question = QaQuestion(chat_id=chat_id, own_text="")
     toolsets = _toolsets(deps, snap, bridge.ToolLog(), toolsets)
-    request = _request(snap, question, conversation, now=now, images=(), toolsets=toolsets)
+    request = _request(snap, question, conversation, now=now, images=(), toolsets=toolsets, agent=agent)
     try:
         await deps.assistant.warm(request.profile, timeout=snap[defaults.TIMEOUTS_SESSION_OPEN_S])
     except YordamchiError as error:
         log.warning("qa_warm_failed", code=error.code.value)
 
 
-async def verify_tools(deps: PersonalDeps, *, toolsets: Sequence[AssistantToolset] = ()) -> bool:
+async def verify_tools(
+    deps: PersonalDeps, *, toolsets: Sequence[AssistantToolset] = (), agent: AgentMode | None = None
+) -> bool:
     """NFR-SEC-08 at start-up (SPEC §5.3 personal "start check", spike S5): one short ask in a throwaway conversation
     with exactly the tools a real answer gets (the bridge's, then `toolsets`), so the adapter holds the session's
     `init` tool and MCP list against the allowlist. A mismatch raises `PersonalToolsMismatch`: the caller refuses to
     start. True when the session passed; False when Claude could not be reached (a usage limit, the login, the
-    network): then the first real ask makes the same check, and a mismatched session is refused there too."""
+    network): then the first real ask makes the same check, and a mismatched session is refused there too. With
+    `agent` the session is the agent one, and the adapter holds `init` to the agent check (SPEC §3.2.18)."""
     snap = await settings.snapshot(deps)
     conversation = _Conversation(row_id=0, session_id=str(uuid.uuid4()), resume=False)
     question = QaQuestion(chat_id=0, own_text=prompts.render(PROBE_PROMPT))
@@ -297,6 +324,7 @@ async def verify_tools(deps: PersonalDeps, *, toolsets: Sequence[AssistantToolse
         now=deps.clock.now(),
         images=(),
         toolsets=_toolsets(deps, snap, bridge.ToolLog(), toolsets),
+        agent=agent,
     )
     try:
         await deps.assistant.ask(request, timeout=snap[defaults.TIMEOUTS_SESSION_OPEN_S])
@@ -352,9 +380,10 @@ async def _stream(deps: PersonalDeps, snap: Snapshot, request: AssistantRequest,
     started = time.monotonic()
     out = _Streamed()
     partial: list[str] = []
+    whole_s, idle_s = _timeouts(snap, request)
     try:
-        async with asyncio.timeout(snap[defaults.TIMEOUTS_QA_S]):
-            async for item in deps.assistant.stream(request, idle_timeout=snap[defaults.TIMEOUTS_QA_IDLE_S]):
+        async with asyncio.timeout(whole_s):
+            async for item in deps.assistant.stream(request, idle_timeout=idle_s):
                 if isinstance(item, AssistantDelta):
                     if out.first_text_ms is None and item.text.strip():
                         out.first_text_ms = _ms(started)
@@ -554,14 +583,16 @@ async def answer(
     images: Sequence[Path] = (),
     documents: Sequence[Path] = (),
     toolsets: Sequence[AssistantToolset] = (),
+    agent: AgentMode | None = None,
 ) -> QaOutcome | None:
     """The personal bot's reply to one closed burst (module docstring): the text is queued first, then its voice note
     follows under the same ref (`voice.service.send_voice`, T71; the text never waits for it). None when nothing was
     answered: the burst was answered before (a rerun after a crash), it was empty (the owner is told), or the answer
     timed out with no fallback (the owner is told). `toolsets` are this turn's extra in-process tools (T76
     integrations; media briefs from T73 travel in `question.material`). `documents` are the PDFs the owner sent
-    (UC-37), read by Claude itself; the fallback model does not get them."""
-    outcome = await _answer(deps, question, images=images, documents=documents, toolsets=toolsets)
+    (UC-37), read by Claude itself; the fallback model does not get them. `agent` runs the answer as a full Claude
+    Code session (SPEC §3.2.18): its guard decides the tool calls, and `timeouts.agent_*` bound it."""
+    outcome = await _answer(deps, question, images=images, documents=documents, toolsets=toolsets, agent=agent)
     if outcome is not None and outcome.voice_script:
         await _speak(deps, question, outcome)
     return outcome
@@ -594,6 +625,7 @@ async def _answer(
     images: Sequence[Path],
     toolsets: Sequence[AssistantToolset],
     documents: Sequence[Path] = (),
+    agent: AgentMode | None = None,
 ) -> QaOutcome | None:
     started = time.monotonic()
     snap = await settings.snapshot(deps)
@@ -626,6 +658,7 @@ async def _answer(
         images=images,
         toolsets=_toolsets(deps, snap, tool_log, toolsets),
         documents=documents,
+        agent=agent,
     )
     drafts = _Drafts(
         deps,

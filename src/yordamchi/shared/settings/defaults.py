@@ -33,6 +33,7 @@ from yordamchi.shared.settings.registry import (
     always,
     decreases,
     disables,
+    enables,
     increases,
     removes_items,
     to_values,
@@ -1909,6 +1910,46 @@ VOICE_SAMPLE_COUNT = Setting(
     group=Group.VOICE,
     bots=PERSONAL,
     doc="How many numbered voice samples «ovozing yoqmadi» sends.",
+)
+
+# --- personal agent mode (owner, 2026-10-31; SPEC §3.2.18) ---
+# The personal answer is a full Claude Code session in its own workspace, gated by the gate classifier. On is the
+# looser state, so turning it on from chat asks the owner once (UC-09); off gives back the restricted session (§5.3).
+AGENT_ENABLED = Setting(
+    "agent.enabled",
+    bool,
+    True,
+    group=Group.DECISIONS,
+    bots=PERSONAL,
+    weakens=enables,
+    doc="The assistant answers as a full Claude Code agent (commands, files, installs); off: web tools only.",
+)
+AGENT_WORKSPACE_DIR = Setting(
+    "agent.workspace_dir",
+    str,
+    "~/Documents/Projects/_shaxsiy",
+    check=MaxLen(400),
+    group=Group.ROUTING,
+    bots=PERSONAL,
+    doc="The agent's working folder (created 0700 when missing); never a Yordamchi data folder.",
+)
+TIMEOUTS_AGENT_S = Setting(
+    "timeouts.agent_s",
+    float,
+    900.0,
+    check=Range(60, 3600),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="Longest whole agent answer (installs and builds included); replaces timeouts.qa_s in agent mode.",
+)
+TIMEOUTS_AGENT_IDLE_S = Setting(
+    "timeouts.agent_idle_s",
+    float,
+    300.0,
+    check=Range(30, 1800),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="Longest silence of an agent answer's stream; replaces timeouts.qa_idle_s in agent mode.",
 )
 
 # Every Setting bound above, by key (Registry rejects a duplicate key).
