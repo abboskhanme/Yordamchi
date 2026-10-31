@@ -79,6 +79,11 @@ def _looks_random(value: str) -> bool:
     return len(value) >= 24 and classes >= 2 and shannon_entropy(value) >= 4.0
 
 
+def _mixed(value: str) -> bool:
+    """Lowercase, uppercase and digits all present: what a random key has and an identifier rarely does."""
+    return any(c.islower() for c in value) and any(c.isupper() for c in value) and any(c.isdigit() for c in value)
+
+
 _GENERIC_KEYWORD = r"(?:api[_-]?key|access[_-]?key|secret|token|password|passwd|parol|kalit|key)[a-z]{0,5}"
 
 PATTERNS: Final[tuple[SecretPattern, ...]] = (
@@ -128,6 +133,14 @@ PATTERNS: Final[tuple[SecretPattern, ...]] = (
         re.compile(rf"(?i)(?<![A-Za-z0-9]){_GENERIC_KEYWORD}(?![A-Za-z0-9])[\s\"'`:=]{{1,4}}([^\s\"'`&#\[\]]{{24,}})"),
         group=1,
         accept=lambda value: MASK not in value and _looks_random(value),
+    ),
+    SecretPattern(
+        "generic_secret",
+        # Any key-looking token with no keyword before it, whatever its vendor or prefix (`bci_…`, `sk_live_…`, a bare
+        # one; the owner's own key, 2026-10-31): one rule, not one per format. It must mix lower, upper and digits, so
+        # a word, a snake_case identifier or a hex hash stays text; a URL's path or query part is left to the URL.
+        re.compile(r"(?<![A-Za-z0-9_./=?&#:@%+-])[A-Za-z0-9_-]{24,200}(?![A-Za-z0-9_-])"),
+        accept=lambda value: MASK not in value and _looks_random(value) and _mixed(value),
     ),
 )
 

@@ -16,15 +16,18 @@ from typing import TYPE_CHECKING
 from aiogram import Router
 from aiogram.types import ChatMemberUpdated, Message
 
+from yordamchi.core.log import get_log
 from yordamchi.core.paths import BotName
 from yordamchi.dev.deps import DevDeps
 from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.inbox import domain as inbox_domain
 from yordamchi.shared.inbox import service as inbox
-from yordamchi.shared.inbox.domain import Attachment, IncomingUpdate, UpdateKind
+from yordamchi.shared.inbox.domain import Attachment, ForwardSource, IncomingUpdate, UpdateKind
 
 if TYPE_CHECKING:
     from yordamchi.bots.dev.runtime import Intake
+
+log = get_log(__name__)
 
 
 # --- translation ----------------------------------------------------------------------------------------------------
@@ -130,13 +133,23 @@ def incoming_of(origin: OwnerOrigin, message: Message, *, edited: bool = False) 
         attachment=None if found is None else found[1],
         media_group_id=message.media_group_id,
         reply_to_message_id=None if reply is None else reply.message_id,
-        forward=inbox_domain.forward_of(message.model_dump(mode="json")),
+        forward=_forward_of(message),
         sent_at=_sent_at(message, edited=edited),
         message_thread_id=message.message_thread_id,
         is_topic_message=message.is_topic_message is True,
         is_forum=message.chat.is_forum is True if message.chat.type == "supergroup" else None,
         topic_closed=_topic_closed(message),
     )
+
+
+def _forward_of(message: Message) -> ForwardSource | None:
+    """Who a forwarded message came from. Extra details never stop the owner's words: a message the library cannot
+    serialise (an unset field holds aiogram's `Default` sentinel, as a link preview's options do) is read as his own."""
+    try:
+        return inbox_domain.forward_of(message.model_dump(mode="json", exclude_unset=True))
+    except Exception:  # noqa: BLE001  # any library surprise: the text still goes through
+        log.warning("forward_unreadable", message_id=message.message_id)
+        return None
 
 
 def member_of(origin: OwnerOrigin, change: ChatMemberUpdated) -> IncomingUpdate:

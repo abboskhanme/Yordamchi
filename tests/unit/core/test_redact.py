@@ -171,3 +171,19 @@ def test_scrubbing_a_scrubbed_telegram_url_leaves_the_marker_whole() -> None:
     assert DEV_BOT_TOKEN not in once
     assert redact.scrubbed(once) == once
     assert once.endswith("/getMe")
+
+
+def test_a_key_with_no_keyword_is_a_secret_whatever_its_prefix() -> None:
+    """The owner pasted a `<prefix>_<random>` key first and said "api key" after it (2026-10-31): one rule for any
+    key-looking token, not one per vendor format."""
+    for key in ("xyz_" + "9f2c7kq1_ZtWb8LmQpR4-vNcX3dHs6Y0aJe-Ku5gFo2TiEw", "Q7v9Lr2Tz8Wn4" + "Kp6Xc1Bm5Hd3Jf"):
+        hits = redact.find_secrets(f"{key}. https://crm.example.uz/ mana bu tizim uchun api key")
+        assert [(hit.kind, hit.value) for hit in hits] == [("generic_secret", key)], key
+    for text in (
+        "commit 30bd03989bde85fd42ba926bf33998387a7541c3 is installed",  # a hex hash: no uppercase
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG",
+        "some_very_long_snake_case_variable_name_here_x",
+        "test_unit_personal_gateway_service_ok12",
+        "https://github.com/abboskhanme/repo_name_with_Many_Parts1234567",
+    ):
+        assert redact.find_secrets(text) == [], text

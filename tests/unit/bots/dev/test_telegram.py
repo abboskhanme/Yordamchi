@@ -172,3 +172,12 @@ def test_the_retention_run_waits_for_the_next_local_time() -> None:
     now = datetime(2026, 10, 24, 20, 0, tzinfo=UTC)  # 01:00 in Tashkent (UTC+5)
     assert runtime.seconds_until(now, "04:30", "Asia/Tashkent") == 3.5 * 3600
     assert runtime.seconds_until(now, "00:30", "Asia/Tashkent") == 23.5 * 3600  # today's has passed
+
+
+def test_a_text_with_a_link_preview_is_read_without_a_crash() -> None:
+    """Telegram sends `link_preview_options` with a link; aiogram fills its unset fields with a `Default` sentinel that
+    does not serialise (the owner's message of 2026-10-31 crashed intake)."""
+    text = "https://crm.example.uz/ shu tizimni tekshir"
+    message = _message(text=text, link_preview_options={"url": "https://crm.example.uz/"})
+    update = telegram.incoming_of(ORIGIN, message)
+    assert (update.text, update.forward) == (text, None)
