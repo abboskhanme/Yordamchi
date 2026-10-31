@@ -146,7 +146,8 @@ async def _transcribe(deps: SharedDeps, snap: Snapshot, part: BurstPart, named: 
     order = tuple(provider for provider in order if provider not in capped)
     if not order:
         return SttResult(part.update_id, reason=FailReason.PROVIDER, failed=tuple(failed))
-    timeout = snap[defaults.TIMEOUTS_STT_S]
+    # Its own budget, not the transcription call's: a slow getFile once left half a second for the download.
+    timeout = snap[defaults.TIMEOUTS_VOICE_DOWNLOAD_S]
     try:
         audio = await deps.messenger.download(attachment.file_id, max_bytes=domain.MAX_AUDIO_BYTES, timeout=timeout)
     except ExternalError as error:

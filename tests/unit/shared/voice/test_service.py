@@ -213,6 +213,8 @@ async def test_the_call_carries_this_jobs_settings(
     assert (call.mime, call.audio_bytes) == ("audio/ogg", 4100)
     download = fakes.messenger.sent("download")[0].payload
     assert (download["file_id"], download["max_bytes"]) == ("file-1", domain.MAX_AUDIO_BYTES)
+    # the download has its own budget: a slow getFile once left half a second of the 8 s call for the file
+    assert download["timeout"] == snap[defaults.TIMEOUTS_VOICE_DOWNLOAD_S]
 
 
 async def test_the_personal_bot_transcribes_with_its_own_keys(

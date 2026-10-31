@@ -63,7 +63,7 @@ text.max_lines outbox.max_parts outbox.progress_edit_s media.retention_days serv
 access.dev_group_id access.personal_group_id ui.seen_reaction digest.stale_after_min newproject.draft_silence_s
 newproject.plan_max_min handoff.scan_s integrations.oauth_redirect_port integrations.oauth_paste_timeout_min
 integrations.oauth_client_metadata_url selfupdate.drain_max_min selfupdate.health_timeout_s qa.draft_interval_s
-qa.session_idle_rotate_h sessions.idle_close_min turns.result_grace_s
+qa.session_idle_rotate_h sessions.idle_close_min turns.result_grace_s timeouts.voice_download_s
 """.split()  # noqa: SIM905
 # SPEC §5.7 gives the shim window inline ("in the last 120 s"); the T07 wiring note named its key (T18).
 SPEC_KEYS.append("gate.shim_grant_window_s")

@@ -447,3 +447,4 @@ question. Correct any line and it changes.
 - [2026-10-31] What "yo'q" does on the agent's question → stores a refusal for that exact call (`gate.approval_ttl_min`) and sends a declined follow-up to the agent → the agent can tell the owner what it does instead, and a retry is refused without asking again.
 - [2026-10-31] Where the agent's grants and question live → in memory (`AgentState`) → like the waiting settings question; a restart forgets them and the agent simply asks again.
 - [2026-10-31] Git facts in the personal workspace → unknown (no git or registry reads) → the classifier fails toward asking, so `git push` there always asks.
+- [2026-10-31] Voice note download shared the 8 s transcription budget and timed out after a slow getFile → own setting `timeouts.voice_download_s` = 30 s → a slow Telegram answer is not a failed note

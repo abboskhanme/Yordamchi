@@ -753,6 +753,15 @@ TIMEOUTS_STT_S = Setting(
     bots=BOTH,
     doc="One transcription call.",
 )
+TIMEOUTS_VOICE_DOWNLOAD_S = Setting(
+    "timeouts.voice_download_s",
+    float,
+    30.0,
+    check=Range(5, 120),
+    group=Group.TIMEOUTS,
+    bots=BOTH,
+    doc="Fetching one voice note from Telegram (getFile and the download), before it is transcribed.",
+)
 TIMEOUTS_STT_PER_AUDIO_S = Setting(
     "timeouts.stt_per_audio_s",
     float,
