@@ -74,6 +74,7 @@ import dataclasses
 import json
 import os
 import signal
+import sys
 import time
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
@@ -166,6 +167,8 @@ CONNECT_TIMEOUT_S: Final = 60.0  # a spare's spawn; `timeouts.session_open_s` de
 CLOSE_TIMEOUT_S: Final = 5.0
 KILL_GRACE_S: Final = 0.5
 PS_TIMEOUT_S: Final = 1.0
+TASKKILL_ARGV: Final = ("taskkill", "/T", "/F", "/PID")  # Windows: the CLI and its tree, by pid
+TASKKILL_TIMEOUT_S: Final = 5.0
 GUARD_TIMEOUT_S: Final = 2.0
 STRUCTURED_TOOL: Final = "StructuredOutput"
 WEB_SEARCH_TOOL: Final = "WebSearch"
@@ -511,7 +514,9 @@ class ClaudeAssistant:
         context_limit_tokens: int = CONTEXT_LIMIT_TOKENS,
         connect_timeout_s: float = CONNECT_TIMEOUT_S,
         kill_grace_s: float = KILL_GRACE_S,
+        platform: str = sys.platform,
     ) -> None:
+        """`platform="win32"`: a stuck CLI is killed with its tree by `taskkill` (there is no `ps` or process group)."""
         self._cli_path = cli_path
         self._search_path = search_path
         self._sessions_dir = sessions_dir
@@ -522,6 +527,7 @@ class ClaudeAssistant:
         self._context_limit = context_limit_tokens
         self._connect_timeout = connect_timeout_s
         self._kill_grace_s = kill_grace_s
+        self._platform = platform
         self._pools: dict[tuple[AssistantKind, str | None], _Pool] = {}  # (kind, conversation); dev kinds: None
         self._closing: set[asyncio.Task[None]] = set()
         self._closed = False
@@ -1223,6 +1229,9 @@ class ClaudeAssistant:
             log.error("assistant_kill_skipped", session_id=client.session_id, reason="no_pid")
             return
         env = proc.clean_env(path=self._search_path, base=self._base_env)
+        if self._platform == proc.WINDOWS:
+            await self._kill_windows(client, pid, env)
+            return
         try:
             rows = await proctree.list_processes(env=env, timeout=PS_TIMEOUT_S)
         except (TimeoutError, OSError):
@@ -1237,6 +1246,24 @@ class ClaudeAssistant:
                     await asyncio.shield(pump)
         proctree.send(plan, signal.SIGKILL, own_pgid=own_pgid)
         log.warning("assistant_client_killed", session_id=client.session_id, groups=len(plan.groups))
+
+    async def _kill_windows(self, client: _Client, pid: int, env: Mapping[str, str]) -> None:
+        """Windows: `taskkill /T /F` ends the CLI and its descendants at once (there is no TERM to wait out). When
+        taskkill cannot run, the CLI alone is ended (`os.kill`, TerminateProcess)."""
+        try:
+            result = await proc.run([*TASKKILL_ARGV, str(pid)], env=env, timeout=TASKKILL_TIMEOUT_S)
+            killed = result.returncode == 0
+        except (TimeoutError, OSError):
+            killed = False
+        if not killed:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGTERM)
+        pump = client.pump
+        if pump is not None:
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(self._kill_grace_s):
+                    await asyncio.shield(pump)
+        log.warning("assistant_client_killed", session_id=client.session_id, groups=0, tree=killed)
 
 
 def _sdk_tool(client: _Client, qualified: str, tool: AssistantTool) -> SdkMcpTool[Any]:

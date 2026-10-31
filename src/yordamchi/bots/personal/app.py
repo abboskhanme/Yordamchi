@@ -26,6 +26,12 @@ The same steps as `bots/dev/app.py` (C7 keeps the two bots from importing each o
     stop the bot: the first answer makes the same check.
 11. The loops, under `core.aio.forever`, until SIGTERM; then the shutdown of SPEC §2.6 and exit 0.
 
+**Windows** (owner request 2026-10-31: other people run only this bot, from a terminal; `platform="win32"`): the
+paths default to `%LOCALAPPDATA%` / `%APPDATA%` (`core.config.load_paths`), the token and the master key are DPAPI
+files (`core.keychain.DpapiStore`), the PATH is the terminal's, `claude.exe` is the native CLI in `~/.local/bin`,
+ffmpeg and node are found on the PATH, there is no control socket (no supervisor), and Ctrl+C / Ctrl+Break stop the
+bot through `signal.signal` (the Proactor loop has no `add_signal_handler`).
+
 `--dry-run` runs steps 1–9 and builds every adapter, `PersonalDeps` and the app, then exits 0 without asking Claude,
 polling, binding the socket or sending anything: proof that a release starts, safe against a temp
 `YORDAMCHI_DATA_DIR`.
@@ -36,6 +42,7 @@ import asyncio
 import importlib.metadata
 import json
 import os
+import shutil
 import signal
 import sys
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
@@ -46,7 +53,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from yordamchi.core import config as bootstrap
-from yordamchi.core import json_value, log, proc, redact
+from yordamchi.core import json_value, keychain, log, proc, redact
 from yordamchi.core import strings as S
 from yordamchi.core.config import PersonalConfig
 from yordamchi.core.errors import ConfigInvalid, ExternalError, PersonalToolsMismatch
@@ -77,6 +84,8 @@ PROBATION_POLL_S: Final = 5.0
 ASSISTANT_CLOSE_S: Final = 10.0
 TOOLS_REASON: Final = "tools"
 BOT: Final = BotName.PERSONAL
+WINDOWS: Final = proc.WINDOWS
+CLI_EXE: Final = "claude.exe"  # Windows: the Agent SDK needs the native binary, never an npm `.cmd` shim
 
 type Notify = Callable[[PersonalConfig, BotText], Awaitable[None]]
 # The owner's login-shell PATH (`/bin/zsh -lc`, 5 s), or None when it cannot be read.
@@ -194,7 +203,10 @@ def probation_names(paths: Paths, version: str) -> bool:
     return isinstance(raw, dict) and raw.get("version") == version
 
 
-async def read_login_path(environ: Mapping[str, str]) -> str | None:
+async def read_login_path(environ: Mapping[str, str], *, platform: str = sys.platform) -> str | None:
+    """The owner's login-shell PATH; on Windows there is no login shell, and the terminal's PATH is the user's."""
+    if platform == WINDOWS:
+        return environ.get("PATH") or None
     return await proc.login_shell_path(env=proc.clean_env(path=":".join(proc.SYSTEM_PATH), base=environ))
 
 
@@ -323,7 +335,51 @@ def _documents() -> "DocumentWriter":
     return OfficeDocumentWriter(print_pdf=print_pdf)
 
 
-def _web_tools(boot: Boot) -> "WebTools":
+@dataclass(frozen=True, slots=True)
+class MediaBinaries:
+    """Where ffmpeg, ffprobe and node are: the static ffmpeg in `DATA/bin` and `~/.local/bin/node` on macOS; on
+    Windows whatever the PATH finds (`DATA/bin` and `~/.local/bin` are on it first)."""
+
+    ffmpeg: Path
+    ffprobe: Path
+    ffmpeg_dir: Path
+    node: Path | None
+
+
+def media_binaries(paths: Paths, search_path: str, *, platform: str = sys.platform) -> MediaBinaries:
+    if platform != WINDOWS:
+        node = paths.local_bin / "node"
+        return MediaBinaries(
+            ffmpeg=paths.bin / "ffmpeg",
+            ffprobe=paths.bin / "ffprobe",
+            ffmpeg_dir=paths.bin,
+            node=node if node.exists() else None,
+        )
+
+    def which(name: str) -> Path | None:
+        located = shutil.which(name, path=search_path)
+        return Path(located) if located else None
+
+    ffmpeg = which("ffmpeg") or paths.bin / "ffmpeg.exe"
+    ffprobe = which("ffprobe") or ffmpeg.with_name("ffprobe.exe")
+    return MediaBinaries(ffmpeg=ffmpeg, ffprobe=ffprobe, ffmpeg_dir=ffmpeg.parent, node=which("node"))
+
+
+def cli_path(paths: Paths, search_path: str, *, platform: str = sys.platform) -> Path:
+    """The `claude` the assistant spawns: `~/.local/bin/claude` (the symlink, SPEC §5.3); on Windows the native
+    `claude.exe` there, else the first `claude.exe` on the PATH."""
+    from yordamchi.adapters.claude.options import default_cli_path
+
+    if platform != WINDOWS:
+        return default_cli_path(paths.home)
+    native = paths.local_bin / CLI_EXE
+    if native.exists():
+        return native
+    located = shutil.which(CLI_EXE, path=search_path)
+    return Path(located) if located else native
+
+
+def _web_tools(boot: Boot, media: MediaBinaries) -> "WebTools":
     """Screenshots, file fetches, page text and video downloads (T74): Chromium, urllib, yt-dlp and the static
     ffmpeg from `DATA/bin`; Node from `~/.local/bin` runs yt-dlp's YouTube challenges."""
     from yordamchi.adapters.web.browser import PlaywrightBrowser
@@ -332,13 +388,11 @@ def _web_tools(boot: Boot) -> "WebTools":
     from yordamchi.adapters.web.tools import LocalWebTools
     from yordamchi.adapters.web.ytdl import YtDlpDownloader
 
-    paths = boot.config.paths
-    node = paths.local_bin / "node"
     return LocalWebTools(
         browser=PlaywrightBrowser(),
         http=HttpDownloader(),
-        videos=YtDlpDownloader(ffmpeg_dir=paths.bin, node=node if node.exists() else None),
-        encoder=FfmpegEncoder(ffmpeg=paths.bin / "ffmpeg", ffprobe=paths.bin / "ffprobe", child_path=boot.search_path),
+        videos=YtDlpDownloader(ffmpeg_dir=media.ffmpeg_dir, node=media.node),
+        encoder=FfmpegEncoder(ffmpeg=media.ffmpeg, ffprobe=media.ffprobe, child_path=boot.search_path),
     )
 
 
@@ -393,11 +447,10 @@ def _keyed_adapters(read_key: Callable[[str], Awaitable[str]], ffmpeg: Path | No
     )
 
 
-def build(boot: Boot, clock: Clock) -> "PersonalApp":
+def build(boot: Boot, clock: Clock, *, platform: str = sys.platform) -> "PersonalApp":
     """Every adapter, one `PersonalDeps`, the app. Nothing connects here: each adapter opens its connection on first
     use. This process holds no executor, version-control, GitHub or SSH adapter (C7)."""
     from yordamchi.adapters.claude.assistant import ClaudeAssistant
-    from yordamchi.adapters.claude.options import default_cli_path
     from yordamchi.adapters.keystore.keychain import KeychainKeystore
     from yordamchi.adapters.macos.host import MacOsHost
     from yordamchi.adapters.mcp.client import McpHttpClient
@@ -410,12 +463,14 @@ def build(boot: Boot, clock: Clock) -> "PersonalApp":
     config, paths = boot.config, boot.config.paths
     messenger = TelegramMessenger(config.bot_token)
     assistant = ClaudeAssistant(
-        cli_path=default_cli_path(paths.home),
+        cli_path=cli_path(paths, boot.search_path, platform=platform),
         search_path=boot.search_path,
         sessions_dir=paths.data / "sessions",
         clock=clock,
+        platform=platform,
     )
-    ffmpeg = paths.bin / "ffmpeg"
+    media = media_binaries(paths, boot.search_path, platform=platform)
+    ffmpeg = media.ffmpeg
     keys: list[PersonalDeps] = []  # the deps, once built: the keyed adapters read the vault through them
 
     async def read_key(provider: str) -> str:
@@ -430,14 +485,16 @@ def build(boot: Boot, clock: Clock) -> "PersonalApp":
         paths=paths,
         bootstrap=defaults.bootstrap_values(owner_id=config.owner_id, personal_group_id=config.personal_group_id),
         messenger=messenger,
-        keystore=KeychainKeystore(bot=BOT, legacy_key_file=paths.master_key),
+        keystore=KeychainKeystore(
+            bot=BOT, legacy_key_file=paths.master_key, store=keychain.default_store(paths, platform=platform)
+        ),
         assistant=assistant,
         transcribers=keyed.transcribers,
         synthesizers=keyed.synthesizers,
         mac_host=MacOsHost(home=paths.home),
         mcp=McpHttpClient(),  # the personal integrations gateway `yordamchi_int` (T76) calls the owner's MCP servers
         media_analyzers=keyed.analyzers,
-        web=_web_tools(boot),
+        web=_web_tools(boot, media),
         documents=_documents(),
         fallback_assistant=keyed.fallback,
     )
@@ -454,6 +511,7 @@ def build(boot: Boot, clock: Clock) -> "PersonalApp":
         sdk_version=sdk_version(),
         degraded=boot.degraded,
         closers=closers,
+        control_socket=platform != WINDOWS,
     )
 
 
@@ -494,14 +552,42 @@ async def _abandon(app: "PersonalApp") -> None:
         await close()
 
 
-async def serve(boot: Boot, clock: Clock, *, notify: Notify = send_notice) -> int:
+def stop_signals(platform: str = sys.platform) -> tuple[int, ...]:
+    """SIGTERM and SIGINT; on Windows also SIGBREAK (Ctrl+Break, what a runner sends a child's console group)."""
+    signals = [signal.SIGTERM, signal.SIGINT]
+    brk = getattr(signal, "SIGBREAK", None)
+    if platform == WINDOWS and brk is not None:
+        signals.append(brk)
+    return tuple(signals)
+
+
+def install_stop_handlers(
+    loop: asyncio.AbstractEventLoop, stop: asyncio.Event, *, platform: str = sys.platform
+) -> tuple[int, ...]:
+    """Set `stop` on each stop signal. The loop's own handler where it has one; the Proactor loop on Windows has
+    none (`NotImplementedError`), so there `signal.signal` hands it to the loop thread-safely. Returns the signals
+    that fell back."""
+
+    def handler(signum: int, frame: object) -> None:
+        del signum, frame
+        loop.call_soon_threadsafe(stop.set)
+
+    fallback: list[int] = []
+    for signum in stop_signals(platform):
+        try:
+            loop.add_signal_handler(signum, stop.set)
+        except NotImplementedError:
+            signal.signal(signum, handler)
+            fallback.append(signum)
+    return tuple(fallback)
+
+
+async def serve(boot: Boot, clock: Clock, *, notify: Notify = send_notice, platform: str = sys.platform) -> int:
     """Steps 9–11, then SIGTERM's shutdown (SPEC §2.6). The tool check runs before normal running, after a
     self-update's probation too (probation itself asks no model)."""
-    app = build(boot, clock)
+    app = build(boot, clock, platform=platform)
     stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for signum in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(signum, stop.set)
+    install_stop_handlers(asyncio.get_running_loop(), stop, platform=platform)
     try:
         if not boot.probation or await _probation(app, boot, stop):
             refused = await check_tools(app, boot.config, clock=clock, notify=notify)

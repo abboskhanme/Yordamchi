@@ -17,17 +17,26 @@ plain file copy or of Time Machine. An env file only names an item:
 - **Tests** never touch the real Keychain: they pass a fake `Runner` (the test-only hook). The one exception is the
   opt-in `live` test, on a throwaway item it deletes afterwards.
 
+- **Windows** (owner request 2026-10-31, the personal bot only): there is no `security`, so `DpapiStore` keeps one
+  DPAPI blob per item (`core.dpapi`, user scope, entropy = the item name) under `Paths.secret_store`
+  (`%APPDATA%/Yordamchi/secrets/<service>/<account>.dpapi`), outside DATA. The env file names the item the same
+  way (`@keychain:`), the scope check is the same, and `default_store` picks the store by platform.
+
 Every value read is added to `core.redact`'s known set at once. Nothing here logs or prints a value.
 """
 
+import contextlib
+import os
 import re
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final, Protocol
 
-from yordamchi.core import proc, redact
+from yordamchi.core import dpapi, proc, redact
 from yordamchi.core.errors import KeychainItemForbidden, KeychainItemMissing, KeychainUnavailable
-from yordamchi.core.paths import BotName
+from yordamchi.core.paths import BotName, Paths
 
 SECURITY: Final = "/usr/bin/security"
 SERVICE: Final = "uz.yordamchi"
@@ -36,6 +45,7 @@ TIMEOUT_S: Final = 5.0
 # `security` exits 44 (errSecItemNotFound) for a missing item; any other failure (a locked Keychain refusing
 # interaction, a crash) is reported as unavailable.
 ITEM_NOT_FOUND_EXIT: Final = 44
+DPAPI_SUFFIX: Final = ".dpapi"
 
 _PART: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 # Bot tokens (digits:base64url), base64 master keys and the API key formats all fit; quotes, backslashes and
@@ -102,6 +112,14 @@ def parse_reference(value: str) -> KeychainItem:
     return KeychainItem(service, account)
 
 
+def require_storable(value: str) -> None:
+    """Raises `ValueError` (without the value) when the value has a character outside `[A-Za-z0-9._~+/=:-]`. Every
+    store applies it, so a value that works on Windows works in the macOS Keychain too."""
+    if not _VALUE.fullmatch(value):
+        msg = "refusing to store a value with whitespace, quotes or other characters outside [A-Za-z0-9._~+/=:-]"
+        raise ValueError(msg)
+
+
 # --- the `security` command lines (pure) ---------------------------------------------------------------------------
 def find_argv(item: KeychainItem, *, reveal: bool) -> list[str]:
     """`reveal=True` prints the value (`-w`); without it the exit code alone says whether the item exists."""
@@ -115,9 +133,7 @@ def delete_argv(item: KeychainItem) -> list[str]:
 def add_script(item: KeychainItem, value: str) -> bytes:
     """The `security -i` stdin that creates or updates (`-U`) the item, readable by `/usr/bin/security` without a
     prompt (`-T`). Raises `ValueError` (without the value) when the value has a character stdin could misread."""
-    if not _VALUE.fullmatch(value):
-        msg = "refusing to store a value with whitespace, quotes or other characters outside [A-Za-z0-9._~+/=:-]"
-        raise ValueError(msg)
+    require_storable(value)
     line = f'add-generic-password -U -s "{item.service}" -a "{item.account}" -T {SECURITY} -w "{value}"\n'
     return line.encode("ascii")
 
@@ -153,13 +169,108 @@ def security_runner(argv: Sequence[str], *, stdin: bytes | None, timeout: float)
     return proc.run_sync(argv, timeout=timeout, stdin=stdin, env=env)
 
 
+class Store(Protocol):
+    """Where the items live: the macOS Keychain (`SecurityStore`) or DPAPI files on Windows (`DpapiStore`). The scope
+    check is `Keychain`'s, before a store is asked. Raises `KeychainItemMissing` / `KeychainUnavailable`."""
+
+    def read(self, item: KeychainItem) -> str: ...
+
+    def write(self, item: KeychainItem, value: str) -> None: ...
+
+
+class SecurityStore:
+    """The macOS login Keychain through `/usr/bin/security` (`runner`; tests pass a fake)."""
+
+    def __init__(self, runner: Runner | None = None, *, timeout: float = TIMEOUT_S) -> None:
+        self._run: Runner = runner or security_runner
+        self._timeout = timeout
+
+    def _call(self, argv: Sequence[str], item: KeychainItem, *, stdin: bytes | None = None) -> proc.ProcResult:
+        try:
+            return self._run(argv, stdin=stdin, timeout=self._timeout)
+        except (TimeoutError, OSError):
+            raise KeychainUnavailable(item=str(item)) from None
+
+    def read(self, item: KeychainItem) -> str:
+        return password_from(self._call(find_argv(item, reveal=True), item), item)
+
+    def write(self, item: KeychainItem, value: str) -> None:
+        result = self._call(write_argv(), item, stdin=add_script(item, value))
+        if result.returncode != 0:
+            raise KeychainUnavailable(item=str(item))
+
+
+class DpapiStore:
+    """Windows: one DPAPI blob per item, `<directory>/<service>/<account>.dpapi`, written atomically (0600 where the
+    file system has modes). `lib` is the DPAPI seam (`core.dpapi.system()` on first use; tests pass a fake)."""
+
+    def __init__(self, directory: Path, *, lib: dpapi.DpapiLib | None = None) -> None:
+        self._directory = directory
+        self._lib = lib
+
+    def __repr__(self) -> str:
+        return f"DpapiStore({self._directory})"
+
+    def file(self, item: KeychainItem) -> Path:
+        return self._directory / item.service / f"{item.account}{DPAPI_SUFFIX}"
+
+    def _api(self) -> dpapi.DpapiLib:
+        if self._lib is None:
+            self._lib = dpapi.system()
+        return self._lib
+
+    def read(self, item: KeychainItem) -> str:
+        try:
+            blob = self.file(item).read_bytes()
+        except FileNotFoundError:
+            raise KeychainItemMissing(item=str(item)) from None
+        except OSError:
+            raise KeychainUnavailable(item=str(item)) from None
+        try:
+            value = dpapi.unprotect(blob, entropy=str(item).encode("ascii"), lib=self._api()).decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            raise KeychainUnavailable(item=str(item)) from None
+        if not value:
+            raise KeychainItemMissing(item=str(item))
+        return value
+
+    def write(self, item: KeychainItem, value: str) -> None:
+        require_storable(value)
+        target = self.file(item)
+        temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        try:
+            blob = dpapi.protect(value.encode("ascii"), entropy=str(item).encode("ascii"), lib=self._api())
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            handle = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
+            with os.fdopen(handle, "wb") as out:
+                out.write(blob)
+                out.flush()
+                os.fsync(out.fileno())
+            temporary.replace(target)
+        except OSError:
+            with contextlib.suppress(OSError):
+                temporary.unlink(missing_ok=True)
+            raise KeychainUnavailable(item=str(item)) from None
+
+
+def default_store(
+    paths: Paths, *, runner: Runner | None = None, platform: str = sys.platform, timeout: float = TIMEOUT_S
+) -> Store:
+    """The store of this platform: DPAPI files under `paths.secret_store` on Windows, the login Keychain elsewhere."""
+    if platform == "win32":
+        return DpapiStore(paths.secret_store)
+    return SecurityStore(runner, timeout=timeout)
+
+
 class Keychain:
     """The Keychain items one bot process may use (`ALLOWED[bot]`, UC-36). Synchronous: one short subprocess."""
 
-    def __init__(self, bot: BotName, *, runner: Runner | None = None, timeout: float = TIMEOUT_S) -> None:
+    def __init__(
+        self, bot: BotName, *, runner: Runner | None = None, store: Store | None = None, timeout: float = TIMEOUT_S
+    ) -> None:
+        """`store` defaults to the macOS Keychain through `runner` (default `/usr/bin/security`)."""
         self._bot = bot
-        self._run: Runner = runner or security_runner
-        self._timeout = timeout
+        self._store: Store = store if store is not None else SecurityStore(runner, timeout=timeout)
 
     def __repr__(self) -> str:
         return f"Keychain(bot={self._bot.value})"
@@ -175,23 +286,16 @@ class Keychain:
         if not self.allows(item):
             raise KeychainItemForbidden(item=str(item), bot=self._bot.value)
 
-    def _call(self, argv: Sequence[str], item: KeychainItem, *, stdin: bytes | None = None) -> proc.ProcResult:
-        try:
-            return self._run(argv, stdin=stdin, timeout=self._timeout)
-        except (TimeoutError, OSError):
-            raise KeychainUnavailable(item=str(item)) from None
-
     def read(self, item: KeychainItem) -> str:
         """The value; it joins the masking set before it is returned. Never log or store it."""
         self._check(item)
-        value = password_from(self._call(find_argv(item, reveal=True), item), item)
+        value = self._store.read(item)
         redact.add_known_secrets([value])
         return value
 
     def write(self, item: KeychainItem, value: str) -> None:
-        """Create or replace the item through `security -i` stdin. Raises `KeychainUnavailable` when it fails."""
+        """Create or replace the item (macOS: through `security -i` stdin). Raises `KeychainUnavailable` when it
+        fails."""
         self._check(item)
         redact.add_known_secrets([value])
-        result = self._call(write_argv(), item, stdin=add_script(item, value))
-        if result.returncode != 0:
-            raise KeychainUnavailable(item=str(item))
+        self._store.write(item, value)

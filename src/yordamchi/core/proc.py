@@ -11,6 +11,9 @@
   (TERM, grace, KILL) and raises `TimeoutError` / `CancelledError`. Adapters translate that into `CallTimedOut`.
   `run_piped()` is the same with stdin fed from an async iterable as it arrives (TTS audio into ffmpeg).
   `run_sync()` is the same for the `bots/cli` entry points, which run without an event loop.
+- **Windows** (the personal bot from a terminal, owner request 2026-10-31; `platform="win32"`): the PATH is joined
+  with `;` and has no POSIX system dirs, there is no login shell (the terminal's PATH is the user's), and a timeout
+  kills the direct child (`process.kill()`, TerminateProcess): there are no process groups to signal.
 """
 
 import asyncio
@@ -20,6 +23,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from collections.abc import AsyncIterable, Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
@@ -60,6 +64,7 @@ LOGIN_SHELL_TIMEOUT_S: Final = 5.0
 REQUIRED_BINARIES: Final = ("claude", "git")  # missing → fatal
 OPTIONAL_BINARIES: Final = ("ffmpeg", "gh", "node")  # missing → degraded capability, shown in `holat?`
 KILL_GRACE_S: Final = 0.5
+WINDOWS: Final = "win32"
 
 
 # --- credential refusal (SPEC §2.5 step 3) -------------------------------------------------------------------------
@@ -125,20 +130,31 @@ def scrub_environ(environ: MutableMapping[str, str] | None = None) -> tuple[str,
 
 
 # --- child PATH and environment (SPEC §2.5 step 4) -----------------------------------------------------------------
-def build_search_path(paths: Paths, login_shell_path: str | None) -> str:
-    """Shims, `~/.local/bin`, `DATA/bin`, the login-shell PATH, then the system dirs; first occurrence wins."""
+def path_separator(platform: str = sys.platform) -> str:
+    """`;` on Windows (a drive letter has a colon), `:` elsewhere."""
+    return ";" if platform == WINDOWS else ":"
+
+
+def build_search_path(paths: Paths, login_shell_path: str | None, *, platform: str = sys.platform) -> str:
+    """Shims, `~/.local/bin`, `DATA/bin`, the login-shell PATH, then the system dirs; first occurrence wins. On
+    Windows the login PATH is the process's own and already holds the system dirs."""
+    windows = platform == WINDOWS
+    separator = path_separator(platform)
     candidates: list[str] = [str(paths.shims), str(paths.local_bin), str(paths.bin)]
     if login_shell_path:
-        candidates.extend(login_shell_path.split(":"))
-    candidates.extend(SYSTEM_PATH)
+        candidates.extend(login_shell_path.split(separator))
+    if not windows:
+        candidates.extend(SYSTEM_PATH)
+    trailing = "/\\" if windows else "/"
     seen: set[str] = set()
     ordered: list[str] = []
     for entry in candidates:
-        normalized = entry.rstrip("/") or entry
-        if normalized and normalized not in seen:
-            seen.add(normalized)
+        normalized = entry.rstrip(trailing) or entry
+        key = normalized.casefold() if windows else normalized
+        if normalized and key not in seen:
+            seen.add(key)
             ordered.append(normalized)
-    return ":".join(ordered)
+    return separator.join(ordered)
 
 
 def clean_env(
@@ -197,8 +213,13 @@ class ProcResult:
     duration_ms: int
 
 
-async def _kill_group(process: asyncio.subprocess.Process, grace_s: float) -> None:
+async def _kill_group(process: asyncio.subprocess.Process, grace_s: float, *, platform: str = sys.platform) -> None:
     if process.returncode is not None:
+        return
+    if platform == WINDOWS:  # no process groups: TerminateProcess on the child itself
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        await process.wait()
         return
     try:
         os.killpg(process.pid, signal.SIGTERM)
@@ -251,7 +272,12 @@ async def run(
     )
 
 
-def _kill_group_sync(process: "subprocess.Popen[bytes]", grace_s: float) -> None:
+def _kill_group_sync(process: "subprocess.Popen[bytes]", grace_s: float, *, platform: str = sys.platform) -> None:
+    if platform == WINDOWS:  # no process groups: TerminateProcess on the child itself
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        process.wait()
+        return
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:

@@ -104,6 +104,7 @@ class PersonalApp:
     intake: Intake
     socket: ControlSocket
     closers: Sequence[Closer] = ()
+    control_socket: bool = True  # False on Windows: no Unix socket and no supervisor to answer
     tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     warmed_version: int | None = None
 
@@ -130,7 +131,8 @@ class PersonalApp:
         owner message is consumed until the supervisor clears the flag (P2 adds the peek poller and the self-test)."""
         await health.set_mode(self.deps, self.health, Mode.PROBATION)
         self._spawn("heartbeat", partial(health.run_heartbeat, self.deps, self.health))
-        self._spawn("control_socket", self.socket.serve)
+        if self.control_socket:
+            self._spawn("control_socket", self.socket.serve)
 
     def _spawn(self, name: str, body: aio.Body) -> None:
         if name not in self.tasks:
@@ -149,8 +151,9 @@ class PersonalApp:
             "integrations": partial(integrations.run_token_refresher, deps),
             "maintenance": self._maintain,
             "retention": self._retain,
-            "control_socket": self.socket.serve,
         }
+        if self.control_socket:
+            loops["control_socket"] = self.socket.serve
         if polling and self.bot is not None:
             loops = {"poller": partial(self._poll, self.bot), **loops}
         return loops
@@ -315,8 +318,10 @@ def build_app(
     sdk_version: str = "",
     degraded: Sequence[str] = (),
     closers: Sequence[Closer] = (),
+    control_socket: bool = True,
 ) -> PersonalApp:
-    """The personal bot's state and loops over built deps. Wiring only: nothing runs until `start`."""
+    """The personal bot's state and loops over built deps. Wiring only: nothing runs until `start`.
+    `control_socket=False` (Windows) leaves the control-socket loop out."""
     health_state = health.new_state(deps, version=version, sdk_version=sdk_version, degraded=degraded)
     pipeline = Pipeline(deps=deps, health=health_state)
     intake = Intake(deps=deps, health=health_state, wake=asyncio.Event())
@@ -334,4 +339,5 @@ def build_app(
         intake=intake,
         socket=ControlSocket(deps.bot, path=deps.paths.socket(deps.bot), status=status),
         closers=closers,
+        control_socket=control_socket,
     )

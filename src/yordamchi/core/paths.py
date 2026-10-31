@@ -1,7 +1,7 @@
 """Where Yordamchi keeps things on disk (SPEC §2.2, decided).
 
-Every path derives from four roots: the home directory, the data dir, the config dir (the legacy master-key file)
-and the log dir.
+Every path derives from four roots: the home directory, the data dir, the config dir (the legacy master-key file;
+on Windows also the DPAPI secret store) and the log dir.
 Production uses the defaults below; tests and the supervisor's `make check` run (`YORDAMCHI_DATA_DIR=<tmp>`) point the
 roots elsewhere through `core.config.load_paths()`. Nothing here touches the disk.
 """
@@ -54,6 +54,25 @@ class Paths:
             logs=logs or home / "Library" / "Logs" / APP_DIR_NAME,
         )
 
+    @classmethod
+    def windows_defaults(
+        cls,
+        home: Path,
+        *,
+        local_app_data: Path | None = None,
+        app_data: Path | None = None,
+        data: Path | None = None,
+        config: Path | None = None,
+        logs: Path | None = None,
+    ) -> "Paths":
+        """Windows (the personal bot run from a terminal, owner request 2026-10-31): data in
+        `%LOCALAPPDATA%/Yordamchi`, logs in `data/logs`, config (the DPAPI secret store) in `%APPDATA%/Yordamchi`,
+        so the sealed secrets live outside DATA. Without the variables, the `AppData` folders under `home`."""
+        local = local_app_data or home / "AppData" / "Local"
+        roaming = app_data or home / "AppData" / "Roaming"
+        data = data or local / APP_DIR_NAME
+        return cls(home=home, data=data, config=config or roaming / APP_DIR_NAME, logs=logs or data / "logs")
+
     # --- bootstrap and databases ---------------------------------------------------------------------------------
     def env_file(self, bot: BotName) -> Path:
         """`dev.env` / `personal.env` (0600): token, owner id, chat ids."""
@@ -73,6 +92,11 @@ class Paths:
         `MASTER_KEY`): `KeychainKeystore` and the installer import this file, verify the copy and delete it, and the
         check script is red while it exists."""
         return self.config / "master.key"
+
+    @property
+    def secret_store(self) -> Path:
+        """Windows only: the DPAPI blobs of the token and the master key (`core.keychain.DpapiStore`)."""
+        return self.config / "secrets"
 
     # --- releases ------------------------------------------------------------------------------------------------
     @property

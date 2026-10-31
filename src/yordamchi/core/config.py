@@ -13,11 +13,13 @@ Values are parsed here and **never exported into `os.environ`**, so no child pro
 Everything else is a DB setting (`shared/settings`).
 
 Process-environment overrides for the roots (tests, the supervisor's `make check`): `YORDAMCHI_DATA_DIR`,
-`YORDAMCHI_CONFIG_DIR`, `YORDAMCHI_LOG_DIR`.
+`YORDAMCHI_CONFIG_DIR`, `YORDAMCHI_LOG_DIR`. On Windows (`platform="win32"`) the defaults come from `LOCALAPPDATA` and
+`APPDATA` (`Paths.windows_defaults`) and the token reference resolves through DPAPI (`keychain.default_store`).
 """
 
 import os
 import re
+import sys
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +33,9 @@ ENV_FILE_VAR: Final = "YORDAMCHI_ENV_FILE"
 DATA_DIR_VAR: Final = "YORDAMCHI_DATA_DIR"
 CONFIG_DIR_VAR: Final = "YORDAMCHI_CONFIG_DIR"
 LOG_DIR_VAR: Final = "YORDAMCHI_LOG_DIR"
+# Windows only: where the data and config roots default to.
+LOCAL_APP_DATA_VAR: Final = "LOCALAPPDATA"
+APP_DATA_VAR: Final = "APPDATA"
 # Passed into executor sessions (SPEC §5.3) for the shims and git hooks; the gate forbids the agent to touch them.
 SOCK_VAR: Final = "YORDAMCHI_SOCK"
 SESSION_TOKEN_VAR: Final = "YORDAMCHI_SESSION_TOKEN"  # noqa: S105  # a variable name, not a token
@@ -48,13 +53,24 @@ _BOT_TOKEN = re.compile(r"\d{8,10}:[A-Za-z0-9_-]{35}")
 _SECRET_NAME = re.compile(r"(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|PRIVATE_KEY)$")
 
 
-def load_paths(environ: Mapping[str, str] | None = None, *, home: Path | None = None) -> Paths:
+def load_paths(
+    environ: Mapping[str, str] | None = None, *, home: Path | None = None, platform: str = sys.platform
+) -> Paths:
     env = os.environ if environ is None else environ
 
     def override(var: str) -> Path | None:
         value = env.get(var)
         return Path(value).expanduser() if value else None
 
+    if platform == "win32":
+        return Paths.windows_defaults(
+            home or Path.home(),
+            local_app_data=override(LOCAL_APP_DATA_VAR),
+            app_data=override(APP_DATA_VAR),
+            data=override(DATA_DIR_VAR),
+            config=override(CONFIG_DIR_VAR),
+            logs=override(LOG_DIR_VAR),
+        )
     return Paths.defaults(
         home or Path.home(), data=override(DATA_DIR_VAR), config=override(CONFIG_DIR_VAR), logs=override(LOG_DIR_VAR)
     )
@@ -225,9 +241,12 @@ def _load_values(
     bot: BotName,
     keys: Collection[str],
     runner: keychain.Runner | None,
+    store: keychain.Store | None,
+    platform: str,
 ) -> dict[str, str]:
     path = _env_file(env, paths, bot)
-    chain = keychain.Keychain(bot, runner=runner)  # the scope comes from the process, never from the file
+    store = store if store is not None else keychain.default_store(paths, runner=runner, platform=platform)
+    chain = keychain.Keychain(bot, store=store)  # the scope comes from the process, never from the file
     return resolve_secrets(read_env_file(path), source=path.name, keys=keys, chain=chain)
 
 
@@ -236,12 +255,16 @@ def load_dev_config(
     *,
     home: Path | None = None,
     keychain_runner: keychain.Runner | None = None,
+    keychain_store: keychain.Store | None = None,
+    platform: str = sys.platform,
 ) -> DevConfig:
     """Read the dev env file and resolve its token from the Keychain. The token joins the redaction set at once,
-    before anything can log it. `keychain_runner`: tests only (a fake `/usr/bin/security`)."""
+    before anything can log it. `keychain_runner` / `keychain_store`: tests only (a fake `/usr/bin/security`, a
+    DPAPI store on a fake lib)."""
     env = os.environ if environ is None else environ
-    paths = load_paths(env, home=home)
-    config = dev_config_from(_load_values(env, paths, BotName.DEV, DEV_SECRET_KEYS, keychain_runner), paths)
+    paths = load_paths(env, home=home, platform=platform)
+    values = _load_values(env, paths, BotName.DEV, DEV_SECRET_KEYS, keychain_runner, keychain_store, platform)
+    config = dev_config_from(values, paths)
     redact.add_known_secrets([config.bot_token])
     return config
 
@@ -282,11 +305,14 @@ def load_personal_config(
     *,
     home: Path | None = None,
     keychain_runner: keychain.Runner | None = None,
+    keychain_store: keychain.Store | None = None,
+    platform: str = sys.platform,
 ) -> PersonalConfig:
-    """`load_dev_config` for the personal bot; its Keychain scope never includes the dev token (UC-36)."""
+    """`load_dev_config` for the personal bot; its Keychain scope never includes the dev token (UC-36). On Windows
+    the token is read from its DPAPI file (`keychain.DpapiStore`)."""
     env = os.environ if environ is None else environ
-    paths = load_paths(env, home=home)
-    values = _load_values(env, paths, BotName.PERSONAL, PERSONAL_SECRET_KEYS, keychain_runner)
+    paths = load_paths(env, home=home, platform=platform)
+    values = _load_values(env, paths, BotName.PERSONAL, PERSONAL_SECRET_KEYS, keychain_runner, keychain_store, platform)
     config = personal_config_from(values, paths)
     redact.add_known_secrets([config.bot_token])
     return config

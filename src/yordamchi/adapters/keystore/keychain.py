@@ -51,11 +51,13 @@ class KeychainKeystore:
         bot: BotName,
         legacy_key_file: Path,
         runner: keychain.Runner | None = None,
+        store: keychain.Store | None = None,
         retry_after_s: float = RETRY_AFTER_S,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-        """`runner` replaces `/usr/bin/security` (tests only)."""
-        self._keychain = keychain.Keychain(bot, runner=runner)
+        """`runner` replaces `/usr/bin/security` (tests only). `store` replaces the macOS Keychain: on Windows the
+        composition root passes `keychain.default_store(paths)`, the DPAPI files."""
+        self._keychain = keychain.Keychain(bot, runner=runner, store=store)
         self._legacy = legacy_key_file
         self._retry_after_s = retry_after_s
         self._monotonic = monotonic
