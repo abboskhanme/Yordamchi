@@ -335,7 +335,6 @@ def payload_json(
     attachment: JsonValue = None
     if content.attachment is not None:
         attachment = {
-            "file_id": content.attachment.file_id,
             "mime": content.attachment.mime,
             "size_bytes": content.attachment.size_bytes,
             "duration_s": content.attachment.duration_s,
@@ -352,6 +351,11 @@ def payload_json(
     if content.forward is not None:  # only when set: the owner's own messages keep the shape they always had
         payload["forward"] = content.forward.value
     stored = {key: json_value.map_strings(value, scrub) for key, value in payload.items()}
+    scrubbed_attachment = stored["attachment"]
+    if content.attachment is not None and isinstance(scrubbed_attachment, dict):
+        # Added after `scrub`: Telegram's own id for the file, not the owner's words. It looks like a key to `redact`
+        # (a long mixed-case token), and a masked one can no longer be downloaded (voice notes broke on 2026-10-31).
+        stored["attachment"] = {"file_id": content.attachment.file_id, **scrubbed_attachment}
     if sent_at is not None:  # likewise: a synthetic update's payload has no send time
         stored["sent_at"] = sent_at.isoformat()
     if thread_id is not None:  # likewise: a message in General keeps the shape it always had

@@ -117,12 +117,21 @@ def test_the_payload_round_trips_and_every_string_is_scrubbed() -> None:
     scrubbed = domain.payload_json(content, str.upper)
     assert (scrubbed["text"], scrubbed["caption"]) == ("SALOM", "IZOH")
     assert scrubbed["attachment"] == {
-        "FILE_ID": "F1",
+        "file_id": "f1",  # Telegram's id, not content: kept as it is (see the test below)
         "MIME": "AUDIO/OGG",
         "SIZE_BYTES": 10,
         "DURATION_S": 12,
         "FILE_NAME": "OVOZ.OGG",
     }
+
+
+def test_a_telegram_file_id_survives_the_real_scrubber() -> None:
+    """2026-10-31: the generic key rule masked a voice note's file_id, and every getFile after it failed."""
+    file_id = "AwACAgIAAxkBAAIBq2kZ" + "Tq7Xb3mNcPw9LdE4rYuKfG8sJh2VzQo1"  # the shape Telegram issues, fake
+    content = Content(text=None, attachment=Attachment(file_id=file_id, mime="audio/ogg", size_bytes=10))
+    stored = domain.payload_json(content, redact.scrubbed)
+    assert redact.scrubbed(file_id) != file_id  # it does look like a key to the scrubber
+    assert domain.content_from_json(stored).attachment == content.attachment
 
 
 def test_a_nulled_or_malformed_payload_reads_as_empty_content() -> None:
