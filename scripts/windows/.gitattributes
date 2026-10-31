@@ -1,0 +1,2 @@
+# run.cmd keeps CRLF on every checkout: cmd.exe mis-parses labels in LF-only batch files.
+*.cmd -text
