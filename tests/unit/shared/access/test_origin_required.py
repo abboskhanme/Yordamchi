@@ -240,6 +240,23 @@ async def _confirm_change(deps: DevDeps, fakes: Fakes) -> object:
     return await settings.confirm_change(deps, FAKE, change)
 
 
+async def _answer_ask(deps: DevDeps, fakes: Fakes) -> object:
+    """The personal bot's "ha" to the agent's question (SPEC §3.2.18): refused before a grant is stored."""
+    from tests.factories import make_personal_deps
+    from yordamchi.personal.agent import service as agent
+    from yordamchi.personal.agent.domain import PendingAsk
+    from yordamchi.personal.agent.service import AgentState
+
+    personal = make_personal_deps(db=deps.db, paths=deps.paths, fakes=fakes)
+    state = AgentState()
+    ask = PendingAsk(number=1, key="0" * 64, what="vercel deploy --prod", reason="deploy_cli")
+    try:
+        return await agent.answer_ask(personal, state, FAKE, ask, approved=True, chat_id=1, burst_id=None)
+    finally:
+        assert state.grants == ()
+        assert state.refusals == ()
+
+
 ENTRIES: Final[dict[str, Entry]] = {
     "yordamchi.shared.inbox.domain.require_matching_origin": _require_matching_origin,
     "yordamchi.shared.settings.service.record_version": lambda deps, _: settings.record_version(
@@ -317,6 +334,7 @@ ENTRIES: Final[dict[str, Entry]] = {
     "yordamchi.bots.personal.telegram.member_of": _personal_member_of,
     "yordamchi.bots.personal.runtime.accepted": _personal_intake_accepted,
     "yordamchi.shared.settings.service.confirm_change": _confirm_change,
+    "yordamchi.personal.agent.service.answer_ask": _answer_ask,
 }
 
 

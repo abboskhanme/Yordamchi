@@ -109,11 +109,12 @@ class PersonalApp:
 
     # --- start (SPEC §2.5 steps 6–10) --------------------------------------------------------------------------
     async def verify_tools(self) -> bool:
-        """NFR-SEC-08: the personal session, opened with exactly the tools an answer gets, reports the allowlist.
+        """NFR-SEC-08: the personal session, opened with exactly the tools (and agent mode) an answer gets, reports the
+        allowlist, or in agent mode the agent check (SPEC §3.2.18 item 1).
         Raises `PersonalToolsMismatch` when it does not; False when Claude could not be reached to check."""
         chat_id = await access.resolve_home_chat(self.deps)
         tools = await self.pipeline.answer_tools(chat_id, ref=PROBE_REF)
-        return await qa.verify_tools(self.deps, toolsets=tools)
+        return await qa.verify_tools(self.deps, toolsets=tools, agent=await self.pipeline.agent_mode())
 
     async def start(self, *, polling: bool = True) -> None:
         """The start pass, then every loop. `polling=False` (tests) leaves the poller out: updates come through
@@ -219,7 +220,7 @@ class PersonalApp:
         self.warmed_version = snap.version
         chat_id = await access.resolve_home_chat(self.deps)
         tools = await self.pipeline.answer_tools(chat_id, ref=WARM_REF)
-        await qa.warm_conversation(self.deps, chat_id, toolsets=tools)
+        await qa.warm_conversation(self.deps, chat_id, toolsets=tools, agent=await self.pipeline.agent_mode())
 
     async def _publish_secrets(self) -> None:
         """The masking set (the personal bot writes no hash file). A missing master key is a degraded capability

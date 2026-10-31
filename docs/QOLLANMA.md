@@ -328,6 +328,17 @@ Shaxsiy chatda yozing yoki ovozli xabar yuboring — guruh shart emas. Bot faqat
   "shu videoni yubor" (YouTube ham) — bot faylni tayyorlab, javobdan keyin yuboradi (≤ 50 MB).
 - **Loyiha holati**: "BonviHR qanday?" — dev botning ma'lumotidan o'qiydi, oxirida "Ma'lumot: … oldin".
   Shaxsiy bot loyihalarda hech narsa o'zgartira olmaydi va dev botga buyruq bera olmaydi.
+- **Terminaldagidek ishlaydi (agent rejimi)**: shaxsiy bot endi terminaldagi Claude Code kabi ishlaydi — buyruqlarni
+  o'zi bajaradi, dastur o'rnatadi, fayl yozadi va tahrirlaydi, API'larga o'zi ulanadi. U `~/Documents/Projects/_shaxsiy`
+  papkasida ishlaydi (boshqa joyni aytmasangiz, fayllarni shu yerda yaratadi).
+  - Xavfli ishdan oldin (deploy, ma'lumotni o'chirish, pul sarflash, boshqalarga yuborish) bot javobidan keyin
+    **bitta savol** beradi: "#1: Claude shu ishni bajarmoqchi: «…»". `ha` desangiz, o'sha ishni bir marta bajaradi va
+    davom etadi; `yo'q` desangiz, bajarmaydi va o'rniga nima qilishini aytadi. Boshqa xabar yozsangiz, savol bekor
+    bo'ladi ("#1 bajarilmadi").
+  - Yordamchining o'z kalitlari va ma'lumotlariga hamda Claude akkaunt fayllariga hech qachon tegmaydi — buni so'rab
+    ham bo'lmaydi.
+  - `sozlama: agent.enabled false` — botni oddiy yordamchiga qaytaradi (buyruq bajarmaydi). Qayta yoqishda
+    (`sozlama: agent.enabled true`) bot `ha` / `yo'q` deb so'raydi.
 - `holat?`, `sozlamalaring qanday?`, `xarajat?` — dev botdagidek.
 - **Sozlamalar so'z bilan**: "javoblaring qisqaroq bo'lsin", "ovozingni erkakka o'zgartir", "ovozni o'chir",
   "sozlama: …", "oldingi holatiga qaytar". Himoyani susaytiradigan o'zgarish (masalan qimmat model) uchun

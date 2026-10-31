@@ -1261,6 +1261,14 @@ ERR_AUDIO_ENCODE_FAILED = Msg(
 ERR_DOCUMENT_INVALID = Msg("Hujjatni tayyorlab bo'lmadi: ma'lumot to'liq emas ({problem}).")
 ERR_DOCUMENT_FAILED = Msg("{format} hujjatini yaratib bo'lmadi. Boshqa formatda tayyorlab beraymi?")
 
+# --- agent ---
+# SPEC §3.2.18 item 2: the personal agent wanted a dangerous action (a §5.7 ask class); the guard denied it and the
+# bot asks ONCE after the answer. `what` is the command, scrubbed and cut short; `consequence` a GATE_CONSEQUENCES line.
+AGENT_ASK = Msg(
+    "#{number}: Claude shu ishni bajarmoqchi: «{what}». Oqibati: {consequence}. Ruxsat berasizmi? «ha» yoki «yo'q»."
+)
+AGENT_ASK_DROPPED = Msg("#{number} bajarilmadi: javob «ha» emas edi. Kerak bo'lsa, qaytadan ayting.")
+
 # --- error catalog: every ErrorCode → its ERR_<CODE> entry above (test_error_catalog checks completeness) ---
 ERRORS: Final[Mapping[ErrorCode, Msg]] = MappingProxyType(
     {code: entry for code in ErrorCode if isinstance(entry := globals().get(f"ERR_{code.name}"), Msg)}

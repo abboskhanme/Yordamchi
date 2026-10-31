@@ -30,6 +30,7 @@ Bot text is Uzbek (Latin). Everything else is English.
 | D12 | Both bots are hard owner-only. The owner's Telegram user id is allowlisted. The dev bot also accepts only the one configured group. Everything else is ignored silently, and the bot leaves foreign groups. |
 | D13 | Computer control is for programming work only: folders, code, git, GitHub, servers, deploys, terminal commands. |
 | D14 | **Self-configuration is a core goal.** After delivery the owner never writes code for these bots again. Every setting is changed by telling the bots (UC-09). Code-level changes are requested by chat and go through a safe self-update pipeline (UC-19). More requirements will come later, so the system must be extensible by chat. |
+| D15 | (owner, 2026-10-31) **The personal bot's answers are a full Claude Code session** in its own workspace (`~/Documents/Projects/_shaxsiy`); Telegram is only a bridge (SPEC §3.2.18). This reverses the "no executor path" part of UC-36 for that workspace only. The UC-36 bridge to the dev bot stays read-only, and the personal bot still cannot instruct the dev bot. |
 
 ---
 

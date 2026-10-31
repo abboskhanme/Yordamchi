@@ -7,8 +7,11 @@ Each burst takes exactly one of these paths, first match wins:
    "hammasini to'xtat" also drops the questions waiting behind it. "yo'q, boshqacha qil: …" stops it and asks the
    new question. "kut" stops nothing;
 3. "ha" / "yo'q" while one settings change waits for the owner's word (`ask_change`, SPEC §3.2.15 step 3); any other
-   message drops the waiting change. Likewise "ikkinchisi" / "2" while voice samples wait (UC-34), and the OAuth
-   page address the owner pastes back while a sign-in waits (SPEC §3.2.10 step 3; intake vaulted it);
+   message drops the waiting change. Likewise "ha" / "yo'q" while the agent's question waits (SPEC §3.2.18 item 2:
+   the guard denied a dangerous call during the answer, and ONE question was posted after it): the answer goes into
+   the work line as a trusted follow-up of the same conversation ("approved: run it once", or "refused"). Likewise
+   "ikkinchisi" / "2" while voice samples wait (UC-34), and the OAuth page address the owner pastes back while a
+   sign-in waits (SPEC §3.2.10 step 3; intake vaulted it);
 4. the typed aliases and exact phrases of `bots/personal/intents.py`: `holat?`, the settings, "xarajat?", the hello,
    the integrations list and removal; the news and the voice samples wait in the work line;
 5. everything else is **work**, done in arrival order by one worker so the conversation stays in order: its media
@@ -19,7 +22,8 @@ Each burst takes exactly one of these paths, first match wins:
    are read beside the media (`files.read_burst`, UC-37: texts, PDFs, audio transcripts), and the documents the
    assistant made with `yordamchi_files` (`files.toolset`) are queued after its answer. The owner's integrations
    are the `yordamchi_int` tools (`gateway.toolset`, T76): its connect tools take only a key that came in his own
-   words in this burst.
+   words in this burst. With `agent.enabled` the answer is a full Claude Code session in the owner's workspace
+   (`agent.agent_mode`, SPEC §3.2.18), its tool calls decided by the personal guard (`personal/agent`).
 
 Commands, interrupts and answers read only the owner's own words (`TurnInput.own_text`): a message he forwarded is
 material, never an order (T33). A burst is marked done (`burst.cancel_burst`: the bot handled it itself) once its
@@ -30,9 +34,10 @@ step is one feature call.
 """
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, field, replace
 from functools import partial
+from pathlib import Path
 from typing import Final
 
 from yordamchi.bots.personal import intents, jobs
@@ -41,6 +46,10 @@ from yordamchi.core import aio
 from yordamchi.core import strings as S
 from yordamchi.core.log import get_log
 from yordamchi.core.text import BotText, join
+from yordamchi.personal.agent import domain as agent_domain
+from yordamchi.personal.agent import service as agent
+from yordamchi.personal.agent.domain import PendingAsk
+from yordamchi.personal.agent.service import AgentState
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.personal.files import domain as files_domain
 from yordamchi.personal.files import service as files
@@ -49,7 +58,8 @@ from yordamchi.personal.media import service as media
 from yordamchi.personal.news import service as news
 from yordamchi.personal.qa import domain as qa_domain
 from yordamchi.personal.qa import service as qa
-from yordamchi.ports.assistant import AssistantToolset
+from yordamchi.personal.qa.domain import QaQuestion
+from yordamchi.ports.assistant import AgentMode, AssistantToolset
 from yordamchi.shared.access import service as access
 from yordamchi.shared.access.domain import OwnerOrigin
 from yordamchi.shared.burst import service as burst
@@ -101,6 +111,9 @@ class Pipeline:
     asked: int = 0  # numbers the settings questions of this process
     integrations: IntegrationsState = field(default_factory=IntegrationsState)  # OAuth sign-ins waiting for a paste
     samples: tuple[VoiceSample, ...] = ()  # voice samples waiting for the owner's pick (UC-34)
+    agent: AgentState = field(default_factory=AgentState)  # the agent guard's grants and registered question
+    agent_ask: PendingAsk | None = None  # the agent's question posted in the chat, waiting for "ha" / "yo'q"
+    follow_ups: dict[int, QaQuestion] = field(default_factory=dict)  # burst id of a "ha"/"yo'q" → what to ask
 
     def poke(self) -> None:
         """A burst closed: run a pass now."""
@@ -138,7 +151,7 @@ class Pipeline:
             return
         origin = await inbox.origin_of_update(self.deps, item.parts[-1].update_id)
         command = self._command_of(item)
-        if self.waiting is not None and await self._waiting_answer(item, origin):
+        if await self._waiting_word(item, origin):
             return
         if self.samples and await self._sample_pick(item, origin):
             return
@@ -152,6 +165,7 @@ class Pipeline:
         """The burst is handled: never taken again, by this process or after a restart."""
         await burst.cancel_burst(self.deps, item.burst_id)
         self.taken.discard(item.burst_id)
+        self.follow_ups.pop(item.burst_id, None)
 
     async def _reply(self, item: TurnInput, text: BotText, *, kind: Kind = Kind.REPORT, ref: str = "") -> None:
         snap = await settings.snapshot(self.deps)
@@ -221,6 +235,12 @@ class Pipeline:
         log.info("personal_change_asked", number=self.asked)
         return self.asked
 
+    async def _waiting_word(self, item: TurnInput, origin: OwnerOrigin | None) -> bool:
+        """The owner's word on a question waiting in the chat: a settings change, or the agent's question."""
+        if self.waiting is not None and await self._waiting_answer(item, origin):
+            return True
+        return self.agent_ask is not None and await self._agent_answer(item, origin)
+
     async def _waiting_answer(self, item: TurnInput, origin: OwnerOrigin | None) -> bool:
         """The owner's word on the waiting change; any other message drops it. True when the burst was the answer."""
         waiting, self.waiting = self.waiting, None
@@ -240,6 +260,44 @@ class Pipeline:
             await self._reply(item, declined, kind=Kind.NOTICE)
         log.info("personal_change_answered", number=waiting.number, approved=answer is Answer.YES)
         return True
+
+    async def _agent_answer(self, item: TurnInput, origin: OwnerOrigin | None) -> bool:
+        """The owner's word on the agent's question; any other message drops it. True when the burst was the answer:
+        it then waits in the work line as the follow-up, so the agent carries on in the same conversation."""
+        ask, self.agent_ask = self.agent_ask, None
+        if ask is None:
+            return False
+        answer = intents.answer_of(item.own_text) if _one_text(item) else None
+        if answer is None or origin is None:
+            dropped = S.AGENT_ASK_DROPPED(number=ask.number)
+            await self._reply(item, dropped, kind=Kind.NOTICE, ref=f"agent-dropped-{item.burst_id}")
+            log.info("agent_ask_dropped", number=ask.number)
+            return False
+        self.follow_ups[item.burst_id] = await agent.answer_ask(
+            self.deps,
+            self.agent,
+            origin,
+            ask,
+            approved=answer is Answer.YES,
+            chat_id=item.chat_id,
+            burst_id=item.burst_id,
+        )
+        self.work.put_nowait(item)
+        return True
+
+    async def _post_ask(self, item: TurnInput) -> None:
+        """After an answer: the ONE question its guard registered, if any (SPEC §3.2.18 item 2)."""
+        ask = self.agent.take_pending()
+        if ask is None:
+            return
+        self.agent_ask = ask
+        # The answer's own kind (`qa.REPLY_KIND`): one priority, so the outbox sends the question after the answer.
+        await self._reply(item, agent_domain.ask_text(ask), kind=qa.REPLY_KIND, ref=f"agent-ask-{item.burst_id}")
+        log.info("agent_ask_posted", number=ask.number, reason=ask.reason)
+
+    async def agent_mode(self) -> AgentMode | None:
+        """The agent mode an answer, the warm session and the start-up check get (None: the restricted session)."""
+        return await agent.agent_mode(self.deps, self.agent)
 
     async def _sample_pick(self, item: TurnInput, origin: OwnerOrigin | None) -> bool:
         """The owner's pick among the voice samples; any other message leaves the voice as it is."""
@@ -341,6 +399,10 @@ class Pipeline:
 
     async def _do(self, item: TurnInput) -> bool:
         """One piece of work; True once it is done (what failed was told by `guarded()` and stays `closed`)."""
+        follow_up = self.follow_ups.pop(item.burst_id, None)
+        if follow_up is not None:  # the owner's "ha" / "yo'q" on the agent's question
+            await self._ask_assistant(item, follow_up)
+            return True
         command = self._command_of(item)
         intent = command.intent if command is not None else None
         if intent is Intent.MORE:
@@ -366,6 +428,19 @@ class Pipeline:
         if not read.read and (found.only_failed or files_only_failed):
             return  # nothing to answer from and nothing else asked: the failure notes were the reply (UC-31 F)
         question = replace(question, material=(*found.material, *read.material))
+        await self._ask_assistant(item, question, images=found.images, documents=read.pdfs)
+
+    async def _ask_assistant(
+        self,
+        item: TurnInput,
+        question: QaQuestion,
+        *,
+        images: Sequence[Path] = (),
+        documents: Sequence[Path] = (),
+    ) -> None:
+        """The assistant's answer with this turn's tools (and agent mode), the documents it made after it, then the
+        agent's question if its guard registered one. A stopped answer drops that question with it."""
+        self.agent.take_pending()  # a question left by an answer that was stopped is not asked any more
         made = files.MadeDocuments()
         turn = gateway.Turn(
             chat_id=item.chat_id,
@@ -374,12 +449,14 @@ class Pipeline:
             own_secret_ids=frozenset(secret_id for part in item.own_parts for secret_id in part.content.secret_ids),
         )
         tools = await self.answer_tools(item.chat_id, ref=turn.ref, made=made, turn=turn)
+        mode = await self.agent_mode()
         try:
-            await qa.answer(self.deps, question, images=found.images, documents=read.pdfs, toolsets=tools)
+            await qa.answer(self.deps, question, images=images, documents=documents, toolsets=tools, agent=mode)
         finally:
             await files.send_documents(
                 self.deps, made, chat_id=item.chat_id, ref=f"doc-{item.burst_id}", reply_to=item.own_reply_to
             )
+        await self._post_ask(item)
 
     async def answer_tools(
         self,

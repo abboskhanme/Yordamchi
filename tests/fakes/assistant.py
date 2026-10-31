@@ -6,6 +6,10 @@ returns them for a request with `output_schema`.
 Recorded fixtures live in `tests/fixtures/llm/<suite>/<key>.json` with `key = fixture_key(request)`; a request with
 no recording fails loudly (a stale key means the prompt changed: re-record with `pytest -m live --record-llm`).
 A suite may key its fixtures its own way: `FakeAssistant.key` (default `fixture_key`, which routing keeps).
+
+Agent mode (SPEC §3.2.18): `call_tools(*calls)` scripts the tool calls the next agent-mode ask makes before it
+replies; each goes through the request's `agent.guard`, as the adapter's PreToolUse hook does, and `guarded` records
+every call with the guard's verdict.
 """
 
 import hashlib
@@ -15,7 +19,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 from yordamchi.core.json_value import JsonValue
-from yordamchi.ports.agent import RuntimeStatus
+from yordamchi.ports.agent import GuardVerdict, RuntimeStatus, ToolCall
 from yordamchi.ports.assistant import (
     Assistant,
     AssistantDelta,
@@ -84,6 +88,12 @@ class FakeAssistant:
         self.requests: list[AssistantRequest] = []
         self.resets: list[tuple[AssistantKind, str | None]] = []
         self.warmed: list[AssistantProfile] = []
+        self._tool_calls: deque[tuple[ToolCall, ...]] = deque()
+        self.guarded: list[tuple[ToolCall, GuardVerdict]] = []
+
+    def call_tools(self, *calls: ToolCall) -> None:
+        """The next agent-mode ask runs `calls` through its guard before it replies."""
+        self._tool_calls.append(calls)
 
     def reply_with(self, kind: AssistantKind, *replies: Scripted) -> None:
         self._queued[kind].extend(replies)
@@ -106,6 +116,9 @@ class FakeAssistant:
 
     async def ask(self, request: AssistantRequest, *, timeout: float) -> AssistantReply:
         self.requests.append(request)
+        if request.agent is not None and self._tool_calls:
+            for call in self._tool_calls.popleft():
+                self.guarded.append((call, await request.agent.guard(call)))
         queued = self._queued[request.kind]
         if queued:
             item = queued.popleft()

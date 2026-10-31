@@ -440,3 +440,10 @@ question. Correct any line and it changes.
 - [2026-10-31] Agent guard hook timeout → `AGENT_GUARD_TIMEOUT_S = 10` s (restricted qa keeps 2 s) → the slice-B guard reads grants from the DB; a constant like the existing `GUARD_TIMEOUT_S`, since the hook timeout is a launch option.
 - [2026-10-31] `agent.enabled` weakens on False→True → new `registry.enables` (mirror of `disables`); `agent.workspace_dir` has no `weakens` → the brief and §3.2.18 name only the switch as the safeguard.
 - [2026-10-31] Agent instructions → new `prompts/personal/qa_context_agent.md` appended after the owner block only in agent mode; `qa_system.md` and `qa_context.md` unchanged (their sha keys the recorded qa evals).
+- [2026-10-31] Personal guard and the `gate.*` settings → the personal guard uses their declared defaults (a value in the personal scope would win) → `gate.*` are DEV-only settings, so the personal snapshot does not hold them.
+- [2026-10-31] `~` in `agent.workspace_dir` → means `deps.paths.home` (a relative path is under it too) → the same home every other path of the bot is built from, and tests can isolate it.
+- [2026-10-31] Who creates the agent workspace → the Claude adapter, mode 0700, at session start → one place owns the cwd and its refusal of Yordamchi's data dir.
+- [2026-10-31] `protected_pids` of the personal guard → the personal bot's own pid → it is the process the agent could kill from its session; the dev bot and supervisor pids are not known on the personal side.
+- [2026-10-31] What "yo'q" does on the agent's question → stores a refusal for that exact call (`gate.approval_ttl_min`) and sends a declined follow-up to the agent → the agent can tell the owner what it does instead, and a retry is refused without asking again.
+- [2026-10-31] Where the agent's grants and question live → in memory (`AgentState`) → like the waiting settings question; a restart forgets them and the agent simply asks again.
+- [2026-10-31] Git facts in the personal workspace → unknown (no git or registry reads) → the classifier fails toward asking, so `git push` there always asks.

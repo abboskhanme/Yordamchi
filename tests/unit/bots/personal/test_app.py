@@ -24,7 +24,7 @@ from alembic import command
 from alembic.config import Config
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
-from tests.factories import OWNER_ID, PERSONAL_BOT_TOKEN, Fakes, make_personal_deps
+from tests.factories import OWNER_ID, PERSONAL_BOT_TOKEN, Fakes, add_setting_row, make_personal_deps
 from tests.fakes.claude_client import FakeClient, records
 from tests.fakes.clock import FakeClock
 from tests.fakes.security import FakeSecurity
@@ -303,9 +303,15 @@ def _real_app(
     return runtime.build_app(replace(deps, assistant=assistant), bot=None, version=RELEASE), assistant
 
 
+async def _restricted(personal_db: Database, fakes: Fakes) -> None:
+    """`agent.enabled` off: the restricted session of SPEC §5.3, held to the exact allowlist (NFR-SEC-08)."""
+    await add_setting_row(personal_db, "agent.enabled", False, at=fakes.clock.now())
+
+
 async def test_the_real_session_refuses_an_extra_tool_and_runs_the_personal_column(
     personal_db: Database, dev_db_readonly: Database, paths: Paths, fakes: Fakes
 ) -> None:
+    await _restricted(personal_db, fakes)
     factory = Factory(_segment(tools=[*ALLOWLIST, "Bash"], mcp_servers=SERVERS))
     personal, assistant = _real_app(personal_db, dev_db_readonly, paths, fakes, factory)
     try:
@@ -337,10 +343,55 @@ async def test_the_real_session_refuses_an_extra_tool_and_runs_the_personal_colu
 async def test_the_real_session_with_the_exact_allowlist_passes(
     personal_db: Database, dev_db_readonly: Database, paths: Paths, fakes: Fakes
 ) -> None:
+    await _restricted(personal_db, fakes)
     factory = Factory(_segment(tools=ALLOWLIST, mcp_servers=SERVERS))
     personal, assistant = _real_app(personal_db, dev_db_readonly, paths, fakes, factory)
     try:
         assert await personal.verify_tools() is True
+    finally:
+        await assistant.close(timeout=5.0)
+
+
+# --- agent mode, the default (SPEC §3.2.18 item 1) ------------------------------------------------------------------
+AGENT_PRESET = sorted([*ALLOWLIST, "Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "TodoWrite"])
+
+
+async def test_the_start_check_opens_the_agent_session_answers_get(
+    personal_db: Database, dev_db_readonly: Database, paths: Paths, fakes: Fakes
+) -> None:
+    factory = Factory(_segment(tools=AGENT_PRESET, mcp_servers=SERVERS))
+    personal, assistant = _real_app(personal_db, dev_db_readonly, paths, fakes, factory)
+    try:
+        assert await personal.verify_tools() is True
+        [options] = factory.options
+        workspace = paths.home / "Documents" / "Projects" / "_shaxsiy"  # `~` is the owner's home (paths.home)
+        assert options.cwd == str(workspace)
+        assert workspace.is_dir()
+        assert options.tools is None  # the CLI preset
+        assert "restricted" not in options.extra_args
+        assert options.permission_mode == "bypassPermissions"
+        assert options.strict_mcp_config is True
+        assert options.setting_sources == []
+        assert options.env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"
+        assert set(cast("dict[str, Any]", options.mcp_servers)) == {
+            "yordamchi_bridge",
+            "yordamchi_media",
+            "yordamchi_files",
+            "yordamchi_int",
+        }
+    finally:
+        await assistant.close(timeout=5.0)
+
+
+async def test_the_agent_start_check_refuses_a_foreign_mcp_server(
+    personal_db: Database, dev_db_readonly: Database, paths: Paths, fakes: Fakes
+) -> None:
+    servers = [*SERVERS, {"name": "claude.ai Gmail", "status": "connected", "source": "claudeai"}]
+    factory = Factory(_segment(tools=AGENT_PRESET, mcp_servers=servers))
+    personal, assistant = _real_app(personal_db, dev_db_readonly, paths, fakes, factory)
+    try:
+        with pytest.raises(PersonalToolsMismatch):
+            await personal.verify_tools()
     finally:
         await assistant.close(timeout=5.0)
 

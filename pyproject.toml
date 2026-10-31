@@ -185,6 +185,9 @@ layers = [
     "yordamchi.ports",
     "yordamchi.core",
 ]
+# SPEC §3.2.18 / REQUIREMENTS D15: the personal agent's guard is the gate classifier, pure. This one module is the only
+# import from `dev` the personal side takes (tests/unit/personal/agent/test_isolation.py pins what it reaches).
+ignore_imports = ["yordamchi.personal.agent.domain -> yordamchi.dev.gate.domain"]
 
 [[tool.importlinter.contracts]]
 id = "C2"
@@ -302,6 +305,10 @@ forbidden_modules = [
     "yordamchi.adapters.github",
 ]
 allow_indirect_imports = false
+# SPEC §3.2.18 / REQUIREMENTS D15 (owner, 2026-10-31): the personal agent's guard runs the pure gate classifier. Only
+# this edge is exempt; tests/unit/personal/agent/test_isolation.py checks it reaches no other `dev` module and none of
+# the executor, git, GitHub or SSH modules.
+ignore_imports = ["yordamchi.personal.agent.domain -> yordamchi.dev.gate.domain"]
 
 [[tool.importlinter.contracts]]
 id = "C8"

@@ -1,0 +1,1 @@
+BLOCKED by Yordamchi's safety rules ({{reason}}: {{target}}). This action is never allowed in the owner's assistant session and cannot be approved. Do not retry it and do not try another way to the same effect. Continue without it, and tell the owner in your answer what you could not do.

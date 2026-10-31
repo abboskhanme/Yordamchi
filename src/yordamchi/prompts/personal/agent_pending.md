@@ -1,0 +1,1 @@
+WAITING FOR THE OWNER: this action needs his approval, and Yordamchi asks him in the chat when your answer ends. Do not retry it now and do not try another way to the same effect. Stop this step, finish your answer, and say in one sentence what is waiting and why. If he approves, you will be told to run it.
