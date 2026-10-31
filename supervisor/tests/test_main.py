@@ -119,6 +119,12 @@ class Paths(unittest.TestCase):
         self.assertEqual(paths.data, Path("/Users/owner/Library/Application Support/Yordamchi"))
         self.assertEqual(ignored, ["YORDAMCHI_DATA"])
 
+    def test_the_working_copy_is_wherever_the_installer_found_it(self) -> None:
+        default, _ = resolve({}, Path("/Users/owner"))
+        self.assertEqual(default.repo, Path("/Users/owner/Documents/Projects/Yordamchi"))
+        cloned, _ = resolve({"YORDAMCHI_REPO_DIR": "/Users/owner/Code/Yordamchi"}, Path("/Users/owner"))
+        self.assertEqual(cloned.repo, Path("/Users/owner/Code/Yordamchi"))
+
 
 class SingleInstance(unittest.TestCase):
     def test_a_second_supervisor_exits(self) -> None:

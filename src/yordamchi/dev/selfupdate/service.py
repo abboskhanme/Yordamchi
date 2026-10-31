@@ -18,7 +18,10 @@ the rest: build, test, drain, switch, probation, merge or rollback.
 - **Supervisor self-switch watch** (`kind=supervisor`): the supervisor swaps `supervisor/current` and exits; if no
   heartbeat of the new release arrives within `selfupdate.supervisor_switch_s`, the dev bot points the link back at
   the previous release and restarts the supervisor (`kick_supervisor`, from `bots/dev/app.py`). The old supervisor
-  then reports `rolled_back`.
+  then reports `rolled_back`. The same watch covers a supervisor installed by an **upstream update** (SPEC §3.2.12
+  "Upstream updates"): the supervisor queued it from GitHub, so it has no row; `updates/upstream-*/status.json` with
+  `kind=supervisor` is read instead, a `switched_back` marker in that directory makes it act once, and only a log line
+  is written (the old supervisor reports `SUPERVISOR_SWITCHED_BACK` itself).
 
 Ports are awaited only outside units of work (A3). Logs carry ids, codes and counts, never request text.
 """
@@ -73,6 +76,8 @@ TURN_START_GRACE: Final = timedelta(minutes=10)  # a row whose turn never got wr
 PROMPT: Final = "dev/selfupdate_turn"
 FAIL_CLOSED_GLOBS: Final = ("**",)  # no readable `.protected-core`: every change asks
 SWITCHED_BACK: Final = "supervisor_switched_back"
+UPSTREAM_GLOB: Final = "upstream-*"  # `updates/<id>/` the supervisor queued from GitHub (`upstream.py`)
+SWITCHED_BACK_MARKER: Final = "switched_back"  # in such a directory: the dev bot already switched it back
 
 type SupervisorKick = Callable[[], Awaitable[bool]]
 """`launchctl kickstart -k gui/<uid>/uz.yordamchi.supervisor`, built by `bots/dev/app.py` (an adapter's call)."""
@@ -258,6 +263,8 @@ async def advance_self_updates(deps: DevDeps, *, kick_supervisor: SupervisorKick
             changed += await _after_answer(deps, row)
         elif status in WITH_SUPERVISOR or (status in FINAL and row.reported_at is None):
             changed += await _follow(deps, row, kick_supervisor)
+    if kick_supervisor is not None:
+        await _watch_upstream_supervisors(deps, kick_supervisor)
     return changed
 
 
@@ -494,8 +501,8 @@ async def _follow(deps: DevDeps, row: SelfUpdate, kick: SupervisorKick | None) -
     return 1
 
 
-async def _watch_supervisor(deps: DevDeps, row: SelfUpdate, outcome: domain.Outcome, kick: SupervisorKick) -> None:
-    """kind=supervisor: no heartbeat of the new release within `selfupdate.supervisor_switch_s` → switch it back."""
+async def _switch_failed_after(deps: DevDeps, outcome: domain.Outcome) -> int | None:
+    """`selfupdate.supervisor_switch_s` when the new supervisor sent no heartbeat of its release in time, else None."""
     snap = await settings.snapshot(deps)
     beat = await asyncio.to_thread(_read_json, deps.paths.run / "supervisor.heartbeat.json")
     release = beat.get("release") if isinstance(beat, dict) else None
@@ -512,7 +519,13 @@ async def _watch_supervisor(deps: DevDeps, row: SelfUpdate, outcome: domain.Outc
         now=deps.clock.now(),
         wait_s=wait_s,
     )
-    if not failed:
+    return wait_s if failed else None
+
+
+async def _watch_supervisor(deps: DevDeps, row: SelfUpdate, outcome: domain.Outcome, kick: SupervisorKick) -> None:
+    """kind=supervisor: no heartbeat of the new release within `selfupdate.supervisor_switch_s` → switch it back."""
+    wait_s = await _switch_failed_after(deps, outcome)
+    if wait_s is None:
         return
     previous = deps.paths.supervisor / "releases" / outcome.previous
     if not outcome.previous or not previous.is_dir():
@@ -528,3 +541,38 @@ async def _watch_supervisor(deps: DevDeps, row: SelfUpdate, outcome: domain.Outc
         await _tell(s, deps, text, ref=f"selfupdate-{row.id}-switched-back")
         await _audit(s, deps, row.id, {"status": "switched_back", "kicked": kicked})
     log.error("selfupdate_supervisor_switched_back", update_id=domain.update_id(row.id), kicked=kicked)
+
+
+def _upstream_switching(updates: Path) -> list[tuple[str, domain.Outcome]]:
+    """The upstream `kind=supervisor` updates now switching that the dev bot has not switched back yet."""
+    try:
+        directories = sorted(path for path in updates.glob(UPSTREAM_GLOB) if path.is_dir())
+    except OSError:
+        return []
+    found: list[tuple[str, domain.Outcome]] = []
+    for directory in directories:
+        if (directory / SWITCHED_BACK_MARKER).exists():
+            continue
+        raw = _read_json(directory / "status.json")
+        outcome = domain.read_outcome(raw)
+        if not isinstance(raw, dict) or raw.get("kind") != UpdateKind.SUPERVISOR.value or outcome is None:
+            continue
+        if outcome.status is UpdateStatus.SWITCHING and not outcome.final:
+            found.append((directory.name, outcome))
+    return found
+
+
+async def _watch_upstream_supervisors(deps: DevDeps, kick: SupervisorKick) -> None:
+    """The self-switch watch for supervisors an upstream update installed: same heartbeat rule, no row, log only."""
+    for name, outcome in await asyncio.to_thread(_upstream_switching, deps.paths.updates):
+        if await _switch_failed_after(deps, outcome) is None:
+            continue
+        previous = deps.paths.supervisor / "releases" / outcome.previous
+        if not outcome.previous or not previous.is_dir():
+            log.error("selfupdate_upstream_supervisor_previous_missing", update_id=name)
+            continue
+        await asyncio.to_thread(_swap_symlink, deps.paths.supervisor / "current", previous)
+        marker = deps.paths.updates / name / SWITCHED_BACK_MARKER
+        await asyncio.to_thread(marker.write_text, deps.clock.now().isoformat(), encoding="utf-8")
+        kicked = await kick()
+        log.error("selfupdate_upstream_supervisor_switched_back", update_id=name, kicked=kicked)

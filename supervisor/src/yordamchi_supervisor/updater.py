@@ -38,6 +38,11 @@ The dev bot writes `updates/<id>/request.json` (`dev/selfupdate`, T56). This mod
    flags cleared, `bootstrap`. Then **verifying**: the previous version must come back with fresh polls within the
    health timeout → `S.ROLLED_BACK`, else `S.MANUAL_REPAIR` (R-32).
 
+**Upstream updates** (`source: "upstream"`, written by `upstream.py` from the fetched `origin/main`): the commit must
+be reachable from `refs/remotes/origin/main` (else `not_upstream`); R-32 is applied per side instead of refused, so an
+app update ignores `supervisor/**` and the supervisor update that follows ignores the rest; finishing never pushes and
+never deletes a branch: it only fast-forwards the local `main` when that is safe (`_fast_forward_upstream`).
+
 `kind=supervisor` (R-32: never together with the app): build `supervisor/releases/<version>/`, run its unittest
 suite and a `--selftest` trial run of the new code, then swap `supervisor/current` and exit; launchd's KeepAlive
 starts the new supervisor, which confirms itself on its first tick (heartbeat with its own `release`). If it does
@@ -94,6 +99,8 @@ SANDBOX_EXEC: Final = "/usr/bin/sandbox-exec"
 NO_NETWORK_PROFILE: Final = "(version 1)(allow default)(deny network-outbound (remote ip))(deny network-inbound)"
 MODE_PROBATION: Final = "probation"
 MODE_NORMAL: Final = "normal"
+UPSTREAM: Final = "upstream"  # `request.json` `source` of an update `upstream.py` queued from GitHub
+UPSTREAM_REF: Final = "refs/remotes/origin/main"
 
 _ID: Final = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 _BRANCH: Final = re.compile(r"selfupdate/[A-Za-z0-9._-][A-Za-z0-9._/-]{0,119}")
@@ -132,6 +139,7 @@ class UpdateRequest:
     branch: str
     health_timeout_s: int
     drain_max_min: int
+    source: str = ""  # "" (the dev bot, by chat) | UPSTREAM
 
 
 def _bounded(value: object, bounds: tuple[int, int, int]) -> int:
@@ -166,6 +174,7 @@ def parse_request(directory: Path) -> UpdateRequest | str:  # noqa: PLR0911 - on
         branch=branch,
         health_timeout_s=_bounded(raw.get("health_timeout_s"), HEALTH_TIMEOUT_S),
         drain_max_min=_bounded(raw.get("drain_max_min"), DRAIN_MAX_MIN),
+        source=UPSTREAM if raw.get("source") == UPSTREAM else "",
     )
 
 
@@ -230,6 +239,7 @@ class Journal:
     healthy_at: str = ""
     normal_kicked: bool = False
     status_at: str = ""
+    source: str = ""
 
     def to_json(self) -> dict[str, object]:
         return asdict(self)
@@ -285,6 +295,7 @@ class Journal:
             healthy_at=text("healthy_at"),
             normal_kicked=raw.get("normal_kicked") is True,
             status_at=text("status_at"),
+            source=text("source"),
         )
         valid = journal.id and journal.kind in ("app", "supervisor") and journal.step in set(Step)
         return journal if valid else None
@@ -485,6 +496,7 @@ class Updater:
             "previous": journal.previous,
             "commit": journal.commit,
             "branch": journal.branch,
+            "source": journal.source,
             "tests": dict(journal.tests),
             "previous_tests": dict(journal.baseline),
             "migration_ran": journal.migration_ran,
@@ -606,7 +618,7 @@ class Updater:
         self._status(journal, "refused", now, final=True)
         self._back_to_main(journal)
 
-    def _begin(self, request: UpdateRequest, now: datetime) -> Journal | None:
+    def _begin(self, request: UpdateRequest, now: datetime) -> Journal | None:  # noqa: PLR0911 - one per refusal
         env = self._env()
         repo = self._paths.repo
         app = request.kind == "app"
@@ -623,10 +635,14 @@ class Updater:
             started_at=now.isoformat(),
             health_timeout_s=request.health_timeout_s,
             drain_max_min=request.drain_max_min,
+            source=request.source,
         )
         sha = rel.resolve_commit(self._runner, repo, request.commit, env=env)
         if sha != request.commit:
             self._refuse_early(journal, "commit_missing", request.commit[:12], now)
+            return None
+        if request.source == UPSTREAM and not self._from_upstream(sha):
+            self._refuse_early(journal, "not_upstream", sha[:12], now)
             return None
         version = rel.release_version(self._runner, repo, sha, env=env)
         if version is None:
@@ -649,7 +665,9 @@ class Updater:
         self._log.info("update_started", update_id=journal.id, kind=journal.kind, version=version)
         return journal
 
-    def _kind_problem(self, request: UpdateRequest, previous: Path, env: Mapping[str, str]) -> str:
+    def _kind_problem(  # noqa: PLR0911 - one return per problem
+        self, request: UpdateRequest, previous: Path, env: Mapping[str, str]
+    ) -> str:
         """R-32 again, from git itself: an update touches `supervisor/` or the app, never both."""
         base = rel.marker_commit(previous)
         if base is None:
@@ -659,6 +677,11 @@ class Updater:
             return "git_failed"
         if not changed:
             return "no_changes"
+        if request.source == UPSTREAM:
+            # R-32 per side: the app release never runs `supervisor/**`, and the supervisor release holds nothing else.
+            # `upstream.py` queues the app first and the supervisor once the app is on the same commit.
+            mine = [path for path in changed if path.startswith("supervisor/") == (request.kind == "supervisor")]
+            return "" if mine else "no_changes"
         supervisor = any(path.startswith("supervisor/") for path in changed)
         other = any(not path.startswith("supervisor/") for path in changed)
         if supervisor and other:
@@ -1016,9 +1039,42 @@ class Updater:
         ok, branch = self._git("symbolic-ref", "--quiet", "--short", "HEAD")
         return branch if ok and branch else None
 
+    def _from_upstream(self, sha: str) -> bool:
+        """An upstream request names a commit the fetched `origin/main` contains, not any commit of the working copy."""
+        ok, tip = self._git("rev-parse", "--verify", "--quiet", f"{UPSTREAM_REF}^{{commit}}")
+        if not ok or not _SHA.fullmatch(tip):
+            return False
+        return tip == sha or self._git("merge-base", "--is-ancestor", sha, tip)[0]
+
+    def _fast_forward_upstream(self, journal: Journal) -> str:
+        """Finishing an upstream update: never a push, never a branch deleted (none was cut). The local `main` moves to
+        the commit only as a fast-forward that loses nothing: `merge --ff-only` on a clean checkout of `main`, or
+        `update-ref` (old value checked) when another branch is checked out. Otherwise `main` stays and the reason is
+        reported; the release runs from `git archive` either way."""
+        ok, main = self._git("rev-parse", "--verify", "--quiet", "refs/heads/main")
+        if not ok or not _SHA.fullmatch(main):
+            self._log.warning("upstream_main_missing", update_id=journal.id)
+            return "merge_failed"
+        if main == journal.commit:
+            return "merged"
+        if not self._git("merge-base", "--is-ancestor", main, journal.commit)[0]:
+            self._log.warning("update_merge_not_ff", update_id=journal.id)
+            return "merge_not_ff"
+        if self._head_branch() == "main":
+            clean, porcelain = self._git("status", "--porcelain", "--untracked-files=no")
+            if not clean or porcelain:
+                self._log.warning("upstream_copy_dirty", update_id=journal.id)
+                return "copy_dirty"
+            moved, _ = self._git("merge", "--ff-only", "--quiet", journal.commit)
+        else:
+            moved, _ = self._git("update-ref", "refs/heads/main", journal.commit, main)
+        return "merged" if moved else "merge_failed"
+
     def _merge(self, journal: Journal) -> str:
         """Fast-forward `main` to the healthy commit (never a merge commit, never a force); the working copy ends on
         `main` with the same tree. `main` that moved meanwhile is left alone and reported."""
+        if journal.source == UPSTREAM:
+            return self._fast_forward_upstream(journal)
         ok, main = self._git("rev-parse", "--verify", "--quiet", "refs/heads/main")
         if not ok or not _SHA.fullmatch(main):
             return "merge_failed"

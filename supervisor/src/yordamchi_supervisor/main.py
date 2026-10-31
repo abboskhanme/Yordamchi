@@ -11,6 +11,7 @@ The loop wakes every `LOOP_STEP` and runs each due `Job`:
 | `backups` | 60 s | the daily 04:00 backup, when due (`backups.py`) |
 | `log_trim` | 60 s | copy-truncates the launchd logs over 5 MB (`logtrim.py`) |
 | `updater` | 5 s | the self-update journal: build, test, drain, switch, probation, rollback (`updater.py`) |
+| `upstream` | 60 s | every 3 days: fetch `origin main`, queue a self-update when behind it (`upstream.py`) |
 
 A job that raises is logged (`job_failed`) and alerted at most once per `JOB_ALERT_EVERY`; the other jobs keep
 running. SIGTERM (launchd, `kickstart -k`) or SIGINT stops the loop within one step, then caffeinate is stopped.
@@ -69,6 +70,8 @@ from yordamchi_supervisor.state import StateFile
 from yordamchi_supervisor.telegram import Alerter, Opener, urllib_opener
 from yordamchi_supervisor.updater import INTERVAL as UPDATER_INTERVAL
 from yordamchi_supervisor.updater import ThreadWorker, Updater, Worker, default_network_guard
+from yordamchi_supervisor.upstream import INTERVAL as UPSTREAM_INTERVAL
+from yordamchi_supervisor.upstream import Upstream
 from yordamchi_supervisor.watchdog import Watchdog
 
 LOOP_STEP: Final = 5.0
@@ -138,9 +141,10 @@ class Supervisor:
             paths, launchctl, self.alerter, log, scrubber, self.state, notifier=Notifier(runner, log)
         )
         self.backups = Backups(paths, self.alerter, log, self.state)
+        commands = command_runner or SubprocessCommandRunner()
         self.updater = Updater(
             paths,
-            runner=command_runner or SubprocessCommandRunner(),
+            runner=commands,
             launchctl=launchctl,
             selftester=selftester or SocketSelfTester(paths),
             alerter=self.alerter,
@@ -151,6 +155,7 @@ class Supervisor:
             release=release,
             network_guard=network_guard,
         )
+        self.upstream = Upstream(paths, runner=commands, alerter=self.alerter, log=log, state=self.state)
         self.jobs: list[Job] = [
             Job("heartbeat", timedelta(seconds=15), self.write_heartbeat),
             Job("caffeinate", timedelta(seconds=15), self.caffeinate.ensure),
@@ -159,6 +164,7 @@ class Supervisor:
             Job("backups", timedelta(seconds=60), self.backups.tick),
             Job("log_trim", timedelta(seconds=60), lambda _now: trim_launchd_logs(paths, log)),
             Job("updater", UPDATER_INTERVAL, self.updater.tick),
+            Job("upstream", UPSTREAM_INTERVAL, self.upstream.tick),
         ]
 
     def add_job(self, job: Job) -> None:

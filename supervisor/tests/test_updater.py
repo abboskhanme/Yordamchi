@@ -10,28 +10,24 @@ import unittest
 from datetime import timedelta
 
 from yordamchi_supervisor import strings as S
-from yordamchi_supervisor.launchd import LaunchCtl
 from yordamchi_supervisor.releases import RELEASE_MARKER, link_target
 from yordamchi_supervisor.state import StateFile
-from yordamchi_supervisor.telegram import Alerter
-from yordamchi_supervisor.testing import START, UID, FakeClock, FakeOpener, TempData
 from yordamchi_supervisor.testing_update import (
+    APP_CHANGE,
     BASE_SHA,
+    BRANCH,
+    NEW_SHA,
+    SUPERVISOR_CHANGE,
+    UPDATE_ID,
     Behaviour,
-    FakeBots,
-    FakeTelegram,
-    FakeTools,
-    InlineWorker,
+    World,
     dump,
     install_release,
-    make_bot_db,
     offset,
     processed,
     version_of,
 )
 from yordamchi_supervisor.updater import (
-    INTERVAL,
-    SANDBOX_EXEC,
     Job,
     Journal,
     Step,
@@ -42,13 +38,6 @@ from yordamchi_supervisor.updater import (
     parse_request,
     unittest_count,
 )
-
-NEW_SHA = "b" * 40
-BRANCH = "selfupdate/7-ovoz-sozlamasi"
-UPDATE_ID = "u000007"
-APP_CHANGE = {"src/yordamchi/dev/selfupdate/domain.py": "# new\n"}
-SUPERVISOR_CHANGE = {"supervisor/src/yordamchi_supervisor/updater.py": "# new\n"}
-GUARD = (SANDBOX_EXEC, "-p", "(version 1)")
 
 
 class StalledWorker:
@@ -66,136 +55,6 @@ class CrashingUpdater(Updater):
     def checkpoint(self, name: str) -> None:
         if name == self.crash_at:
             raise Killed(name)
-
-
-class World:
-    """One Mac: the data dir, an installed release, the dev bot loaded and polling, a working copy, Telegram."""
-
-    def __init__(self, case: unittest.TestCase, *, previous_tests: dict[str, int] | None = None) -> None:
-        self.data = TempData()
-        case.addCleanup(self.data.cleanup)
-        self.paths = self.data.paths
-        self.clock = FakeClock(START)
-        self.opener = FakeOpener()
-        self.telegram = FakeTelegram()
-        self.bots = FakeBots(self.paths, self.clock, self.telegram)
-        self.tools = FakeTools()
-        self.tools.add(BASE_SHA, Behaviour(), parent=None, branch="main")
-        self.previous = install_release(self.paths.releases, self.paths.current_release, BASE_SHA, Behaviour())
-        install_release(
-            self.paths.supervisor_releases,
-            self.paths.supervisor_current,
-            BASE_SHA,
-            Behaviour(),
-            treeish=f"{BASE_SHA}:supervisor",
-        )
-        self.db = self.paths.db_file("dev")
-        self.telegram.send(5)
-        make_bot_db(self.db, offset=6, processed=[1, 2, 3, 4, 5])
-        self.bots.load("dev")
-        self.state = StateFile(self.paths.state_file)
-        if previous_tests is not None:
-            self.state.save_section(
-                "update", {"last_good": {"app": {"version": self.previous.name, "tests": previous_tests}}}
-            )
-        self.alerter = Alerter(
-            self.paths.env_file("dev"),
-            self.data.log,
-            self.data.scrubber,
-            self.clock,
-            keychain=self.data.keychain,
-            opener=self.opener,
-        )
-        self.updater = self.new_updater()
-        self.bots.step(self.clock.now())
-
-    def new_updater(self, cls: type[Updater] = Updater, *, release: str = "") -> Updater:
-        """A supervisor (re)start: a fresh process reading the same state file."""
-        self.state = StateFile(self.paths.state_file)
-        return cls(
-            self.paths,
-            runner=self.tools,
-            launchctl=LaunchCtl(self.bots.launchctl, UID),
-            selftester=self.bots,
-            alerter=self.alerter,
-            log=self.data.log,
-            scrubber=self.data.scrubber,
-            state=self.state,
-            worker=InlineWorker(),
-            release=release,
-            network_guard=GUARD,
-        )
-
-    # --- the dev bot's side ---------------------------------------------------------------------------------------
-    def request(
-        self,
-        behaviour: Behaviour,
-        *,
-        kind: str = "app",
-        change: dict[str, str] | None = None,
-        sha: str = NEW_SHA,
-        health_timeout_s: int = 120,
-    ) -> None:
-        self.tools.add(sha, behaviour, extra=change if change is not None else APP_CHANGE, branch=BRANCH, kind=kind)
-        self.tools.head = BRANCH
-        directory = self.paths.update_dir(UPDATE_ID)
-        directory.mkdir(parents=True, exist_ok=True)
-        body = {
-            "id": UPDATE_ID,
-            "kind": kind,
-            "commit": sha,
-            "branch": BRANCH,
-            "health_timeout_s": health_timeout_s,
-            "drain_max_min": 30,
-        }
-        (directory / "request.json").write_text(json.dumps(body), encoding="utf-8")
-
-    # --- time -----------------------------------------------------------------------------------------------------
-    def tick(self, updater: Updater | None = None) -> None:
-        self.bots.step(self.clock.now())
-        (updater or self.updater).tick(self.clock.now())
-        self.clock.advance(seconds=INTERVAL.total_seconds())
-
-    def run(self, *, ticks: int = 200, updater: Updater | None = None, during: int = 0) -> dict[str, object]:
-        """Tick until the status is final; `during` owner messages arrive on every tick meanwhile."""
-        for _ in range(ticks):
-            if during:
-                self.telegram.send(during)
-            self.tick(updater)
-            status = self.status()
-            if status.get("final"):
-                for _ in range(3):  # the bots work off what Telegram held
-                    self.tick(updater)
-                return status
-        raise AssertionError(f"no final status after {ticks} ticks: {self.status()}")
-
-    def run_until(self, step: Step, *, ticks: int = 100, updater: Updater | None = None) -> Journal:
-        for _ in range(ticks):
-            self.tick(updater)
-            journal = Journal.from_json(StateFile(self.paths.state_file).section("update").get("journal"))
-            if journal is not None and journal.step == step.value:
-                return journal
-        raise AssertionError(f"never reached {step}")
-
-    # --- reading ----------------------------------------------------------------------------------------------
-    def status(self) -> dict[str, object]:
-        path = self.paths.update_dir(UPDATE_ID) / "status.json"
-        if not path.exists():
-            return {}
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        assert isinstance(raw, dict)
-        return raw
-
-    def current(self) -> str | None:
-        return link_target(self.paths.current_release)
-
-    def beat(self) -> dict[str, object]:
-        raw = json.loads(self.paths.heartbeat("dev").read_text(encoding="utf-8"))
-        assert isinstance(raw, dict)
-        return raw
-
-    def kickstarts(self) -> int:
-        return len(self.bots.launchctl.kicks())
 
 
 # --- the healthy path ---------------------------------------------------------------------------------------------

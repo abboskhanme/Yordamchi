@@ -92,8 +92,38 @@ UPDATE_REASONS: Final = {
     "crash_loop": Msg("yangi versiya qayta-qayta yiqildi"),
     "supervisor_restarted": Msg("almashtirish o'rtasida supervisor qayta ishga tushdi"),
     "switch_failed": Msg("yangi versiyaga o'tib bo'lmadi"),
+    # the codes an upstream update can end with (`upstream.py` tells the owner; texts as in the app's catalog)
+    "tests_failed": Msg("testlar o'tmadi"),
+    "tests_dropped": Msg("testlar soni kamaydi"),
+    "tests_uncounted": Msg("testlar sonini aniqlab bo'lmadi"),
+    "build_failed": Msg("yangi versiyani yig'ib bo'lmadi"),
+    "trial_failed": Msg("yangi supervisor sinov ishga tushirishdan o'tmadi"),
+    "commit_missing": Msg("commit ishchi nusxada topilmadi"),
+    "not_upstream": Msg("commit GitHub'dagi main'da yo'q"),
+    "no_changes": Msg("o'zgarish yo'q"),
+    "already_current": Msg("bu versiya allaqachon ishlayapti"),
+    "no_current_release": Msg("hozirgi versiya papkasi topilmadi"),
+    "drain_timeout": Msg("ishlayotgan vazifalar vaqtida tugamadi"),
+    "snapshot_failed": Msg("bazaning zaxira nusxasini olib bo'lmadi"),
+    "bots_not_loaded": Msg("botlar ishga tushirilmagan"),
+    "probation_ignored": Msg("yangi versiya sinov rejimini bilmaydi"),
+    "supervisor_not_started": Msg("yangi supervisor ishga tushmadi"),
+    "git_failed": Msg("git buyrug'i bajarilmadi"),
+    "merge_not_ff": Msg("main'da GitHub'da yo'q commit'lar bor"),
+    "merge_failed": Msg("main'ni ko'chirib bo'lmadi"),
+    "copy_dirty": Msg("ishchi nusxada saqlanmagan o'zgarishlar bor"),
 }
 REASON_OTHER = Msg("kutilmagan xato ({code})")
+
+# --- upstream updates (SPEC §3.2.12 "Upstream updates"): the dev bot follows only its own requests, so the supervisor
+# tells the owner the outcome of the ones it queued from GitHub. A rollback is told once, by ROLLED_BACK above.
+UPSTREAM_PARTS: Final = {"app": Msg("botlar"), "supervisor": Msg("supervisor")}
+UPSTREAM_UPDATED = Msg("Yordamchi GitHub'dan avtomatik yangilandi: {part} endi {version} versiyada ishlayapti.")
+UPSTREAM_MAIN_LEFT = Msg(" Ishchi nusxadagi main o'zgartirilmadi ({reason}); yangi versiya baribir ishlayapti.")
+UPSTREAM_NOT_APPLIED = Msg(
+    "GitHub'dagi yangi versiya {version} o'rnatilmadi: {reason}. Hozirgi versiya ishlashda davom etadi; "
+    "GitHub'da keyingi o'zgarish chiqqanda yana urinaman."
+)
 
 # --- the supervisor itself ---
 SUPERVISOR_ERROR = Msg("Supervisor ichida xato ({job}). Tafsilotlar: ~/Library/Logs/Yordamchi/supervisor.jsonl.")

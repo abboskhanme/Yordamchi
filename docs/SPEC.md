@@ -663,6 +663,27 @@ Supervisor (`kind=app`). Every step is persisted in `supervisor/state.json` befo
 `supervisor/tests`, switches `supervisor/current`, and runs `kickstart -k` on the supervisor. No supervisor
 heartbeat within 60 s → it switches back.
 
+**Upstream updates** (`supervisor/.../upstream.py`, owner 2026-10-31): an installation follows the GitHub `main` it was
+cloned from, wherever the clone lives (the installer writes its checkout into the supervisor plist as
+`YORDAMCHI_REPO_DIR`).
+- Every 3 days (`CHECK_EVERY`, a constant) the `upstream` job runs `git fetch origin +refs/heads/main:refs/remotes/
+  origin/main` (no prompt, ssh in batch mode). A failed fetch is logged, never alerted, and retried after 1 h.
+- Running release strictly behind the fetched commit → `updates/upstream-<kind>-<sha7>-<ts>/request.json` with
+  `source: "upstream"`; the updater then does steps 1–9 above. The commit must be reachable from `origin/main`
+  (else `not_upstream`). There is no Q5 for it: it is official `origin/main` code, tested by `make check` as usual.
+- R-32 per side: the app goes first and ignores `supervisor/**`; once it runs the fetched commit the next tick queues
+  `kind=supervisor`, which ignores everything else. A failed side is held on that commit until GitHub moves on, and a
+  failed app half holds the supervisor half.
+- Finishing never pushes and never deletes a branch. The local `main` is fast-forwarded only when nothing is lost
+  (`merge --ff-only` on a clean checkout of `main`, `update-ref` from another branch); otherwise it stays and the
+  reason is told. A clone without a local `main` gets one at `origin/main` (`update-ref` create-only).
+- Local work wins: a local `main` or running release ahead of / beside `origin/main` queues nothing.
+- The supervisor tells the owner each outcome once (`S.UPSTREAM_*`), because the dev bot follows only its own
+  requests; a rollback the updater alerted is not told again. The dev bot's self-switch watch also covers an upstream
+  `kind=supervisor` update (`updates/upstream-*/status.json`, a `switched_back` marker, log only).
+- Off switch: remove or rename the clone's `origin` remote (logged `upstream_no_origin`). Platform-neutral: only git
+  argv, file I/O and state; no launchd.
+
 **3.2.13 Personal answer (UC-30)**
 1. The burst closes (same window rules) → personal pre-parse (§6.1) → `qa.service.answer`.
 2. Send into the warm session (§5.3 `assistant`, `models.qa = "sonnet"`, `models.qa_effort = "medium"`):

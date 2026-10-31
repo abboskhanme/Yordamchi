@@ -28,7 +28,8 @@ Steps, in order. Each one is idempotent, so a failed run is fixed and simply run
     (sqlite3 backup API + `integrity_check`), then `alembic upgrade head` runs on `db/dev.db` and `db/personal.db`.
 10. `releases/current` and `supervisor/current` are switched atomically (the previous target is printed: rollback).
 11. the plists are rendered from `ops/launchd/*.plist.tmpl` of the release into `DATA/launchd/`; dev and supervisor
-    are copied to `~/Library/LaunchAgents` (personal only with `--enable-personal`, P3).
+    are copied to `~/Library/LaunchAgents` (personal only with `--enable-personal`, P3). The supervisor's
+    `YORDAMCHI_REPO_DIR` is this checkout (or `--repo`), wherever it was cloned.
 12. `launchctl bootstrap` / `kickstart -k`, then `python -m yordamchi.check` from the new release.
 
 `--dry-run` builds everything under a temporary HOME (the release, its venv with `uv sync --offline`, the DBs, the
@@ -386,8 +387,10 @@ def render_plist(template: str, values: Mapping[str, str]) -> str:
     return rendered
 
 
-def plist_values(paths: Paths) -> dict[str, str]:
-    return {"DATA": str(paths.data), "HOME": str(paths.home), "LOGS": str(paths.logs)}
+def plist_values(paths: Paths, repo: Path) -> dict[str, str]:
+    """`REPO` is the checkout the installer runs from (or `--repo`): the supervisor's `YORDAMCHI_REPO_DIR`, so a clone
+    in any folder is the working copy upstream updates fetch into (SPEC §3.2.12 "Upstream updates")."""
+    return {"DATA": str(paths.data), "HOME": str(paths.home), "LOGS": str(paths.logs), "REPO": str(repo)}
 
 
 def data_dirs(paths: Paths) -> list[Path]:
@@ -1094,7 +1097,7 @@ class Installer:
 
     def plists(self) -> None:
         source = (self.releases.app or self.options.repo) / "ops" / "launchd"
-        values = plist_values(self.paths)
+        values = plist_values(self.paths, self.options.repo)
         rendered: list[str] = []
         for process in ("dev", "personal", "supervisor"):
             name = yd_check.label(process)

@@ -368,6 +368,77 @@ async def test_a_new_supervisor_without_a_heartbeat_is_switched_back_once(
     assert sum("yangi supervisor" in text for text in await texts(dev_deps)) == 1
 
 
+async def test_an_upstream_supervisor_without_a_heartbeat_is_switched_back_once_and_only_logged(
+    dev_deps: DevDeps, fakes: Fakes
+) -> None:
+    releases = dev_deps.paths.supervisor / "releases"
+    (releases / "2026.10.24-aaaaaaa").mkdir(parents=True)
+    (releases / "2026.10.25-bbbbbbb").mkdir()
+    link = dev_deps.paths.supervisor / "current"
+    link.symlink_to(releases / "2026.10.25-bbbbbbb")
+    switched = fakes.clock.now() - timedelta(seconds=61)
+    update_id = "upstream-supervisor-bbbbbbb-20261031120000"
+    for name, kind in ((update_id, "supervisor"), ("upstream-app-bbbbbbb-20261031110000", "app")):
+        write_update_status(
+            dev_deps.paths,
+            name,
+            "switching",
+            kind=kind,
+            source="upstream",
+            version="2026.10.25-bbbbbbb",
+            previous="2026.10.24-aaaaaaa",
+            switched_at=switched.isoformat(),
+        )
+    kicks: list[int] = []
+
+    async def kick() -> bool:
+        kicks.append(1)
+        return True
+
+    await service.advance_self_updates(dev_deps)  # no kick wired: the watch is off
+    assert link.readlink().name == "2026.10.25-bbbbbbb"
+    await service.advance_self_updates(dev_deps, kick_supervisor=kick)
+    assert link.readlink().name == "2026.10.24-aaaaaaa"
+    link.unlink()  # whatever the link says later, the marker keeps it from acting twice
+    link.symlink_to(releases / "2026.10.25-bbbbbbb")
+    await service.advance_self_updates(dev_deps, kick_supervisor=kick)
+
+    assert link.readlink().name == "2026.10.25-bbbbbbb"
+    assert kicks == [1]
+    assert (dev_deps.paths.updates / update_id / service.SWITCHED_BACK_MARKER).exists()
+    assert not (dev_deps.paths.updates / "upstream-app-bbbbbbb-20261031110000" / service.SWITCHED_BACK_MARKER).exists()
+    assert await texts(dev_deps) == []  # the old supervisor tells the owner itself
+
+
+async def test_an_upstream_supervisor_that_beats_in_time_is_left_alone(dev_deps: DevDeps, fakes: Fakes) -> None:
+    releases = dev_deps.paths.supervisor / "releases"
+    (releases / "2026.10.24-aaaaaaa").mkdir(parents=True)
+    (releases / "2026.10.25-bbbbbbb").mkdir()
+    link = dev_deps.paths.supervisor / "current"
+    link.symlink_to(releases / "2026.10.25-bbbbbbb")
+    write_update_status(
+        dev_deps.paths,
+        "upstream-supervisor-bbbbbbb-20261031120000",
+        "switching",
+        kind="supervisor",
+        version="2026.10.25-bbbbbbb",
+        previous="2026.10.24-aaaaaaa",
+        switched_at=(fakes.clock.now() - timedelta(seconds=90)).isoformat(),
+    )
+    beat = {"release": "2026.10.25-bbbbbbb", "last_tick_at": fakes.clock.now().isoformat()}
+    dev_deps.paths.run.mkdir(parents=True, exist_ok=True)
+    (dev_deps.paths.run / "supervisor.heartbeat.json").write_text(json.dumps(beat), encoding="utf-8")
+    kicks: list[int] = []
+
+    async def kick() -> bool:
+        kicks.append(1)
+        return True
+
+    await service.advance_self_updates(dev_deps, kick_supervisor=kick)
+    assert link.readlink().name == "2026.10.25-bbbbbbb"
+    assert kicks == []
+
+
 async def test_a_new_supervisor_that_beats_in_time_is_left_alone(
     dev_deps: DevDeps, fakes: Fakes, repo: Path, state: TurnsState
 ) -> None:

@@ -283,6 +283,11 @@ Vaqt 10 daqiqadan eski bo'lsa — bot ishlamayapti.
    each thing") bo'yicha tekshiring; qayta ishga tushirish — §4.3.
 5. Bot qayta yonganda yozganlaringizni o'zi qayta ishlaydi — qayta yuborish shart emas.
 
+**GitHub'dan avtomatik yangilanish** — Yordamchi har 3 kunda GitHub'dagi `main`ni tekshiradi. Yangi versiya
+bo'lsa, uni o'zi yig'adi, testlaydi va o'rnatadi (avval botlar, keyin supervisor); muammo chiqsa, eski versiyaga
+qaytadi. Natija haqida bir marta xabar keladi: "Yordamchi GitHub'dan avtomatik yangilandi …" yoki "… o'rnatilmadi:
+…". Hech narsa qilish shart emas. Internet bo'lmasa, keyinroq jim qayta urinadi. O'chirish — `docs/DEPLOY.md` §1.2.
+
 ---
 
 ## 10. Hali yo'q

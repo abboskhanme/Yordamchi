@@ -814,8 +814,11 @@ def test_a_second_release_prints_the_rollback_target(rig: Rig) -> None:
 
 
 # --- plists ----------------------------------------------------------------------------------------------------------
+CLONE = "Code/Yordamchi"  # a clone outside `~/Documents/Projects`: the supervisor must still find it
+
+
 def render_all(home: Path) -> dict[str, str]:
-    values = install.plist_values(Paths.defaults(home))
+    values = install.plist_values(Paths.defaults(home), home / CLONE)
     return {
         path.name.removesuffix(".tmpl"): install.render_plist(path.read_text(), values)
         for path in sorted((ROOT / "ops" / "launchd").glob("*.plist.tmpl"))
@@ -877,6 +880,7 @@ def test_the_supervisor_plist_runs_isolated_without_shims() -> None:
     ]
     env = plist["EnvironmentVariables"]
     assert env["YORDAMCHI_DATA_DIR"] == data
+    assert env["YORDAMCHI_REPO_DIR"] == f"/Users/owner/{CLONE}"
     assert "YORDAMCHI_DATA" not in env
     assert "shims" not in env["PATH"]
     assert env["PATH"] == "/Users/owner/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -902,6 +906,16 @@ def test_the_personal_plist_is_rendered_but_not_installed_before_p3(rig: Rig) ->
     bootstrapped = [Path(call[2]).name for call in rig.mac.launchctl_calls() if call[0] == "bootstrap"]
     assert bootstrapped == ["uz.yordamchi.dev.plist", "uz.yordamchi.supervisor.plist"]
     assert plistlib.loads((agents / "uz.yordamchi.dev.plist").read_bytes())["Label"] == "uz.yordamchi.dev"
+
+
+def test_the_supervisor_plist_points_at_the_checkout_the_installer_ran_from(rig: Rig) -> None:
+    rig.prompter.answers = {"DEV_BOT_TOKEN": [DEV_BOT_TOKEN]}
+    assert rig.install() == 0, rig.out.getvalue()
+    agents = rig.paths.home / "Library" / "LaunchAgents"
+    supervisor = plistlib.loads((agents / "uz.yordamchi.supervisor.plist").read_bytes())
+    assert supervisor["EnvironmentVariables"]["YORDAMCHI_REPO_DIR"] == str(rig.home / "repo")
+    dev = plistlib.loads((agents / "uz.yordamchi.dev.plist").read_bytes())
+    assert "YORDAMCHI_REPO_DIR" not in dev["EnvironmentVariables"]
 
 
 def test_enable_personal_installs_and_loads_it(rig: Rig) -> None:

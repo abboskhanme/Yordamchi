@@ -109,6 +109,23 @@ logs and the three plists is created (`~/.config/yordamchi` stays as an empty 07
    `personal.env`). An id already in the file is never replaced.
 4. Start the bot again: `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/uz.yordamchi.dev.plist`.
 
+### 1.2 Installing from a GitHub clone, and upstream updates
+
+- **Any folder.** Clone anywhere and run `scripts/install.py` from that clone (or pass `--repo`). The installer writes
+  that checkout into the supervisor plist as `YORDAMCHI_REPO_DIR`; without it the supervisor assumes
+  `~/Documents/Projects/Yordamchi`. Moving the clone later means running the installer again from the new place.
+- **Updates every 3 days.** The supervisor fetches `origin main` into the clone and, when the running release is behind,
+  runs an ordinary self-update (build, `make check` offline, drain, switch, probation, rollback): the bots first, the
+  supervisor in a second update. It never pushes. It moves the local `main` only as a fast-forward on a clean copy;
+  local commits GitHub does not have stop it (local work wins). Offline is fine: it retries after an hour, silently.
+- **See it.** The owner gets one Telegram line per outcome ("Yordamchi GitHub'dan avtomatik yangilandi …" or "…
+  o'rnatilmadi: …"). Details: `grep '"upstream_' LOGS/supervisor.jsonl`; the next check time is `upstream.next_at` in
+  `DATA/supervisor/state.json`; each update has its `DATA/updates/upstream-*/status.json`.
+- **Stop it.** `git -C <clone> remote rename origin github` (or remove `origin`); the job then logs
+  `upstream_no_origin` and does nothing. Rename it back to resume.
+- **Chat self-update** (`o'zingga … qo'sh`) still finds the copy through the project registry: the clone must be a
+  folder named `Yordamchi` under `projects.root` (default `~/Documents/Projects`; `sozlama: projects.root <folder>`).
+
 ## 2. What runs where
 
 | Job | Program | Plist | Logs |
@@ -119,7 +136,8 @@ logs and the three plists is created (`~/.config/yordamchi` stays as an empty 07
 
 Plist facts (SPEC §9.1): `KeepAlive` and `RunAtLoad` true, `ThrottleInterval` 10, `ExitTimeOut` 20 for the bots
 and 10 for the supervisor, `AbandonProcessGroup` false (children die with the bot), `WorkingDirectory` `DATA/run`.
-`EnvironmentVariables`: `YORDAMCHI_DATA_DIR`, for the bots also `YORDAMCHI_ENV_FILE`, `PATH`
+`EnvironmentVariables`: `YORDAMCHI_DATA_DIR`, for the bots also `YORDAMCHI_ENV_FILE`, for the supervisor also
+`YORDAMCHI_REPO_DIR` (the clone, §1.2), `PATH`
 (bots: `DATA/releases/current/shims` first; supervisor: no shims), `LANG`, `PYTHONUNBUFFERED`.
 
 The templates are `ops/launchd/*.plist.tmpl`; the installer renders them from the release it installs. Never edit

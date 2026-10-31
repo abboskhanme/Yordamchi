@@ -17,6 +17,8 @@
 	<dict>
 		<key>YORDAMCHI_DATA_DIR</key>
 		<string>/Users/owner/Library/Application Support/Yordamchi</string>
+		<key>YORDAMCHI_REPO_DIR</key>
+		<string>/Users/owner/Code/Yordamchi</string>
 		<key>PATH</key>
 		<string>/Users/owner/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 		<key>LANG</key>
