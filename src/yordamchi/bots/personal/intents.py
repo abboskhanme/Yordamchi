@@ -12,10 +12,14 @@ names, or None. The rows (SPEC §6, the "both" and "personal" rows):
   about its voice or answers ("javoblaring qisqaroq bo'lsin", "ovozingni erkakka o'zgartir", "ovozni o'chir");
   "oldingi holatiga qaytar [key]" → `revert_setting`; "bu so'zni to'g'ri yoz: X" → `add_term`;
 - "xarajat?", `/xarajat` → `show_cost`; "to'liqroq" → `more`; "yangi suhbat" → `new_conversation`;
-- `/start`, `/yordam` → `help` (Telegram sends `/start` when the owner first opens the chat).
-
-Intents whose feature is not built yet are recognised here and answered with `S.NOT_YET`, never sent to the
-assistant as work (SPEC §7): `news` (T75), `integrations` (T76), `voice_samples` ("ovozing yoqmadi", UC-34).
+- `/start`, `/yordam` → `help` (Telegram sends `/start` when the owner first opens the chat);
+- "bugungi yangiliklar", "moliya yangiliklari", `/yangiliklar` → `news` (T75): the assistant's answer with the news
+  brief, in the same line as other work;
+- "integratsiyalar", `/integratsiyalar` → `integrations` (the list); "X integratsiyasini o'chir" → `remove`;
+  "X integratsiyasini qaytar" → `restore`; "X'ga qayta ulan" → `reconnect` (T76). Connecting is not here: "X'ga
+  ulan: …" and "mana X API kaliti …" go to the assistant, which fills in the service's details and calls its
+  connect tools (`personal/gateway`);
+- "ovozing yoqmadi" → `voice_samples` (UC-34): numbered samples; `sample_choice_of` then reads "ikkinchisi" / "2".
 
 `answer_of(text)` reads "ha" / "yo'q" while one settings change waits for the owner's word (SPEC §3.2.15 step 3).
 """
@@ -38,19 +42,33 @@ class Intent(StrEnum):
     MORE = "more"
     NEW_CONVERSATION = "new_conversation"
     HELP = "help"
-    # Not built yet: answered `S.NOT_YET(phase)` (SPEC §7).
     NEWS = "news"
     INTEGRATIONS = "integrations"
+    INTEGRATION_REMOVE = "integration_remove"
+    INTEGRATION_RESTORE = "integration_restore"
+    INTEGRATION_RECONNECT = "integration_reconnect"
     VOICE_SAMPLES = "voice_samples"
 
 
-# Not wired in the personal bot yet: `personal/news` (T75), the integrations gateway (T76), the voice samples (UC-34).
-NOT_BUILT: Final = frozenset({Intent.NEWS, Intent.INTEGRATIONS, Intent.VOICE_SAMPLES})
+# Every intent of this bot is built; a later one is listed here and answered `S.NOT_YET(phase)` (SPEC §7).
+NOT_BUILT: Final[frozenset[Intent]] = frozenset()
 LATER_PHASE: Final = "P3"
-# Work on this chat's conversation: it waits behind the answer being written, so "to'liqroq" reads that answer.
-CONVERSATION: Final = frozenset({Intent.MORE, Intent.NEW_CONVERSATION})
+# Work on this chat's conversation: it waits behind the answer being written, so "to'liqroq" reads that answer, and
+# the news and the voice samples take their turn like any other answer.
+CONVERSATION: Final = frozenset({Intent.MORE, Intent.NEW_CONVERSATION, Intent.NEWS, Intent.VOICE_SAMPLES})
 # The commands that change something on the owner's word, or show what only the owner may see.
-OWNER_ONLY: Final = frozenset({Intent.SHOW_SETTINGS, Intent.CHANGE_SETTING, Intent.REVERT_SETTING, Intent.ADD_TERM})
+OWNER_ONLY: Final = frozenset(
+    {
+        Intent.SHOW_SETTINGS,
+        Intent.CHANGE_SETTING,
+        Intent.REVERT_SETTING,
+        Intent.ADD_TERM,
+        Intent.INTEGRATIONS,
+        Intent.INTEGRATION_REMOVE,
+        Intent.INTEGRATION_RESTORE,
+        Intent.INTEGRATION_RECONNECT,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,7 +184,11 @@ _NEWS: Final = re.compile(
     r"(?!nima\b)(?:(?:bugungi|so'nggi|oxirgi|eng|kunning|[a-z']+)\s+){0,2}yangilik(?:lar|lari)?(?:ni|ini)?"
     r"(?:\s+(?:ber|ayt|aytib\s+ber|ko'rsat|qanday|bormi))?"
 )
-_CONNECT: Final = re.compile(r"[^\s'][^']*?'?(?:ga|ka|qa)\s+ulan\s*:.+", re.IGNORECASE | re.DOTALL)
+# Integrations by name (T76): "Bonvi HR integratsiyasini o'chir", "... qaytar", "Bonvi HR'ga qayta ulan".
+_NAME: Final = r"(?P<name>[^\s'][^']{0,62}?)"
+_REMOVE: Final = re.compile(rf"{_NAME}\s+integratsiya(?:si)?(?:ni)?\s+(?:o'chir|olib\s+tashla|uz)(?:ing|ib\s+qo'y)?")
+_RESTORE: Final = re.compile(rf"{_NAME}\s+integratsiya(?:si)?(?:ni)?\s+qaytar(?:ing)?")
+_RECONNECT: Final = re.compile(rf"{_NAME}'?(?:ga|ka|qa)\s+qayta\s+ulan(?:ing)?")
 
 
 def _phrase_of(raw: str) -> Command | None:  # noqa: PLR0911  # one return per phrase family
@@ -181,11 +203,21 @@ def _phrase_of(raw: str) -> Command | None:  # noqa: PLR0911  # one return per p
         return Command(Intent.ADD_TERM, argument=_tidy(term.group("term")))
     if _NEWS.fullmatch(folded) is not None:
         return Command(Intent.NEWS)
-    if _CONNECT.fullmatch(tidy) is not None:
-        return Command(Intent.INTEGRATIONS)
+    for pattern, intent in (
+        (_REMOVE, Intent.INTEGRATION_REMOVE),
+        (_RESTORE, Intent.INTEGRATION_RESTORE),
+        (_RECONNECT, Intent.INTEGRATION_RECONNECT),
+    ):
+        if (named := pattern.fullmatch(folded)) is not None:
+            return Command(intent, argument=_named(tidy, named.group("name")))
     if _SETTINGS_REQUEST.fullmatch(folded) is not None or _SELF_CUE.search(folded) is not None:
         return Command(Intent.CHANGE_SETTING, argument=tidy)
     return None
+
+
+def _named(tidy: str, folded_name: str) -> str:
+    """The integration's name in the owner's own spelling (the folded match only says where it ends)."""
+    return _tidy(tidy[: len(folded_name)])
 
 
 def command_of(text: str | None) -> Command | None:
@@ -208,3 +240,19 @@ def answer_of(text: str | None) -> Answer | None:
     if folded in _NO:
         return Answer.NO
     return None
+
+
+# --- the owner's pick among the voice samples (UC-34: "ikkinchisi") ------------------------------------------------
+_ORDINALS: Final = {"bir": 1, "ikki": 2, "uch": 3, "to'rt": 4, "besh": 5}
+_PICK: Final = re.compile(
+    r"(?:(?P<digit>[1-5])|(?P<word>bir|ikki|uch|to'rt|besh))(?:-?(?:inchi|nchi|chi|si|inchisi|nchisi|chisi))?"
+    r"(?:\s+(?:ovoz(?:i|ni)?|yoqdi|yaxshi|bo'lsin|shu))*"
+)
+
+
+def sample_choice_of(text: str | None) -> int | None:
+    """ "ikkinchisi", "2", "2-si", "uchinchi ovoz yoqdi" said alone, else None."""
+    match = _PICK.fullmatch(normalise(text or ""))
+    if match is None:
+        return None
+    return int(match.group("digit")) if match.group("digit") else _ORDINALS[match.group("word")]

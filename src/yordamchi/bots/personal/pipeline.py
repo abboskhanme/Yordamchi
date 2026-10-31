@@ -7,16 +7,19 @@ Each burst takes exactly one of these paths, first match wins:
    "hammasini to'xtat" also drops the questions waiting behind it. "yo'q, boshqacha qil: …" stops it and asks the
    new question. "kut" stops nothing;
 3. "ha" / "yo'q" while one settings change waits for the owner's word (`ask_change`, SPEC §3.2.15 step 3); any other
-   message drops the waiting change;
-4. the typed aliases and exact phrases of `bots/personal/intents.py`: `holat?`, the settings, "xarajat?", the hello;
-   later-phase intents (news, integrations, voice samples) answer `S.NOT_YET` and never reach the assistant;
+   message drops the waiting change. Likewise "ikkinchisi" / "2" while voice samples wait (UC-34), and the OAuth
+   page address the owner pastes back while a sign-in waits (SPEC §3.2.10 step 3; intake vaulted it);
+4. the typed aliases and exact phrases of `bots/personal/intents.py`: `holat?`, the settings, "xarajat?", the hello,
+   the integrations list and removal; the news and the voice samples wait in the work line;
 5. everything else is **work**, done in arrival order by one worker so the conversation stays in order: its media
    are read first (`media.read_burst`: videos and links with "Ko'ryapman", photos saved for the image blocks), then
    `qa.answer` writes the text and its voice note. "to'liqroq" and "yangi suhbat" wait in the same line, so they act
    on the answer before them. The assistant gets the `yordamchi_media` tools for this answer (`media.toolset`), whose
    artefact jobs (a screenshot, a file, a video) run beside it and send their files when ready. Files the owner sent
    are read beside the media (`files.read_burst`, UC-37: texts, PDFs, audio transcripts), and the documents the
-   assistant made with `yordamchi_files` (`files.toolset`) are queued after its answer.
+   assistant made with `yordamchi_files` (`files.toolset`) are queued after its answer. The owner's integrations
+   are the `yordamchi_int` tools (`gateway.toolset`, T76): its connect tools take only a key that came in his own
+   words in this burst.
 
 Commands, interrupts and answers read only the owner's own words (`TurnInput.own_text`): a message he forwarded is
 material, never an order (T33). A burst is marked done (`burst.cancel_burst`: the bot handled it itself) once its
@@ -37,11 +40,13 @@ from yordamchi.bots.personal.intents import Answer, Command, Intent
 from yordamchi.core import aio
 from yordamchi.core import strings as S
 from yordamchi.core.log import get_log
-from yordamchi.core.text import BotText
+from yordamchi.core.text import BotText, join
 from yordamchi.personal.deps import PersonalDeps
 from yordamchi.personal.files import domain as files_domain
 from yordamchi.personal.files import service as files
+from yordamchi.personal.gateway import service as gateway
 from yordamchi.personal.media import service as media
+from yordamchi.personal.news import service as news
 from yordamchi.personal.qa import domain as qa_domain
 from yordamchi.personal.qa import service as qa
 from yordamchi.ports.assistant import AssistantToolset
@@ -54,18 +59,23 @@ from yordamchi.shared.health import service as health
 from yordamchi.shared.health.service import HealthState
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox.domain import UpdateKind
+from yordamchi.shared.integrations import service as integrations
+from yordamchi.shared.integrations.service import IntegrationsState
 from yordamchi.shared.outbox import service as outbox
 from yordamchi.shared.outbox.domain import Kind
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
-from yordamchi.shared.settings.domain import PendingChange
+from yordamchi.shared.settings.domain import PendingChange, Proposal
+from yordamchi.shared.vault import service as vault
 from yordamchi.shared.voice import service as voice
+from yordamchi.shared.voice.domain import VoiceSample
 
 log = get_log(__name__)
 
 BATCH: Final = 50  # closed bursts read per pass; the pass repeats until none is left
 # A command's own words: a text, or a voice note's transcript. A burst with more parts is work.
 _COMMAND_KINDS: Final = frozenset({UpdateKind.TEXT, UpdateKind.VOICE, UpdateKind.EDITED})
+OAUTH_CALLBACK_KIND: Final = "oauth_callback_url"  # the vault kind intake gives a pasted OAuth redirect (core.redact)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +99,8 @@ class Pipeline:
     stopping: bool = False  # SIGTERM: work cut off now stays `closed` for the next start
     waiting: _Waiting | None = None
     asked: int = 0  # numbers the settings questions of this process
+    integrations: IntegrationsState = field(default_factory=IntegrationsState)  # OAuth sign-ins waiting for a paste
+    samples: tuple[VoiceSample, ...] = ()  # voice samples waiting for the owner's pick (UC-34)
 
     def poke(self) -> None:
         """A burst closed: run a pass now."""
@@ -127,6 +139,10 @@ class Pipeline:
         origin = await inbox.origin_of_update(self.deps, item.parts[-1].update_id)
         command = self._command_of(item)
         if self.waiting is not None and await self._waiting_answer(item, origin):
+            return
+        if self.samples and await self._sample_pick(item, origin):
+            return
+        if self.integrations.flows and origin is not None and await self._oauth_paste(item, origin):
             return
         if command is not None and await self._command(item, command, origin):
             return
@@ -225,6 +241,34 @@ class Pipeline:
         log.info("personal_change_answered", number=waiting.number, approved=answer is Answer.YES)
         return True
 
+    async def _sample_pick(self, item: TurnInput, origin: OwnerOrigin | None) -> bool:
+        """The owner's pick among the voice samples; any other message leaves the voice as it is."""
+        samples, self.samples = self.samples, ()
+        number = intents.sample_choice_of(item.own_text) if _one_text(item) else None
+        sample = next((sample for sample in samples if sample.number == number), None)
+        if sample is None or origin is None:
+            await self._reply(item, S.VOICE_SAMPLE_DROPPED(), kind=Kind.NOTICE, ref=f"samples-dropped-{item.burst_id}")
+            log.info("voice_samples_dropped", offered=len(samples))
+            return False
+        await self._done(item)
+        proposals = tuple(Proposal(key=key, value=value) for key, value in sample.changes)
+        await settings.apply_proposals(self.deps, origin, proposals, ask=self.ask_change)  # replies itself
+        log.info("voice_sample_picked", number=sample.number, provider=sample.provider)
+        return True
+
+    async def _oauth_paste(self, item: TurnInput, origin: OwnerOrigin) -> bool:
+        """The sign-in page address the owner pasted back (intake vaulted it): the waiting OAuth flow completes."""
+        ids = {secret_id for part in item.own_parts for secret_id in part.content.secret_ids}
+        if not ids:
+            return False
+        refs = [ref for ref in await vault.list_secrets(self.deps) if ref.id in ids and ref.kind == OAUTH_CALLBACK_KIND]
+        if not refs:
+            return False
+        await self._done(item)
+        reply = await integrations.complete_oauth(self.deps, self.integrations, origin, secret=refs[-1])
+        await self._reply(item, reply, kind=Kind.NOTICE)
+        return True
+
     # --- 4. commands (bots/personal/intents.py) -----------------------------------------------------------------
     async def _command(self, item: TurnInput, command: Command, origin: OwnerOrigin | None) -> bool:
         """Carry out one recognised command. False when it needs the owner's authority and there is none: the
@@ -257,7 +301,18 @@ class Pipeline:
 
     async def _owner_command(self, item: TurnInput, command: Command, origin: OwnerOrigin) -> None:
         deps, intent = self.deps, command.intent
-        if intent is Intent.SHOW_SETTINGS:
+        if intent is Intent.INTEGRATIONS:
+            listed = await integrations.show_integrations(deps)
+            await self._reply(item, join((listed, S.PERSONAL_INTEGRATION_HELP())))
+        elif intent is Intent.INTEGRATION_REMOVE:
+            removed = await integrations.remove_integration(deps, self.integrations, origin, command.argument)
+            await self._reply(item, removed, kind=Kind.NOTICE)
+        elif intent is Intent.INTEGRATION_RESTORE:
+            await self._reply(item, await integrations.restore_integration(deps, origin, command.argument))
+        elif intent is Intent.INTEGRATION_RECONNECT:
+            reconnected = await integrations.reconnect_integration(deps, self.integrations, origin, command.argument)
+            await self._reply(item, reconnected, kind=Kind.NOTICE)
+        elif intent is Intent.SHOW_SETTINGS:
             await settings.show_settings(deps, origin)  # queues the summary and the full list itself
         elif intent is Intent.CHANGE_SETTING:  # queues its reply itself
             await settings.handle_request(deps, origin, command.argument or item.own_text, ask=self.ask_change)
@@ -287,28 +342,38 @@ class Pipeline:
     async def _do(self, item: TurnInput) -> bool:
         """One piece of work; True once it is done (what failed was told by `guarded()` and stays `closed`)."""
         command = self._command_of(item)
-        if command is not None and command.intent is Intent.MORE:
+        intent = command.intent if command is not None else None
+        if intent is Intent.MORE:
             await qa.more(self.deps, item.chat_id)
-        elif command is not None and command.intent is Intent.NEW_CONVERSATION:
+        elif intent is Intent.NEW_CONVERSATION:
             await qa.new_conversation(self.deps, item.chat_id)
+        elif intent is Intent.VOICE_SAMPLES:
+            self.samples = await voice.offer_samples(self.deps, chat_id=item.chat_id, ref=f"samples-{item.burst_id}")
         else:
-            await self._answer(item)
+            await self._answer(item, news_request=intent is Intent.NEWS)
         return True
 
-    async def _answer(self, item: TurnInput) -> None:
+    async def _answer(self, item: TurnInput, *, news_request: bool = False) -> None:
         """Media and files first (UC-31: "Ko'ryapman", then the material; UC-37: texts, PDFs, transcripts), then the
-        assistant's text and voice (UC-30), then the documents it made."""
+        assistant's text and voice (UC-30), then the documents it made. A news request (UC-33) is asked with the
+        news brief around the owner's words."""
         found = await media.read_burst(self.deps, item)
         read = await files.read_burst(self.deps, item)
         for index, text in enumerate(dict.fromkeys((*found.failures, *read.failures))):
             await self._reply(item, text, kind=Kind.NOTICE, ref=f"media-{item.burst_id}-{index}")
-        question = qa_domain.question_of(item)
+        question = await news.news_question(self.deps, item) if news_request else qa_domain.question_of(item)
         files_only_failed = bool(read.failures) and question.empty and not found.material and not found.images
         if not read.read and (found.only_failed or files_only_failed):
             return  # nothing to answer from and nothing else asked: the failure notes were the reply (UC-31 F)
         question = replace(question, material=(*found.material, *read.material))
         made = files.MadeDocuments()
-        tools = await self.answer_tools(item.chat_id, ref=f"qa-{item.burst_id}", made=made)
+        turn = gateway.Turn(
+            chat_id=item.chat_id,
+            ref=f"qa-{item.burst_id}",
+            origin=await inbox.origin_of_update(self.deps, item.parts[-1].update_id),
+            own_secret_ids=frozenset(secret_id for part in item.own_parts for secret_id in part.content.secret_ids),
+        )
+        tools = await self.answer_tools(item.chat_id, ref=turn.ref, made=made, turn=turn)
         try:
             await qa.answer(self.deps, question, images=found.images, documents=read.pdfs, toolsets=tools)
         finally:
@@ -317,17 +382,26 @@ class Pipeline:
             )
 
     async def answer_tools(
-        self, chat_id: int, *, ref: str, made: files.MadeDocuments | None = None
+        self,
+        chat_id: int,
+        *,
+        ref: str,
+        made: files.MadeDocuments | None = None,
+        turn: gateway.Turn | None = None,
     ) -> tuple[AssistantToolset, ...]:
-        """Every in-process toolset an answer gets: `yordamchi_media` and `yordamchi_files`. `made` collects the
-        documents of this answer (a probe or warm-up passes none: nothing is sent from those)."""
+        """Every in-process toolset an answer gets: `yordamchi_media`, `yordamchi_files` and `yordamchi_int`. `made`
+        collects the documents of this answer and `turn` says who may connect what; a probe or warm-up passes
+        neither (nothing is sent from those, and their connect tools refuse)."""
         snap = await settings.snapshot(self.deps)
         documents = files.toolset(
             self.deps,
             made=made if made is not None else files.MadeDocuments(),
             limits=files_domain.document_limits(snap),
         )
-        return (await self.media_tools(chat_id, ref=ref), documents)
+        owned = await gateway.toolset(
+            self.deps, self.integrations, turn if turn is not None else gateway.Turn(chat_id=chat_id, ref=ref)
+        )
+        return (await self.media_tools(chat_id, ref=ref), documents, owned)
 
     async def media_tools(self, chat_id: int, *, ref: str) -> AssistantToolset:
         """This answer's `yordamchi_media` tools; their artefact jobs run beside it under `guarded()`."""

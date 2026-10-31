@@ -487,6 +487,54 @@ def tts_voice(provider: str, snap: Snapshot) -> str:
     return name
 
 
+# --- voice samples (UC-34 "ovozing yoqmadi") ------------------------------------------------------------------------
+MALE: Final = "male"
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceSample:
+    """One numbered sample: the voice it is spoken in, and the settings that make it the bot's voice."""
+
+    number: int
+    provider: str
+    voice: str
+    changes: tuple[tuple[str, str], ...]  # (setting key, value), applied as one request when the owner picks it
+
+
+def gemini_gender(voice: str) -> str:
+    return MALE if voice.casefold() in GEMINI_MALE_VOICES else FEMALE
+
+
+def sample_voices(provider: str, snap: Snapshot) -> tuple[VoiceSample, ...]:
+    """The samples for `provider` (the one the next note would use). Edge has one Uzbek voice per gender, so it
+    offers both; Gemini (direct or OpenRouter) offers the first `voice.sample_count` of `voice.sample_voices` that
+    differ from the voice in use, each with its gender, so picking one also sets `voice.gender`."""
+    if provider == EDGE:
+        pairs = ((snap[defaults.TTS_EDGE_VOICE], FEMALE), (snap[defaults.TTS_EDGE_MALE_VOICE], MALE))
+        return tuple(
+            VoiceSample(number=index, provider=provider, voice=voice, changes=((defaults.VOICE_GENDER.key, gender),))
+            for index, (voice, gender) in enumerate(pairs, start=1)
+        )
+    current = tts_voice(provider, snap).casefold()
+    names = dict.fromkeys(
+        name.strip() for name in snap[defaults.VOICE_SAMPLE_VOICES].split(",") if name.strip().casefold() != current
+    )
+    chosen = tuple(names)[: snap[defaults.VOICE_SAMPLE_COUNT]]
+    return tuple(
+        VoiceSample(
+            number=index,
+            provider=provider,
+            voice=name,
+            changes=((defaults.VOICE_NAME.key, name), (defaults.VOICE_GENDER.key, gemini_gender(name))),
+        )
+        for index, name in enumerate(chosen, start=1)
+    )
+
+
+def pick_sample(samples: Sequence[VoiceSample], number: int) -> VoiceSample | None:
+    return next((sample for sample in samples if sample.number == number), None)
+
+
 # --- the spoken text -------------------------------------------------------------------------------------------------
 _CODE_BLOCK: Final = re.compile(r"```.*?(?:```|$)", re.DOTALL)
 _INLINE_CODE: Final = re.compile(r"`[^`\n]*`")

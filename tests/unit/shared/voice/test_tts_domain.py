@@ -197,3 +197,26 @@ def test_voice_duration_rounds_a_part_second_up() -> None:
     assert domain.voice_duration_s(make_speech_audio(duration_ms=24_001)) == 25
     assert domain.voice_duration_s(make_speech_audio(duration_ms=400)) == 1
     assert domain.voice_duration_s(make_speech_audio(duration_ms=None)) is None
+
+
+# --- voice samples (UC-34 "ovozing yoqmadi") -------------------------------------------------------------------------
+def test_gemini_samples_skip_the_voice_in_use_and_carry_their_gender() -> None:
+    samples = domain.sample_voices(GOOGLE, snap_with())  # voice.name Kore is in use
+
+    assert [(sample.number, sample.voice) for sample in samples] == [(1, "Charon"), (2, "Aoede"), (3, "Puck")]
+    assert samples[0].changes == (("voice.name", "Charon"), ("voice.gender", "male"))
+    assert samples[1].changes == (("voice.name", "Aoede"), ("voice.gender", "female"))
+    assert domain.pick_sample(samples, 2) == samples[1]
+    assert domain.pick_sample(samples, 4) is None
+
+
+def test_the_sample_count_and_list_are_settings() -> None:
+    snap = snap_with((defaults.VOICE_SAMPLE_COUNT, 2), (defaults.VOICE_SAMPLE_VOICES, "Leda,Kore,Orus"))
+    assert [sample.voice for sample in domain.sample_voices(OPENROUTER, snap)] == ["Leda", "Orus"]
+
+
+def test_edge_offers_its_two_uzbek_voices_by_gender() -> None:
+    samples = domain.sample_voices(EDGE, snap_with())
+
+    assert [sample.voice for sample in samples] == ["uz-UZ-MadinaNeural", "uz-UZ-SardorNeural"]
+    assert [sample.changes for sample in samples] == [(("voice.gender", "female"),), (("voice.gender", "male"),)]

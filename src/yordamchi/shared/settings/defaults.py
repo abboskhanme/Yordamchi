@@ -1840,5 +1840,76 @@ TIMEOUTS_DOCUMENT_S = Setting(
     doc="Writing one document (a PDF starts a browser to print it).",
 )
 
+# --- personal integrations gateway (T76; UC-35) ---
+TIMEOUTS_INTEGRATION_CALL_S = Setting(
+    "timeouts.integration_call_s",
+    float,
+    30.0,
+    check=Range(5, 120),
+    group=Group.TIMEOUTS,
+    bots=PERSONAL,
+    doc="One call the assistant makes through an integration (an API GET or an MCP tool).",
+)
+INTEGRATIONS_RESULT_MAX_CHARS = Setting(
+    "integrations.result_max_chars",
+    int,
+    20000,
+    check=Range(1000, 100000),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Most characters of one integration call's result handed to the assistant; the rest is cut.",
+)
+INTEGRATIONS_RESPONSE_MAX_KB = Setting(
+    "integrations.response_max_kb",
+    int,
+    1024,
+    check=Range(16, 8192),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Largest API response read from an API-key integration.",
+)
+
+# --- news (T75; UC-33) ---
+NEWS_MAX_ITEMS = Setting(
+    "news.max_items",
+    int,
+    7,
+    check=Range(1, 20),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Most news items in one news answer.",
+)
+NEWS_MAX_AGE_H = Setting(
+    "news.max_age_h",
+    int,
+    36,
+    check=Range(1, 168),
+    group=Group.LIMITS,
+    bots=PERSONAL,
+    doc="Oldest news item (hours) unless the owner asks for an older period.",
+)
+
+# --- voice samples (UC-34 "ovozing yoqmadi") ---
+VOICE_SAMPLE_VOICES = Setting(
+    "voice.sample_voices",
+    str,
+    "Kore,Charon,Aoede,Puck,Leda,Fenrir",
+    check=Regex(
+        r"[A-Za-z][A-Za-z0-9_-]{1,39}(?:,[A-Za-z][A-Za-z0-9_-]{1,39}){1,11}", description="vergul bilan ovoz nomlari"
+    ),
+    group=Group.VOICE,
+    bots=PERSONAL,
+    doc="Gemini voices the samples are picked from (the first three that differ from the voice in use).",
+)
+VOICE_SAMPLE_COUNT = Setting(
+    "voice.sample_count",
+    int,
+    3,
+    check=Range(2, 5),
+    group=Group.VOICE,
+    bots=PERSONAL,
+    doc="How many numbered voice samples «ovozing yoqmadi» sends.",
+)
+
 # Every Setting bound above, by key (Registry rejects a duplicate key).
 REGISTRY: Final = Registry.from_namespace(globals())

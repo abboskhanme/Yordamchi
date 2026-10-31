@@ -4,9 +4,19 @@ Scriptable for the artefacts tests: the size, duration and mime of a "downloaded
 a 300 MB video costs nothing), the successive sizes re-encodes produce, and a failure per URL or per method.
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 
-from yordamchi.ports.web import Clip, CompressedAudio, DownloadedVideo, FetchedFile, PageText, Screenshot, WebTools
+from yordamchi.ports.web import (
+    ApiAnswer,
+    Clip,
+    CompressedAudio,
+    DownloadedVideo,
+    FetchedFile,
+    PageText,
+    Screenshot,
+    WebTools,
+)
 
 
 def _write(path: Path, data: bytes = b"", *, size: int | None = None) -> Path:
@@ -35,6 +45,10 @@ class FakeWebTools:
         self.page_title = "Fake page"
         self.page_text = "A fake page about one thing. " * 10
         self.audio_duration_s: float | None = 60.0
+        self.api_status = 200
+        self.api_mime = "application/json"
+        self.api_text = '{"ok": true}'
+        self.api_headers: list[dict[str, str]] = []  # the headers of each `api_get`, in order
 
     def _call(self, method: str, url: str, **kwargs: object) -> None:
         self.calls.append((method, url))
@@ -122,6 +136,17 @@ class FakeWebTools:
             text=text,
             truncated=len(self.page_text) > max_chars,
             size_bytes=len(self.page_text.encode("utf-8")),
+        )
+
+    async def api_get(self, url: str, *, headers: Mapping[str, str], max_bytes: int, timeout: float) -> ApiAnswer:
+        self._call("api_get", url, max_bytes=max_bytes, timeout=timeout)
+        self.api_headers.append(dict(headers))
+        data = self.api_text.encode()
+        return ApiAnswer(
+            status=self.api_status,
+            mime=self.api_mime,
+            text=data[:max_bytes].decode(errors="replace"),
+            truncated=len(data) > max_bytes,
         )
 
 

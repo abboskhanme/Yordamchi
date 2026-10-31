@@ -68,6 +68,18 @@ SPEC_KEYS.append("gate.shim_grant_window_s")
 # SPEC §5.3 gives the dev Assistant limit as `timeouts.<kind>_s`; the settings kind needs its own (T21). The T12 wiring
 # notes name the warm-pool size per kind and the routing effort (orchestrator decision 2026-10-24).
 SPEC_KEYS.extend(["timeouts.settings_s", "assistant.warm_clients", "models.routing_effort"])
+# The personal gateway (T76), news (T75) and the voice samples (UC-34), added to SPEC §4.3 with them (2026-10-31).
+SPEC_KEYS.extend(
+    [
+        "timeouts.integration_call_s",
+        "integrations.result_max_chars",
+        "integrations.response_max_kb",
+        "news.max_items",
+        "news.max_age_h",
+        "voice.sample_voices",
+        "voice.sample_count",
+    ]
+)
 # SPEC §5.6 (revised after T22) names the scheduler's pressure threshold inline (T24).
 SPEC_KEYS.append("guard.max_pressure_level")
 # SPEC §3.2.4 server checks (T31): log paths, the "disk ≥ 90 %" style thresholds, and the bounds the T22 wiring note

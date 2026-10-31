@@ -870,7 +870,8 @@ INTEGRATION_BOTS: Final[Mapping[str, Msg]] = MappingProxyType(
     {"dev": Msg("dev bot"), "personal": Msg("shaxsiy bot"), "both": Msg("ikkala bot")}
 )
 INTEGRATION_REMOVED = Msg(
-    "«{name}» o'chirildi: keyingi sessiyalarda bo'lmaydi. 30 kun ichida «{name}'ni qaytar» desangiz, tiklayman."
+    "«{name}» o'chirildi: keyingi sessiyalarda bo'lmaydi. 30 kun ichida «{name} integratsiyasini qaytar» desangiz, "
+    "tiklayman."
 )
 INTEGRATION_RESTORED = Msg("«{name}» qaytarildi: keyingi sessiyalarda yana bor.")
 INTEGRATION_RENAMED = Msg("«{old}» endi «{name}» deb ataladi.")
@@ -1127,9 +1128,13 @@ ERR_BRIDGE_NOT_READ_ONLY = Msg(
 PERSONAL_HELLO = Msg(
     "Salom! Men shaxsiy yordamchingizman. Savolni matn yoki ovoz bilan bering: avval matn, keyin qisqa ovozli "
     "xulosa yuboraman.\n"
-    "• Rasm, video, havola yoki YouTube yuboring — nima ekanini, asosiy fikrlarini va o'z fikrimni aytaman.\n"
+    "• Rasm, video, havola, YouTube yoki fayl yuboring — nima ekanini, asosiy fikrlarini va o'z fikrimni aytaman.\n"
     "• «example.com saytining skrinshoti», «shu videoni yubor» — faylini yuboraman.\n"
+    "• «bugungi yangiliklar», «moliya yangiliklari» — manbasi va vaqti bilan.\n"
+    "• API kalit yoki MCP manzilini bering («mana ob-havo xizmatining API kaliti: …, ulan») — o'zim ulayman; "
+    "«integratsiyalar» — ro'yxati.\n"
     "• «BonviHR qanday?» — loyiha holatini dev botdan o'qiyman (faqat o'qiyman).\n"
+    "• «ovozing yoqmadi» — boshqa ovozlarni eshittiraman.\n"
     "• «to'liqroq», «yangi suhbat», «holat?», «sozlamalaring qanday?», «xarajat?», «to'xta»."
 )
 # "to'xta" stops the answer being written (its voice note too); with nothing being written it says so.
@@ -1143,6 +1148,27 @@ PERSONAL_STARTUP_TOOLS_REFUSED = Msg(
     "Shaxsiy bot ishga tushmadi: Claude sessiyasi ruxsat etilmagan vositalar bilan ochildi (xavfsizlik tekshiruvi). "
     "Claude CLI yangilangan bo'lishi mumkin — Mac'da `claude --version` ni tekshiring. Yangi versiya yoki 6 soatdan "
     "keyin o'zim qayta tekshiraman."
+)
+
+# --- voice samples (UC-34 "ovozing yoqmadi") ---
+# The numbered samples go as voice notes after this line; the owner answers with a number ("ikkinchisi", "2").
+VOICE_SAMPLES_INTRO = Msg("{count} ta ovoz yuboryapman. Yoqqanining raqamini yozing: «birinchisi», «2» va hokazo.")
+# The spoken text of one sample (it is read aloud: no markup).
+VOICE_SAMPLE_SCRIPT = Msg("Salom! Bu {number}-ovoz. Javoblarimni shu ovozda eshitishni xohlaysizmi?")
+VOICE_SAMPLES_UNAVAILABLE = Msg(
+    "Ovoz namunalarini yuborolmadim: ovoz xizmati ishlamayapti. Gemini yoki OpenRouter kalitini shu chatga "
+    "yuborsangiz, boshqa ovozlar ham paydo bo'ladi."
+)
+VOICE_SAMPLES_FEW = Msg("Hozirgi ovoz xizmatida (bepul Edge) faqat {count} ta o'zbekcha ovoz bor.")
+VOICE_SAMPLE_FAILED = Msg("{number}-namuna kelmadi.")
+VOICE_SAMPLE_DROPPED = Msg("Ovoz tanlanmadi — hozirgi ovoz qoldi. Kerak bo'lsa, «ovozing yoqmadi» deb qayta yozing.")
+
+# --- personal integrations (T76; UC-35) ---
+# The assistant connected a key or a server with its connect tools: the bot's own line, before the answer.
+PERSONAL_INTEGRATION_HELP = Msg(
+    "Integratsiya qo'shish: kalitni «kalit: …» deb yozing va qaysi xizmat ekanini ayting, masalan «mana ob-havo "
+    "xizmatining API kaliti: …, ulan». MCP server bo'lsa: «X'ga ulan: https://…/mcp». Ro'yxat: «integratsiyalar», "
+    "o'chirish: «X integratsiyasini o'chir»."
 )
 
 # --- qa ---

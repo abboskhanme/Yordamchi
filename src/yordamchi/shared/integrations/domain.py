@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Final
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from yordamchi.core import strings as S
@@ -67,6 +67,7 @@ class AuthKind(StrEnum):
     BEARER = "bearer"  # Authorization: Bearer <secret>
     HEADER = "header"  # <header_name>: <secret>
     OAUTH = "oauth"  # Authorization: Bearer <access token of the sealed grant>
+    QUERY = "query"  # ?<header_name>=<secret> (an API key many REST APIs take as a query parameter; T76)
 
 
 class IntegrationStatus(StrEnum):
@@ -379,8 +380,8 @@ def session_servers(
 
 
 def auth_headers(auth: AuthKind, *, value: str, header_name: str | None) -> dict[str, str]:
-    """The header a stored secret becomes. `NONE` sends nothing."""
-    if auth is AuthKind.NONE:
+    """The header a stored secret becomes. `NONE` and `QUERY` send none."""
+    if auth in {AuthKind.NONE, AuthKind.QUERY}:
         return {}
     if auth is AuthKind.HEADER:
         return {header_name or "Authorization": value}
@@ -484,3 +485,50 @@ def grant_from_document(document: JsonValue, *, issuer: str | None, client_id: s
         can_refresh=document.get("can_refresh") is True,
         secret_values=tuple(value for value in values if isinstance(value, str)),
     )
+
+
+# --- API-key calls (T76; SPEC §3.2.10 step 7: GET only, the base URL fixed, the key added in-process) --------------
+AUTH_PARAM: Final = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}")
+_PATH_REFUSED: Final = ("://", "\\", "#", "?")
+
+
+@dataclass(frozen=True, slots=True)
+class ApiCredentials:
+    """What one API call carries for its key: a header, or a query parameter. Never logged, never in a repr."""
+
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    query: Mapping[str, str] = field(default_factory=dict, repr=False)
+
+
+def api_auth(*, header_name: str | None, query_param: str | None) -> tuple[AuthKind, str | None]:
+    """How a new API key is sent: a named query parameter, a named header, else `Authorization: Bearer`. The name is
+    checked (`AUTH_PARAM`); a bad one raises `IntegrationNameInvalid`."""
+    for name, kind in ((query_param, AuthKind.QUERY), (header_name, AuthKind.HEADER)):
+        if name is None or not name.strip():
+            continue
+        if not AUTH_PARAM.fullmatch(name.strip()):
+            raise IntegrationNameInvalid(name=name.strip()[:64])
+        return kind, name.strip()
+    return AuthKind.BEARER, None
+
+
+def api_credentials(auth: AuthKind, *, value: str, name: str | None) -> ApiCredentials:
+    if auth is AuthKind.QUERY:
+        return ApiCredentials(query={name or "key": value})
+    return ApiCredentials(headers=auth_headers(auth, value=value, header_name=name))
+
+
+def api_url(base: str, path: str, query: Mapping[str, str], credentials: ApiCredentials) -> str | None:
+    """`path` under the integration's fixed base URL, with `query` and the key's parameter. None when `path` would
+    leave the base (a scheme, `//`, `..`, a backslash, a fragment, or its own query string: use `query`)."""
+    raw = path.strip()
+    if raw.startswith("//") or any(token in raw for token in _PATH_REFUSED):
+        return None
+    if any(segment == ".." for segment in raw.split("/")):
+        return None
+    parts = urlsplit(base)
+    joined = parts.path.rstrip("/") + ("/" + raw.lstrip("/") if raw.strip("/") else "")
+    params = [*parse_qsl(parts.query, keep_blank_values=True)]
+    params += [(key, value) for key, value in query.items() if key not in credentials.query]
+    params += list(credentials.query.items())
+    return urlunsplit((parts.scheme, parts.netloc, joined or "/", urlencode(params), ""))

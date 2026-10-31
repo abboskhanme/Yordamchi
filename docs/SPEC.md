@@ -550,6 +550,15 @@ gets here: it goes to that project with no model and no question (`route_decisio
    A plain API-key integration (`kind=api_http`) appears in both bots through `yordamchi_int` as
    `<slug>__get(path, query)`. It is GET only, with the base URL fixed and the auth header added
    in-process, so the key never reaches the model.
+   **Built for the personal bot (T76, 2026-10-31; `personal/gateway`):** an MCP integration is two tools,
+   `<slug>__tools` (the live list, filtered to the tools read-only or allowed at add time) and `<slug>__call(tool,
+   arguments)`, so the toolset signature stays stable. The key may also go as a query parameter (`auth=query`,
+   `header_name` holds the parameter name). The owner connects by talking: the assistant gets `connect_api(name,
+   base_url, key, auth, param, description, test_path?)` and `connect_mcp(name, url, key?, header?)`, where `key` is
+   the vault name in a `[kalit: …]` marker **from the owner's own words in this burst** (any other key is refused), so
+   it fills in the base URL and auth style it knows, tests one GET, and can fix it by connecting the same name again.
+   An OAuth sign-in link goes straight to the owner; his pasted page address completes it (pipeline step 3).
+   "integratsiyalar", "X integratsiyasini o'chir / qaytar", "X'ga qayta ulan" are deterministic commands.
 8. Remove → `removed_at`; the integration is absent from the next session. Reverting a removal works for
    30 days. Nothing is account-bound, so the rotation AC holds by construction.
 
@@ -898,6 +907,9 @@ touches a row in a non-terminal state.
   `newproject.*`, `handoff.scan_s`, `integrations.oauth_*`, `selfupdate.*`, `qa.*`,
   `sessions.idle_close_min` and `turns.result_grace_s`. There is no literal for any of them outside
   `defaults.py`.
+- Personal-only additions (2026-10-31, T75/T76/UC-34): `timeouts.integration_call_s` (30),
+  `integrations.result_max_chars` (20000), `integrations.response_max_kb` (1024), `news.max_items` (7),
+  `news.max_age_h` (36), `voice.sample_voices` ("Kore,Charon,Aoede,Puck,Leda,Fenrir"), `voice.sample_count` (3).
 - `test_registry` fails if any of these lacks `weakens`: `access.*`, `gate.ask_classes`,
   `gate.secret_scan_enabled`, `gate.jump_only_hosts`, `caps.*`, `turns.max_concurrent`.
 

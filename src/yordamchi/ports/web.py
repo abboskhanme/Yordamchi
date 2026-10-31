@@ -9,10 +9,14 @@ carries those decisions out.
 
 `compress_audio` (UC-37) turns an audio file the owner sent into the one format the speech readers share.
 
+`api_get` (UC-35, T76) is the one HTTP call of an API-key integration: a GET on a URL the caller already checked,
+with the auth header the caller added. It never follows a redirect (the header must not reach another host).
+
 `read_page` (UC-31, T73) returns a page's readable text for `personal/media`, which hands it to the assistant as
 data. Everything in a `PageText` is web content: untrusted, never an instruction.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -78,6 +82,16 @@ class PageText:
     size_bytes: int  # the HTML that was read
 
 
+@dataclass(frozen=True, slots=True)
+class ApiAnswer:
+    """One API response, any status (a 4xx body tells the assistant what went wrong). The body is web content."""
+
+    status: int
+    mime: str
+    text: str = field(repr=False)
+    truncated: bool  # the body was longer than the caller's `max_bytes`
+
+
 class WebTools(Protocol):
     async def screenshot(self, url: str, *, dest_dir: Path, width: int, height: int, timeout: float) -> Screenshot:
         """A new browser context per call (clean profile): a viewport PNG and a full-page PNG."""
@@ -117,4 +131,9 @@ class WebTools(Protocol):
         """The page's readable text, at most `max_chars`, from at most `max_bytes` of HTML (plain text is taken as it
         is). A login wall or paywall raises `WebLoginRequired` / `WebPaywalled`; a link to a file (PDF, image, video)
         raises `PageNotReadable`, and a page without readable text (a JavaScript app) raises `PageNoText`."""
+        ...
+
+    async def api_get(self, url: str, *, headers: Mapping[str, str], max_bytes: int, timeout: float) -> ApiAnswer:
+        """GET `url` with `headers`, redirects not followed, the body read up to `max_bytes` and decoded as text. A
+        network failure raises `ProviderUnavailable` / `CallTimedOut`; an HTTP status never raises."""
         ...

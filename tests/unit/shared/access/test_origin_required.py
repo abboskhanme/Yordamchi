@@ -301,6 +301,9 @@ ENTRIES: Final[dict[str, Entry]] = {
     "yordamchi.shared.integrations.service.restore_integration": lambda deps, _: integrations.restore_integration(
         deps, FAKE, "Bonvi HR"
     ),
+    "yordamchi.shared.integrations.service.reconnect_integration": lambda deps, _: integrations.reconnect_integration(
+        deps, IntegrationsState(), FAKE, "Bonvi HR"
+    ),
     "yordamchi.shared.integrations.service.rename_integration": lambda deps, _: integrations.rename_integration(
         deps, FAKE, "Bonvi HR", "Kadrlar"
     ),
@@ -409,4 +412,4 @@ async def test_a_lookalike_origin_changes_no_integration(dev_deps: DevDeps, fake
     ]
     assert audits == 0
     assert fakes.mcp.list_calls == []
-    assert len(INTEGRATION_ENTRIES) == 7
+    assert len(INTEGRATION_ENTRIES) == 8

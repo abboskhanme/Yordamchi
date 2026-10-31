@@ -34,8 +34,10 @@ from yordamchi.bots.personal.intents import Answer, Command, Intent
         ("moliya yangiliklari", Command(Intent.NEWS)),
         ("so'nggi yangiliklarni aytib ber", Command(Intent.NEWS)),
         ("integratsiyalar", Command(Intent.INTEGRATIONS)),
-        ("Bonvi HR'ga ulan: https://hr.example.uz/mcp", Command(Intent.INTEGRATIONS)),
         ("ovozing yoqmadi", Command(Intent.VOICE_SAMPLES)),
+        ("Bonvi HR integratsiyasini o'chir", Command(Intent.INTEGRATION_REMOVE, argument="Bonvi HR")),
+        ("OpenWeather integratsiyasini qaytar", Command(Intent.INTEGRATION_RESTORE, argument="OpenWeather")),
+        ("Markaz'ga qayta ulan", Command(Intent.INTEGRATION_RECONNECT, argument="Markaz")),
     ],
 )
 def test_a_phrase_names_its_intent(text: str, expected: Command) -> None:
@@ -52,6 +54,8 @@ def test_a_phrase_names_its_intent(text: str, expected: Command) -> None:
         "sozlamalar sahifasini qayerdan topaman?",  # some app's settings page
         "o'zingni tanishtir",
         "https://example.com/maqola",
+        "Bonvi HR'ga ulan: https://hr.example.uz/mcp",  # connecting: the assistant fills in the details
+        "mana OpenWeather API kaliti: [kalit: generic_secret ••••abcd], ulan",
         "/unknown",
         "",
         "   ",
@@ -61,11 +65,12 @@ def test_anything_else_is_a_question(text: str) -> None:
     assert intents.command_of(text) is None
 
 
-def test_later_intents_are_not_built_and_conversation_ones_wait_in_line() -> None:
-    for intent in (Intent.NEWS, Intent.INTEGRATIONS, Intent.VOICE_SAMPLES):
-        command = Command(intent)
-        assert not command.built
-        assert command.phase == "P3"
+def test_every_intent_is_built_and_conversation_ones_wait_in_line() -> None:
+    assert all(Command(intent).built for intent in Intent)
+    for intent in (Intent.NEWS, Intent.VOICE_SAMPLES):  # answers: they take their turn in the work line
+        assert Command(intent).conversation
+    for intent in (Intent.INTEGRATIONS, Intent.INTEGRATION_REMOVE, Intent.INTEGRATION_RESTORE):
+        assert Command(intent).needs_origin
     assert Command(Intent.MORE).conversation
     assert Command(Intent.NEW_CONVERSATION).conversation
     assert not Command(Intent.SHOW_HEALTH).conversation
@@ -89,3 +94,21 @@ def test_later_intents_are_not_built_and_conversation_ones_wait_in_line() -> Non
 )
 def test_the_owners_word_on_a_waiting_change(text: str | None, expected: Answer | None) -> None:
     assert intents.answer_of(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("ikkinchisi", 2),
+        ("2", 2),
+        ("2-si", 2),
+        ("Birinchisi!", 1),
+        ("uchinchi ovoz yoqdi", 3),
+        ("to'rtinchisi", 4),
+        ("salom", None),
+        ("2 ta savolim bor", None),
+        ("", None),
+    ],
+)
+def test_the_owners_pick_among_the_samples(text: str, expected: int | None) -> None:
+    assert intents.sample_choice_of(text) == expected

@@ -436,3 +436,42 @@ async def test_synthesize_voice_returns_the_note_and_records_its_usage(deps: Per
     assert result.latency_ms == 1500
     assert await _usage(deps) == [("tts", "edge", "edge-tts", False)]
     assert fakes.messenger.requests == []
+
+
+# --- voice samples (UC-34 "ovozing yoqmadi") -------------------------------------------------------------------------
+async def test_the_samples_go_as_numbered_voice_notes_in_their_own_voices(
+    deps: PersonalDeps, fakes: Fakes, synthesizers: dict[str, FakeSynthesizer]
+) -> None:
+    await _keys(deps, fakes, "google_api_key")
+    await _set(deps, defaults.VOICE_ENABLED, False)  # asked for by name: voice off does not stop it
+    synthesizers[GOOGLE].script(make_speech_audio(provider=GOOGLE))
+    synthesizers[GOOGLE].script(CallTimedOut(operation="tts"))
+    synthesizers[GOOGLE].script(make_speech_audio(provider=GOOGLE))
+
+    sent = await service.offer_samples(deps, chat_id=OWNER_ID, ref="samples-1")
+
+    assert [sample.number for sample in sent] == [1, 3]
+    assert [call.voice for call in synthesizers[GOOGLE].calls] == ["Charon", "Aoede", "Puck"]
+    assert synthesizers[GOOGLE].calls[0].text == S.VOICE_SAMPLE_SCRIPT(number=1)
+    voices, texts = await _sent(deps, fakes)
+    assert len(voices) == 2
+    assert texts == [S.VOICE_SAMPLES_INTRO(count=3), S.VOICE_SAMPLE_FAILED(number=2)]
+
+
+async def test_without_any_voice_provider_the_owner_is_told(deps: PersonalDeps, fakes: Fakes) -> None:
+    deps = replace(deps, synthesizers={})
+
+    assert await service.offer_samples(deps, chat_id=OWNER_ID, ref="samples-1") == ()
+
+    _, texts = await _sent(deps, fakes)
+    assert texts == [S.VOICE_SAMPLES_UNAVAILABLE()]
+
+
+async def test_edge_says_it_has_only_two_voices(
+    deps: PersonalDeps, fakes: Fakes, synthesizers: dict[str, FakeSynthesizer]
+) -> None:
+    sent = await service.offer_samples(deps, chat_id=OWNER_ID, ref="samples-1")  # no key: Edge only
+
+    assert [sample.provider for sample in sent] == [EDGE, EDGE]
+    _, texts = await _sent(deps, fakes)
+    assert texts == [BotText(f"{S.VOICE_SAMPLES_FEW(count=2)} {S.VOICE_SAMPLES_INTRO(count=2)}")]

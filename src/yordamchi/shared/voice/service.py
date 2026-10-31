@@ -33,7 +33,7 @@ from yordamchi.core import redact
 from yordamchi.core import strings as S
 from yordamchi.core.errors import ErrorCode, ExternalError
 from yordamchi.core.log import get_log
-from yordamchi.core.text import BotText
+from yordamchi.core.text import BotText, join
 from yordamchi.persistence import bulk
 from yordamchi.shared.access.domain import OwnerOrigin, require_owner_origin
 from yordamchi.shared.burst import service as burst
@@ -60,6 +60,7 @@ from yordamchi.shared.voice.domain import (
     SttStatus,
     TtsAttempt,
     TtsResult,
+    VoiceSample,
 )
 
 log = get_log(__name__)
@@ -447,6 +448,52 @@ async def _synthesize(deps: SharedDeps, snap: Snapshot, script: str, *, requeste
             return domain.stopped(attempt, failed)
         return TtsResult(audio=audio, failed=tuple(failed), latency_ms=_ms_since(deps, started))
     return TtsResult(reason=domain.SkipReason.PROVIDER, failed=tuple(failed))
+
+
+async def offer_samples(deps: SharedDeps, *, chat_id: int, ref: str) -> tuple[VoiceSample, ...]:
+    """ "ovozing yoqmadi" (UC-34): one line, then the numbered samples as voice notes, each in its own voice of the
+    provider the next note would use. Returns the samples that went out (the owner then answers with a number); ()
+    when none could be made, after telling him why. Asked for by name, so `voice.enabled` does not stop it."""
+    snap = await settings.snapshot(deps)
+    order = domain.pick_tts(snap[defaults.SPEECH_TTS_PROVIDER], await _usable_tts(deps))
+    capped = await _capped(deps, snap, order) if order else ()
+    order = tuple(provider for provider in order if provider not in capped)
+    max_parts = snap[defaults.OUTBOX_MAX_PARTS]
+    samples = domain.sample_voices(order[0], snap) if order else ()
+    if not samples:
+        await outbox.enqueue_reply(
+            deps, chat_id=chat_id, text=S.VOICE_SAMPLES_UNAVAILABLE(), kind=Kind.NOTICE, ref=ref, max_parts=max_parts
+        )
+        return ()
+    intro = S.VOICE_SAMPLES_INTRO(count=len(samples))
+    if len(samples) < snap[defaults.VOICE_SAMPLE_COUNT]:
+        intro = join((S.VOICE_SAMPLES_FEW(count=len(samples)), intro), " ")
+    await outbox.enqueue_reply(deps, chat_id=chat_id, text=intro, kind=Kind.REPORT, ref=ref, max_parts=max_parts)
+    sent: list[VoiceSample] = []
+    for sample in samples:
+        started = deps.clock.now()
+        try:
+            audio = await deps.synthesizers[sample.provider].synthesize(
+                str(S.VOICE_SAMPLE_SCRIPT(number=sample.number)),
+                voice=sample.voice,
+                style=snap[defaults.VOICE_STYLE],
+                language_code=snap[defaults.VOICE_LANGUAGE_CODE],
+                model=domain.tts_model(sample.provider, snap),
+                segment_words=snap[defaults.TTS_SEGMENT_WORDS],
+                timeout=snap[defaults.TIMEOUTS_TTS_S],
+            )
+        except ExternalError as error:
+            log.warning("voice_sample_failed", provider=sample.provider, error_code=error.code.value)
+            failed = S.VOICE_SAMPLE_FAILED(number=sample.number)
+            await outbox.enqueue_reply(
+                deps, chat_id=chat_id, text=failed, kind=Kind.NOTICE, ref=f"{ref}-{sample.number}", max_parts=max_parts
+            )
+            continue
+        result = TtsResult(audio=audio, latency_ms=_ms_since(deps, started))
+        await _deliver(deps, snap, result, chat_id=chat_id, ref=f"{ref}-{sample.number}", reply_to=None)
+        sent.append(sample)
+    log.info("voice_samples_offered", provider=samples[0].provider, offered=len(samples), sent=len(sent))
+    return tuple(sent)
 
 
 async def _usable_tts(deps: SharedDeps) -> tuple[str, ...]:

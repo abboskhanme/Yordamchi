@@ -10,7 +10,8 @@ executor, git, GitHub or SSH handle to reach (UC-36, C7).
   stays off), then the loops, each under `core.aio.forever`. The start-up tool check (`verify_tools`, NFR-SEC-08) is
   `app.py`'s, before `start`: a refused tool list never starts the bot.
 - **Loops**: poller · burst timers · router and the answer worker (`bots/personal/pipeline.py`) · outbox sender ·
-  heartbeat writer · self-checks · cost watch (the caps are one budget with the dev bot) · maintenance (the warm
+  heartbeat writer · self-checks · cost watch (the caps are one budget with the dev bot) · the OAuth token refresher
+  of the owner's integrations (T76) · maintenance (the warm
   conversation, the vault republish) · daily retention · control socket. Every one-off job inside them runs under
   `common.guarded()` (`bots/personal/jobs.py`).
 - **Recovery** (SPEC §2.7): received updates re-attach and open bursts re-arm in the burst loop, closed bursts are
@@ -52,6 +53,7 @@ from yordamchi.shared.health.domain import Mode
 from yordamchi.shared.health.service import HealthState
 from yordamchi.shared.inbox import service as inbox
 from yordamchi.shared.inbox.domain import Accepted
+from yordamchi.shared.integrations import service as integrations
 from yordamchi.shared.outbox import service as outbox
 from yordamchi.shared.settings import defaults
 from yordamchi.shared.settings import service as settings
@@ -143,6 +145,7 @@ class PersonalApp:
             "heartbeat": partial(health.run_heartbeat, deps, self.health),
             "health_checks": partial(health.run_checks, deps, self.health),
             "cost": partial(cost.run_cost_watch, deps),
+            "integrations": partial(integrations.run_token_refresher, deps),
             "maintenance": self._maintain,
             "retention": self._retain,
             "control_socket": self.socket.serve,
@@ -252,6 +255,7 @@ class PersonalApp:
             "voice": partial(voice.apply_retention, deps),
             "health": partial(health.apply_retention, deps),
             "qa": partial(qa.apply_retention, deps),
+            "integrations": partial(integrations.apply_retention, deps),
             "media": partial(health.purge_media, deps),
         }
         for name, retention in retentions.items():
@@ -267,6 +271,9 @@ class PersonalApp:
         self.tasks.clear()
         deps = self.deps
         await self.pipeline.stop()
+        await jobs.run(
+            deps, self.health, integrations.shutdown_integrations(deps, self.pipeline.integrations), job="oauth"
+        )
         flush = outbox.flush_queue(deps, max_priority=FLUSH_MAX_PRIORITY, within_s=FLUSH_WITHIN_S)
         await jobs.run(deps, self.health, flush, job="outbox_flush")
         for close in self.closers:

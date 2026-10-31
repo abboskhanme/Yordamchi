@@ -10,11 +10,12 @@ URL, the host, a title or vendor output: what the owner browses is his business 
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Final
 from urllib.parse import urlsplit
 
+from yordamchi.adapters.web.api import HttpApiCaller
 from yordamchi.adapters.web.browser import PlaywrightBrowser
 from yordamchi.adapters.web.download import HttpDownloader, PageLink
 from yordamchi.adapters.web.encode import FfmpegEncoder
@@ -23,7 +24,16 @@ from yordamchi.adapters.web.ytdl import YtDlpDownloader
 from yordamchi.core.errors import CallTimedOut, WebNoMedia, YordamchiError
 from yordamchi.core.log import get_log
 from yordamchi.core.paths import Paths
-from yordamchi.ports.web import Clip, CompressedAudio, DownloadedVideo, FetchedFile, PageText, Screenshot, WebTools
+from yordamchi.ports.web import (
+    ApiAnswer,
+    Clip,
+    CompressedAudio,
+    DownloadedVideo,
+    FetchedFile,
+    PageText,
+    Screenshot,
+    WebTools,
+)
 
 log = get_log(__name__)
 
@@ -83,12 +93,14 @@ class LocalWebTools:
         videos: YtDlpDownloader,
         encoder: FfmpegEncoder,
         pages: PageReader | None = None,
+        api: HttpApiCaller | None = None,
     ) -> None:
         self._browser = browser
         self._http = http
         self._videos = videos
         self._encoder = encoder
         self._pages = pages if pages is not None else PageReader()
+        self._api = api if api is not None else HttpApiCaller()
 
     @classmethod
     def from_paths(cls, paths: Paths, *, child_path: str) -> "LocalWebTools":
@@ -215,6 +227,12 @@ class LocalWebTools:
             )
 
         return await _logged("read_page", call, lambda page: page.size_bytes)
+
+    async def api_get(self, url: str, *, headers: Mapping[str, str], max_bytes: int, timeout: float) -> ApiAnswer:
+        async def call() -> ApiAnswer:
+            return await self._api.get(url, site=site_of(url), headers=headers, max_bytes=max_bytes, timeout=timeout)
+
+        return await _logged("api_get", call, lambda answer: len(answer.text))
 
 
 def _conforms(tools: LocalWebTools) -> WebTools:  # mypy checks LocalWebTools against the port

@@ -290,7 +290,7 @@ Vaqt 10 daqiqadan eski bo'lsa — bot ishlamayapti.
 Quyidagilarga bot "Bu imkoniyat hali yo'q — P2 bosqichida qo'shiladi." deb javob beradi va
 hech qaysi loyihaga yubormaydi:
 
-- integratsiyalar: `integratsiyalar`, `/integratsiyalar`, `X'ga ulan: <manzil>`;
+- integratsiyalar: `integratsiyalar`, `/integratsiyalar`, `X'ga ulan: <manzil>` (shaxsiy botda bor — 11-bo'lim);
 - yangi loyiha: `yangi loyiha: …` (shuningdek alohida `yangi loyiha`, `boshla`, `tamom` so'zlari);
 - sessiyani Mac'ga o'tkazish: `/sessiya`, `BonviHR sessiyasi`;
 - loyihani yopib turish va qaytarish: `BonviHR'ni yopib tur`, `BonviHR'ni davom ettiramiz`;
@@ -338,5 +338,19 @@ Shaxsiy chatda yozing yoki ovozli xabar yuboring — guruh shart emas. Bot faqat
   matnli savol-javob ishlaydi, ovozli xulosa esa bepul Edge ovozi bilan keladi.
 - **Claude ishlamasa** (limit tugagan va h.k.) javob "(zaxira model) …" deb boshlanadi.
 
-Hali yo'q ("Bu imkoniyat hali yo'q — P3 bosqichida qo'shiladi."): `bugungi yangiliklar` va
-boshqa yangiliklar so'rovlari, `integratsiyalar` / `X'ga ulan: …`, `ovozing yoqmadi` (ovoz namunalari).
+- **Yangiliklar**: "bugungi yangiliklar", "moliya yangiliklari", "texnologiya yangiliklari" yoki `/yangiliklar` — bot
+  internetdan qidiradi va 7 tagacha yangilik beradi. Har birida manba (havola bilan) va chiqqan vaqti bor, kurs va
+  narxlarda esa manba va sana.
+- **Integratsiyalar (API kalit yoki MCP)** — kalitni **shu chatga** yuboring va qaysi xizmat ekanini ayting:
+  "mana ob-havo xizmatining API kaliti: kalit: xxxxxxxx, ulan" yoki "Bonvi HR'ga ulan: https://…/mcp". Kalitni
+  albatta "kalit: …" deb yozing: bot xabarni o'chiradi va kalitni shifrlab saqlaydi. Claude kalitning o'zini ko'rmaydi.
+  Bot xizmat manzilini va kalit qanday yuborilishini o'zi aniqlaydi, bitta sinov so'rovi qiladi va "ulandi" deydi.
+  Shundan keyin shu xizmat kerak bo'lgan savolda uni o'zi ishlatadi, kalitni qayta so'ramaydi. API kalitlar faqat
+  o'qish uchun ishlatiladi (GET). MCP serverdan esa faqat o'qiydigan vositalar chaqiriladi.
+  - Kirish (OAuth) kerak bo'lsa, bot havola yuboradi: oching, ruxsat bering, ochilmay qolgan sahifa manzilini
+    (`http://localhost:33418/…`) shu chatga yuboring.
+  - `integratsiyalar` — ro'yxati; "X integratsiyasini o'chir"; "X integratsiyasini qaytar" (30 kun ichida);
+    "X'ga qayta ulan" (kirish muddati tugasa).
+- **Ovoz tanlash**: "ovozing yoqmadi" — bot 3 ta raqamlangan ovoz namunasini yuboradi. Yoqqanini "ikkinchisi" yoki "2"
+  deb yozing — keyingi javoblar o'sha ovozda keladi. Boshqa xabar yozsangiz, ovoz o'zgarmaydi. Bepul Edge ovozida
+  faqat 2 ta o'zbekcha ovoz bor (ayol va erkak).

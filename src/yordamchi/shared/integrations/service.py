@@ -18,7 +18,8 @@ intake (SPEC §3.2.1 step 3), so the intent hands over a `SecretRef`, never a va
    `integrations.refresh_lead_min`. `integrations.refresh_failures_max` refusals in a row → `needs_reauth` and one
    `S.OAUTH_REAUTH` until the owner signs in again.
 
-Plain API keys (`kind=api_http`) are stored and listed here; the read-only HTTP tool that uses them is T76 (P3).
+Plain API keys (`kind=api_http`) are stored and listed here; the read-only HTTP tool that uses them is the personal
+gateway's (`personal/gateway`, T76), which asks `api_credentials` / `call_headers` for each call.
 """
 
 import asyncio
@@ -97,7 +98,8 @@ class AddIntegration:
 
 @dataclass(frozen=True, slots=True)
 class AddApiKey:
-    """ "mana <name> API kaliti: <base url> — <what it is for>" (UC-08; the read-only HTTP tool is T76)."""
+    """ "mana <name> API kaliti: <base url> — <what it is for>" (UC-08; the read-only HTTP tool is T76). The key goes
+    as `Authorization: Bearer`, in `header_name`, or as the query parameter `query_param`."""
 
     name: str
     base_url: str
@@ -105,6 +107,8 @@ class AddApiKey:
     secret: SecretRef
     both: bool = False
     header_name: str | None = None
+    query_param: str | None = None
+    replace: bool = False  # an API key of the same name is replaced in place (the gateway's connect_api fixing it)
 
 
 @dataclass(slots=True)
@@ -340,33 +344,98 @@ def _added_text(view: IntegrationView, *, reconnected: bool) -> BotText:
 
 
 async def add_api_key(deps: SharedDeps, origin: OwnerOrigin, request: AddApiKey) -> BotText:
-    """Store a plain API key integration: a name, a base URL, what it is for, and the vaulted key (by id)."""
+    """Store a plain API key integration: a name, a base URL, what it is for, and the vaulted key (by id). A name in
+    use raises `IntegrationExists`, unless `request.replace` and it is an API key: then its URL, key and auth are
+    replaced in place (a new key, a fixed URL)."""
     require_owner_origin(origin, deps.bot)
     plan = domain.plan_add(name=request.name, url=request.base_url, said_in=deps.bot, both=request.both)
+    auth, auth_name = domain.api_auth(header_name=request.header_name, query_param=request.query_param)
+    description = " ".join(request.description.split())[:200]
     now = deps.clock.now()
-    auth = AuthKind.HEADER if request.header_name else AuthKind.BEARER
     async with deps.db.uow() as s:
-        if await store.find_active_integration(s, plan.slug) is not None:
-            raise IntegrationExists(name=plan.display_name)
-        row = await store.add_integration(
-            s,
-            slug=plan.slug,
-            display_name=plan.display_name,
-            kind=IntegrationKind.API_HTTP.value,
-            url=plan.url,
-            description=" ".join(request.description.split())[:200],
-            auth=auth.value,
-            header_name=request.header_name,
-            secret_id=request.secret.id,
-            bots=domain.bots_json(plan.bots),
-            tool_policy=domain.default_policy_json(),
-            tools_cache=[],
-            status=IntegrationStatus.OK.value,
-            created_at=now,
-        )
-        await _audit(s, deps, row, action="added", at=now, origin=origin)
+        row = await store.find_active_integration(s, plan.slug)
+        reconnected = row is not None
+        if row is not None and (not request.replace or row.kind != IntegrationKind.API_HTTP.value):
+            raise IntegrationExists(name=row.display_name)
+        if row is None:
+            row = await store.add_integration(
+                s,
+                slug=plan.slug,
+                display_name=plan.display_name,
+                kind=IntegrationKind.API_HTTP.value,
+                url=plan.url,
+                description=description,
+                auth=auth.value,
+                header_name=auth_name,
+                secret_id=request.secret.id,
+                bots=domain.bots_json(plan.bots),
+                tool_policy=domain.default_policy_json(),
+                tools_cache=[],
+                status=IntegrationStatus.OK.value,
+                created_at=now,
+            )
+        else:
+            row.url, row.header_name = plan.url, auth_name
+            row.description = description or row.description
+            await store.set_credentials(s, row, auth=auth.value, secret_id=request.secret.id)
+            await store.set_status(s, row, status=IntegrationStatus.OK.value, status_code=None, validated_at=None)
+        await _audit(s, deps, row, action="reconnected" if reconnected else "added", at=now, origin=origin)
     log.info("integration_added", integration_id=row.id, slug=row.slug, auth=auth.value, tools=0)
-    return S.API_KEY_ADDED(name=plan.display_name, bots=domain.bots_label(plan.bots), url=plan.url)
+    return S.API_KEY_ADDED(name=row.display_name, bots=domain.bots_label(plan.bots), url=plan.url)
+
+
+async def api_credentials(deps: SharedDeps, integration_id: int) -> domain.ApiCredentials:
+    """The key of an active API-key integration as its call sends it (T76). Never log or store the result."""
+    async with deps.db.read() as s:
+        row = await store.get_integration(s, integration_id)
+    if row is None or row.removed_at is not None:
+        raise IntegrationNotFound(name=f"#{integration_id}")
+    auth = AuthKind(row.auth)
+    if auth is AuthKind.NONE:
+        return domain.ApiCredentials()
+    value = await _secret_value(deps, row.secret_id)
+    return domain.api_credentials(auth, value=value, name=row.header_name)
+
+
+async def call_headers(deps: SharedDeps, integration_id: int) -> dict[str, str]:
+    """The auth header of an active MCP integration for one `McpClient.call_tool` (the personal gateway, T76)."""
+    async with deps.db.read() as s:
+        row = await store.get_integration(s, integration_id)
+        client = await store.get_oauth_client(s, integration_id) if row is not None else None
+    if row is None or row.removed_at is not None:
+        raise IntegrationNotFound(name=f"#{integration_id}")
+    return await _row_headers(deps, row, client)
+
+
+async def reconnect_integration(deps: SharedDeps, state: IntegrationsState, origin: OwnerOrigin, name: str) -> BotText:
+    """ "X'ga qayta ulan" (S.OAUTH_REAUTH): validate an MCP integration again at its stored URL with its stored
+    credentials; an expired grant starts the sign-in again."""
+    require_owner_origin(origin, deps.bot)
+    view = await _find(deps, name)
+    if view.kind is not IntegrationKind.MCP_HTTP:
+        return await check_integration(deps, view.display_name)
+    snap = await settings.snapshot(deps)
+    plan = AddPlan(slug=view.slug, display_name=view.display_name, url=view.url, bots=view.bots)
+    async with deps.db.read() as s:
+        row = await store.get_integration(s, view.id)
+        client = await store.get_oauth_client(s, view.id) if row is not None else None
+    if row is None:
+        raise IntegrationNotFound(name=view.display_name)
+    headers: dict[str, str] = {}
+    if view.auth is not AuthKind.OAUTH:
+        try:
+            headers = await _row_headers(deps, row, client)
+        except YordamchiError as error:
+            raise _failed(view.display_name, error) from error
+    try:
+        tools = await deps.mcp.list_tools(plan.url, headers, timeout=snap[defaults.TIMEOUTS_INTEGRATION_VALIDATE_S])
+    except OAuthRequired as error:
+        if headers:  # a stored token the server now refuses: a new one is needed, not a sign-in
+            raise _failed(view.display_name, AuthFailed(provider=str(error.params["provider"]))) from error
+        return await _start_oauth(deps, state, origin, plan, snap)
+    except ExternalError as error:
+        raise _failed(view.display_name, error) from error
+    return await _save(deps, origin, plan, tools, auth=view.auth, header_name=row.header_name, secret_id=row.secret_id)
 
 
 # --- OAuth paste-back (R-43) ----------------------------------------------------------------------------------------

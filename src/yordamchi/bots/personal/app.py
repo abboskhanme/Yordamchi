@@ -435,7 +435,7 @@ def build(boot: Boot, clock: Clock) -> "PersonalApp":
         transcribers=keyed.transcribers,
         synthesizers=keyed.synthesizers,
         mac_host=MacOsHost(home=paths.home),
-        mcp=McpHttpClient(),  # the personal integrations gateway (T76) is not built: nothing calls it yet
+        mcp=McpHttpClient(),  # the personal integrations gateway `yordamchi_int` (T76) calls the owner's MCP servers
         media_analyzers=keyed.analyzers,
         web=_web_tools(boot),
         documents=_documents(),

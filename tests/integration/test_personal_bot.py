@@ -15,6 +15,8 @@ from yordamchi.core import strings as S
 from yordamchi.core.paths import BotName
 from yordamchi.ports.assistant import AssistantRequest
 from yordamchi.shared.inbox import store as inbox_store
+from yordamchi.shared.settings import defaults
+from yordamchi.shared.settings import service as settings
 from yordamchi.shared.vault import service as vault
 
 ANSWER = (
@@ -53,7 +55,7 @@ async def test_a_text_question_gets_the_text_first_then_a_voice_summary() -> Non
         assert "Kvant kompyuter nima?" in request.prompt
         assert "Current instructions from the owner" in request.instructions  # persona rides every ask (S4)
         servers = [toolset.server for toolset in request.toolsets]
-        assert servers == ["yordamchi_bridge", "yordamchi_media", "yordamchi_files"]
+        assert servers == ["yordamchi_bridge", "yordamchi_media", "yordamchi_files", "yordamchi_int"]
         [spoken] = bot.fakes.synthesizer.calls
         assert "ancha tez yechadi" in spoken.text
         bot.session.assert_no_reply_markup()
@@ -221,10 +223,37 @@ async def test_a_stranger_gets_nothing() -> None:
         assert qa_requests(bot) == []
 
 
-async def test_a_not_built_intent_answers_not_yet_and_never_reaches_the_assistant() -> None:
+async def test_news_is_asked_with_the_news_brief_around_the_owners_words() -> None:
     async with personal_bot() as bot:
-        await bot.say("bugungi yangiliklar")
-        await bot.within(5, lambda: answered(bot, S.NOT_YET(phase="P3")), what="not yet")
+        await bot.started()
+        bot.fakes.assistant.reply_with("qa", ANSWER)
+        await bot.say("moliya yangiliklari")
+        await bot.within(10, lambda: answered(bot, "Kvant kompyuter kubitlar"), what="the answer")
+        [request] = qa_requests(bot)
+        assert "The owner asks for news: «moliya yangiliklari»" in request.prompt
+        assert "publication time" in request.prompt
+        assert not bot.posted(S.NOT_YET(phase="P3"))
+
+
+async def test_the_integrations_list_answers_without_the_assistant() -> None:
+    async with personal_bot() as bot:
         await bot.say("integratsiyalar")
-        await bot.within(5, lambda: len(bot.posted(S.NOT_YET(phase="P3"))) == 2, what="not yet again")
+        await bot.within(5, lambda: answered(bot, S.INTEGRATION_LIST_EMPTY()), what="the empty list")
+        assert bot.posted(S.PERSONAL_INTEGRATION_HELP())
+        await bot.say("Bonvi HR integratsiyasini o'chir")
+        await bot.within(5, lambda: answered(bot, "«Bonvi HR» degan integratsiya yo'q"), what="not found")
+        assert qa_requests(bot) == []
+
+
+async def test_voice_samples_then_the_owners_pick_becomes_the_voice() -> None:
+    async with personal_bot() as bot:
+        await bot.started()
+        await bot.say("ovozing yoqmadi")
+        await bot.within(10, lambda: len(bot.requests("sendVoice")) == 3, what="three samples")
+        assert bot.posted(S.VOICE_SAMPLES_INTRO(count=3))
+        assert [call.voice for call in bot.fakes.synthesizer.calls] == ["Charon", "Aoede", "Puck"]
+        await bot.say("ikkinchisi")
+        await bot.within(5, lambda: bool(bot.posted("voice.name")), what="the change confirmed")
+        snap = await settings.snapshot(bot.deps)
+        assert (snap[defaults.VOICE_NAME], snap[defaults.VOICE_GENDER]) == ("Aoede", "female")
         assert qa_requests(bot) == []
