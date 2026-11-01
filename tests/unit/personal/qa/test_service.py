@@ -499,7 +499,8 @@ async def _allow(call: ToolCall) -> GuardVerdict:
     return GuardVerdict(allow=True)
 
 
-AGENT = AgentMode(workspace=Path("/Users/owner/Documents/Projects/_shaxsiy"), guard=_allow)
+WORKSPACE = Path.home() / "Documents" / "Projects" / "_shaxsiy"  # absolute on every platform
+AGENT = AgentMode(workspace=WORKSPACE, guard=_allow)
 
 
 class TimedAssistant(FakeAssistant):
@@ -535,7 +536,7 @@ async def test_agent_mode_carries_the_agent_and_its_context(personal_deps: Perso
     assert request.system_prompt == prompts.render("personal/qa_system")  # the frozen prompt is unchanged
     owner_block, _, agent_block = request.instructions.partition("\n- Agent mode:")
     assert owner_block.startswith("Current instructions from the owner:")
-    assert "/Users/owner/Documents/Projects/_shaxsiy" in agent_block
+    assert str(WORKSPACE) in agent_block
     assert "approval" in agent_block
 
 

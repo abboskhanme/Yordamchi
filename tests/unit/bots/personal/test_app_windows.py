@@ -45,7 +45,7 @@ def fake_keychain(monkeypatch: pytest.MonkeyPatch) -> FakeSecurity:
 
 def _executable(folder: Path, name: str) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
-    binary = folder / name
+    binary = folder / (f"{name}.exe" if sys.platform == "win32" else name)  # Windows finds a program by its extension
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o755)
     return binary

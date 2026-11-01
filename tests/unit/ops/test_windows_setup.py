@@ -137,7 +137,7 @@ def test_migrations_run_alembic_upgrade_head_on_personal_db_from_the_checkout(ma
     assert machine.runner.calls == [
         (
             [
-                "C:/repo/.venv/Scripts/python.exe",
+                str(Path("C:/repo/.venv/Scripts/python.exe")),
                 "-I",
                 "-m",
                 "alembic",
