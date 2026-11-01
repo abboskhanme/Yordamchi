@@ -468,3 +468,9 @@ question. Correct any line and it changes.
 - [2026-10-31] Windows runner updating itself? → exit code 3 when `scripts/windows/` changed; `run.cmd`/`run.ps1` start the new runner → a running script cannot replace itself
 - [2026-10-31] Windows runner: back up `personal.db` before migrating? → yes, `backups\pre-update` → a migration failure must not lose data
 - [2026-10-31] Windows limits accepted for now → agent-mode gate unverified with `C:\` paths; a timeout kills only the direct child; Gemini/OpenRouter keys pasted in chat (setup has no owner origin to vault them) → owner asked for "just the bot", verified by CI only
+- [2026-11-01] How does Live TTS fall back to `gemini-3.8-flash-tts`? → a `fallback_model` port parameter tried once inside `GeminiSynthesizer`, then the provider chain → mirrors the STT `fallback_model`; Edge and OpenRouter accept and ignore it
+- [2026-11-01] Where does the Live read-aloud instruction come from? → `prompts/personal/voice_live_system.md`, rendered in the bot's wiring and constructor-injected → adapters never import prompts (C3)
+- [2026-11-01] Live TTS duration guard bounds (0.5 s a word, 30 %, 300 % + 2 s) → adapter constants in `live_tts.py`, not settings → they describe the model's speech rate, not owner behaviour
+- [2026-11-01] Why `timeouts.tts_per_word_s` (0.6)? → added per word to `timeouts.tts_s` → Live audio arrives at about real time, so a 70-word note takes ~35 s and a flat 15 s cut it off
+- [2026-11-01] A stored `tts.google_model` override after the default changed to `gemini-3.8-live`? → kept: a stored value is the owner's choice → none is stored on the owner's Mac, so the new default applies
+- [2026-11-01] Do the Gemini TTS voices work on Live? → yes: Kore, Charon, Aoede, Puck, Leda and Fenrir are valid Live prebuilt voices → same `voice.name` setting for both models

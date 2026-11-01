@@ -157,6 +157,8 @@ SPEC_KEYS.append("ui.progress_tick_s")  # owner, 2026-10-25: the running time mo
 SPEC_KEYS.append("qa.live_drafts")
 # Owner, 2026-10-25: STT on a Live model; a long note gets time in proportion to its length.
 SPEC_KEYS.append("timeouts.stt_per_audio_s")
+# Owner, 2026-11-01: TTS on a Live model (no daily cap), flash-tts as its fallback, and time per word (real-time audio).
+SPEC_KEYS.extend(["tts.google_fallback_model", "timeouts.tts_per_word_s"])
 # Owner, 2026-10-24: OvozYoz is a code sample only; the dev bot must never register or open it.
 SPEC_KEYS.append("projects.excluded")
 

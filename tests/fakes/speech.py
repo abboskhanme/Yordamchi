@@ -110,6 +110,7 @@ class SynthesizeCall:
     model: str
     segment_words: int
     timeout: float
+    fallback_model: str = ""
 
 
 class FakeSynthesizer:
@@ -140,8 +141,11 @@ class FakeSynthesizer:
         model: str,
         segment_words: int,
         timeout: float,
+        fallback_model: str = "",
     ) -> SpeechAudio:
-        self.calls.append(SynthesizeCall(text, voice, style, language_code, model, segment_words, timeout))
+        self.calls.append(
+            SynthesizeCall(text, voice, style, language_code, model, segment_words, timeout, fallback_model)
+        )
         step = self.steps.popleft() if self.steps else Step(self._audio(model))
         await _wait(self.clock, step.latency_s, timeout, "tts")
         if isinstance(step.result, Exception):
@@ -158,6 +162,7 @@ class FakeSynthesizer:
         model: str,
         segment_words: int,
         idle_timeout: float,
+        fallback_model: str = "",
     ) -> AsyncIterator[bytes]:
         audio = await self.synthesize(
             text,
@@ -167,6 +172,7 @@ class FakeSynthesizer:
             model=model,
             segment_words=segment_words,
             timeout=idle_timeout,
+            fallback_model=fallback_model,
         )
         middle = len(audio.data) // 2
         yield audio.data[:middle]

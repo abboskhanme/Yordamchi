@@ -51,6 +51,22 @@ def test_each_provider_gets_its_own_model_setting() -> None:
     assert domain.tts_model(EDGE, snap) == domain.EDGE_MODEL
 
 
+def test_google_speaks_on_a_live_model_and_falls_back_to_flash_tts() -> None:
+    """Owner request 2026-11-01: `gemini-3.8-flash-tts` has a daily cap, the Live models do not."""
+    snap = make_default_snapshot(BotName.PERSONAL)
+    assert domain.tts_model(GOOGLE, snap) == "gemini-3.8-live"
+    assert domain.tts_fallback_model(GOOGLE, snap) == "gemini-3.8-flash-tts"
+    assert domain.tts_fallback_model(OPENROUTER, snap) == domain.tts_fallback_model(EDGE, snap) == ""
+
+
+def test_the_tts_timeout_grows_with_the_words() -> None:
+    snap = snap_with((defaults.TIMEOUTS_TTS_S, 15.0), (defaults.TIMEOUTS_TTS_PER_WORD_S, 0.6))
+    assert domain.tts_timeout(snap, "") == 15.0
+    assert domain.tts_timeout(snap, "Salom, bugun havo   yaxshi.") == pytest.approx(15.0 + 4 * 0.6)
+    seventy = " ".join(["so'z"] * 70)  # a voice.max_words note: ~37 s of Live audio fits
+    assert domain.tts_timeout(snap, seventy) == pytest.approx(57.0)
+
+
 # --- voice by gender ("ovozingni ayolga o'zgartir") ------------------------------------------------------------------
 def test_defaults_are_the_configured_female_voices() -> None:
     snap = make_default_snapshot(BotName.PERSONAL)

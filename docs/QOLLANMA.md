@@ -352,6 +352,7 @@ Shaxsiy chatda yozing yoki ovozli xabar yuboring — guruh shart emas. Bot faqat
   bot xabarni o'chiradi, kalitni saqlaydi va ovozni sozlaydi. Shaxsiy bot dev botning kalitlarini
   ko'rmaydi: ovozli savollar, video tahlili va zaxira model uchun kalit shu yerda kerak. Kalitsiz ham
   matnli savol-javob ishlaydi, ovozli xulosa esa bepul Edge ovozi bilan keladi.
+- Ovozli javob endi Gemini Live orqali keladi — kunlik limit yo'q; Live ishlamasa oddiy Gemini TTS, keyin Edge.
 - **Claude ishlamasa** (limit tugagan va h.k.) javob "(zaxira model) …" deb boshlanadi.
 
 - **Yangiliklar**: "bugungi yangiliklar", "moliya yangiliklari", "texnologiya yangiliklari" yoki `/yangiliklar` — bot

@@ -132,12 +132,29 @@ async def test_the_jobs_settings_reach_the_provider(
     await _set(deps, defaults.VOICE_STYLE, "shoshilmasdan, Toshkent talaffuzida")
     await _set(deps, defaults.TTS_SEGMENT_WORDS, 30)
     await _set(deps, defaults.TIMEOUTS_TTS_S, 9.0)
+    await _set(deps, defaults.TIMEOUTS_TTS_PER_WORD_S, 0.5)
     await _speak(deps, script="**Salom!** 🙂 https://x.uz")
     [call] = synthesizers[OPENROUTER].calls
     snap = await settings.snapshot(deps)
     assert call.text == "Salom!"  # spoken text: no markdown, emoji or URL
     assert (call.voice, call.style, call.language_code) == ("Kore", "shoshilmasdan, Toshkent talaffuzida", "uz-UZ")
-    assert (call.model, call.segment_words, call.timeout) == (snap[defaults.TTS_OPENROUTER_MODEL], 30, 9.0)
+    # timeouts.tts_s plus timeouts.tts_per_word_s for its one word; OpenRouter has no second model
+    assert (call.model, call.segment_words, call.timeout) == (snap[defaults.TTS_OPENROUTER_MODEL], 30, 9.5)
+    assert call.fallback_model == ""
+
+
+async def test_google_gets_its_live_model_its_fallback_model_and_a_timeout_per_word(
+    deps: PersonalDeps, fakes: Fakes, synthesizers: dict[str, FakeSynthesizer]
+) -> None:
+    await _keys(deps, fakes, "google_api_key")
+    await _set(deps, defaults.TTS_GOOGLE_FALLBACK_MODEL, "gemini-3.9-flash-tts")
+    result = await _speak(deps)
+    assert result.provider == GOOGLE
+    [call] = synthesizers[GOOGLE].calls
+    snap = await settings.snapshot(deps)
+    assert (call.model, call.fallback_model) == ("gemini-3.8-live", "gemini-3.9-flash-tts")
+    words = len(SCRIPT.split())
+    assert call.timeout == pytest.approx(snap[defaults.TIMEOUTS_TTS_S] + words * snap[defaults.TIMEOUTS_TTS_PER_WORD_S])
 
 
 async def test_changing_the_gender_by_chat_changes_the_next_voice(

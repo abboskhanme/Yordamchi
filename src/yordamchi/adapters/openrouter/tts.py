@@ -121,7 +121,9 @@ class OpenRouterSynthesizer:
         model: str,
         segment_words: int,
         timeout: float,
+        fallback_model: str = "",
     ) -> SpeechAudio:
+        del fallback_model  # one model per call on OpenRouter; the chain's next provider is the fallback
         try:
             async with asyncio.timeout(timeout):
                 encoded = await self._note(
@@ -154,7 +156,9 @@ class OpenRouterSynthesizer:
         model: str,
         segment_words: int,
         idle_timeout: float,
+        fallback_model: str = "",
     ) -> AsyncIterator[bytes]:
+        del fallback_model
         return stream_once(
             self._note(
                 text,

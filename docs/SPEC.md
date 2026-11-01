@@ -580,8 +580,8 @@ gets here: it goes to that project with no model and no question (`route_decisio
 1. Intake recognises `AIza[0-9A-Za-z_-]{35}` and the newer `AQ.[A-Za-z0-9_-]{40,120}` → `google_api_key`, and
    `sk-or-v1-[0-9a-f]{64}` → `openrouter_api_key`, in either bot.
 2. `voice.service.configure_key` validates, ≤ 10 s:
-   - Google: `models.get` for `stt.google_model = "gemini-3.5-transcribe-live"` and `tts.google_model =
-     "gemini-3.8-flash-tts"`;
+   - Google: `models.get` for `stt.google_model = "gemini-3.5-transcribe-live"` (TTS uses `tts.google_model =
+     "gemini-3.8-live"`, falling back to `tts.google_fallback_model = "gemini-3.8-flash-tts"`);
    - OpenRouter: `GET https://openrouter.ai/api/v1/key` (`limit`, `usage`, `is_free_tier`), then the model
      endpoints for `stt.openrouter_model` and `tts.openrouter_model`.
 3. Providers come from `voice.domain.pick(keys_status, settings)`. Each `speech.*_provider = "auto"` means:
@@ -712,6 +712,14 @@ cloned from, wherever the clone lives (the installer writes its checkout into th
    - `voice.domain.speakable` drops URLs, code, markdown and emoji, then cuts at a sentence end;
    - `Synthesizer.synthesize(stream=True)`, piped through ffmpeg (`-c:a libopus -b:a 32k -ar 48000 -ac 1
      -application voip -f ogg`) → `sendVoice` ≤ 12 s after the text;
+   - Google TTS (2026-11-01): a model with a `live` part (`tts.google_model = "gemini-3.8-live"`, the default: no
+     daily request cap, unlike `gemini-3.8-flash-tts`) goes over the Live API, one session per segment with the
+     prebuilt voice and a read-aloud system instruction (`prompts/personal/voice_live_system.md` + style and
+     language); its 24 kHz PCM goes to ffmpeg as it arrives (`provider_path = "live"`). Audio far shorter or longer
+     than the text needs (estimate 0.5 s a word; under 30 % or over 300 % + 2 s) means the model did not read it.
+     Any failure but a bad key or ffmpeg gives `tts.google_fallback_model` (`gemini-3.8-flash-tts`, Interactions
+     API) one try, then the provider chain (Edge) as before. Live audio is paced at about real time, so one call is
+     bounded by `timeouts.tts_s` + `timeouts.tts_per_word_s` × the script's words and a 70-word note takes ~35 s;
    - `voice.enabled = true`; when it is off, or TTS fails, the text alone is final (notice rule 3.2.11 step 6).
 7. A new message before step 5 → into the same session with `priority: "next"`; the reply covers both.
 8. "to'liqroq" → the stored full version.
@@ -958,13 +966,13 @@ touches a row in a non-terminal state.
   | PERSONA | `persona.dev_tone` ("qisqa, aniq, texnik"), `persona.personal` (persona text: short, precise, professional, a little warm, own evidence-based position, cites scholars and notes disagreement), `persona.personal_verbosity` ("short") |
   | PROMPTS | `prompt.dev_executor_extra` (""), `prompt.personal_extra` ("") — slots in `prompts/**`; core prompt files stay in git |
   | VOICE | `voice.enabled` (dev false, personal true), `voice.name` ("Kore"), `voice.style` ("tabiiy o'zbek talaffuzi, iliq, aniq"), `voice.gender` ("female"), `voice.language_code` ("uz-UZ"), `voice.max_words` (70), `voice.max_s` (35) |
-  | SPEECH | `speech.stt_provider`, `speech.tts_provider`, `speech.video_provider` ("auto"), `stt.google_model`, `stt.openrouter_model`, `tts.google_model`, `tts.openrouter_model` ("google/gemini-3.8-flash-tts"), `tts.edge_voice`, `stt.mode` ("smart"), `stt.split_over_s` (20) |
+  | SPEECH | `speech.stt_provider`, `speech.tts_provider`, `speech.video_provider` ("auto"), `stt.google_model`, `stt.openrouter_model`, `tts.google_model` ("gemini-3.8-live"), `tts.google_fallback_model` ("gemini-3.8-flash-tts"), `tts.openrouter_model` ("google/gemini-3.8-flash-tts"), `tts.edge_voice`, `stt.mode` ("smart"), `stt.split_over_s` (20) |
   | LANGUAGE | `lang.reply` ("uz"), `stt.languages` (["uz-UZ","ru-RU","en-US"]), `stt.extra_terms` ([]) |
   | MODELS | `models.routing` ("haiku"), `models.report` ("haiku"; sonnet missed the 3.5 s budget live) + `models.report_effort` ("low"), `models.settings` ("sonnet"), `models.qa` ("sonnet") + `models.qa_effort` ("medium"), `models.coding` ("opus") + `models.coding_effort` ("xhigh"), `models.investigation` ("opus"), `models.fallback_text` ("gemini-3.8-flash"). Check `OneOf(haiku, sonnet, opus, fable, best)`; `weakens=to_values({fable, best})` (usage credits = money, UC-13 #3) |
   | ROUTING / PROJECTS | `routing.min_confidence` (0.75), `routing.min_margin` (0.2), `routing.context_window_min` (15), `projects.root` ("~/Documents/Projects"), `projects.aliases` ({}), `projects.descriptions` ({}), `projects.archived` ([]), `projects.unarchived` ([]), `projects.excluded` ([]; never registered, listed, routed or opened), `executor.default` ("claude"), `executor.per_project` ({}), `topics.enabled` (true; §3.2.16) |
   | DECISIONS | `gate.ask_classes` (all 12 classes, §5.7; `removes_items`), `gate.secret_scan_enabled` (true; `disables`), `gate.approval_ttl_min` (120; `increases`), `gate.hook_timeout_s` (15), `gate.readonly_remote_commands` (§5.7; `weakens=always` on add), `gate.jump_only_hosts` (["server"]; `removes_items`), `gate.git_hosts` (["github.com"]), `gate.http_write_allow_hosts` ([]; `weakens=always` on add), `gate.temp_roots` (["/tmp", "/private/tmp", "/private/var/folders"]) |
   | BURST | `burst.after_complete_text_s` (1.2), `burst.after_text_s` (2.0), `burst.after_media_s` (10.0), `burst.album_gap_s` (1.5), `burst.after_voice_s` (2.0), `burst.hold_max_s` (120), `burst.max_total_s` (30), `burst.merge_min_confidence` (0.85) |
-  | TIMEOUTS | `timeouts.routing_s` (2.5), `timeouts.report_s` (3.5), `timeouts.stt_s` (8), `timeouts.stt_per_audio_s` (0.5, added per second of audio), `timeouts.voice_download_s` (30), `timeouts.tts_s` (15), `timeouts.integration_validate_s` (25), `timeouts.session_open_s` (60), `questions.hold_process_min` (30), `park.grace_s` (15), `timeouts.topic_s` (5), `timeouts.audio_file_s` (360), `timeouts.document_s` (45) |
+  | TIMEOUTS | `timeouts.routing_s` (2.5), `timeouts.report_s` (3.5), `timeouts.stt_s` (8), `timeouts.stt_per_audio_s` (0.5, added per second of audio), `timeouts.voice_download_s` (30), `timeouts.tts_s` (15), `timeouts.tts_per_word_s` (0.6, added per word of the script), `timeouts.integration_validate_s` (25), `timeouts.session_open_s` (60), `questions.hold_process_min` (30), `park.grace_s` (15), `timeouts.topic_s` (5), `timeouts.audio_file_s` (360), `timeouts.document_s` (45) |
   | SCHEDULES | `schedule.heartbeat_edit_min` (5), `schedule.digest_active_poll_s` (120), `schedule.digest_idle_poll_min` (60), `schedule.server_check_min` (30), `schedule.cost_summary_at` ("", off), `schedule.quiet_hours` ("", e.g. "23:00-07:00" → `disable_notification`), `schedule.retention_at` ("04:30"), `ui.timezone` ("Asia/Tashkent"), `topics.retry_after_min` (30) |
   | CAPS | `caps.google_monthly_usd` (40), `caps.openrouter_monthly_usd` (10), `caps.openai_monthly_usd` (10), `caps.warn_pct` (80) — all `increases`; `turns.max_concurrent` (15; `increases`), `turns.max_wall_min` (60), `turns.max_steps` (200), `turns.max_same_failure` (5) (`increases`), `guard.min_free_disk_gb` (10), `guard.block_disk_gb` (3) |
   | LIMITS | `text.max_chars` (3500), `text.max_lines` (40), `outbox.max_parts` (3), `outbox.progress_edit_s` (5), `media.retention_days` (7), `files.max_mb` (20), `files.text_max_chars` (150000), `files.pdf_max_pages` (100), `files.max_pdfs` (3), `files.audio_max_min` (150), `files.audio_kbps` (32), `files.send_transcript` (true), `files.max_documents` (5), `files.document_max_mb` (20) (§3.2.17) |

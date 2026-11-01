@@ -336,8 +336,9 @@ async def apply_retention(deps: SharedDeps) -> int:
 # 2. the spoken script (`summarize(answer)`, T72's assistant call; or a script the caller already has) is cleaned and
 #    capped by `domain.speakable` at `voice.max_words`;
 # 3. `domain.pick_tts` orders the providers; each is asked in turn with this job's settings (voice, gender, style,
-#    language, model, `tts.segment_words`, `timeouts.tts_s`). A failure moves to the next one; a missing or failing
-#    ffmpeg ends the chain, since every provider's audio goes through it;
+#    language, model and Google's fallback model, `tts.segment_words`, `timeouts.tts_s` plus `timeouts.tts_per_word_s`
+#    per word). A failure moves to the next one; a missing or failing ffmpeg ends the chain, since every provider's
+#    audio goes through it;
 # 4. the OGG file goes to `media/<day>/`, and one unit of work queues `sendVoice`, the notices (once per reason per
 #    hour) and the usage row.
 
@@ -432,7 +433,8 @@ async def _synthesize(deps: SharedDeps, snap: Snapshot, script: str, *, requeste
                 language_code=snap[defaults.VOICE_LANGUAGE_CODE],
                 model=domain.tts_model(provider, snap),
                 segment_words=snap[defaults.TTS_SEGMENT_WORDS],
-                timeout=snap[defaults.TIMEOUTS_TTS_S],
+                timeout=domain.tts_timeout(snap, text),
+                fallback_model=domain.tts_fallback_model(provider, snap),
             )
         except ExternalError as error:
             attempt = domain.tts_attempt(provider, error)
@@ -473,15 +475,17 @@ async def offer_samples(deps: SharedDeps, *, chat_id: int, ref: str) -> tuple[Vo
     sent: list[VoiceSample] = []
     for sample in samples:
         started = deps.clock.now()
+        script = str(S.VOICE_SAMPLE_SCRIPT(number=sample.number))
         try:
             audio = await deps.synthesizers[sample.provider].synthesize(
-                str(S.VOICE_SAMPLE_SCRIPT(number=sample.number)),
+                script,
                 voice=sample.voice,
                 style=snap[defaults.VOICE_STYLE],
                 language_code=snap[defaults.VOICE_LANGUAGE_CODE],
                 model=domain.tts_model(sample.provider, snap),
                 segment_words=snap[defaults.TTS_SEGMENT_WORDS],
-                timeout=snap[defaults.TIMEOUTS_TTS_S],
+                timeout=domain.tts_timeout(snap, script),
+                fallback_model=domain.tts_fallback_model(sample.provider, snap),
             )
         except ExternalError as error:
             log.warning("voice_sample_failed", provider=sample.provider, error_code=error.code.value)

@@ -128,7 +128,7 @@ def live_config(*, languages: Sequence[str], vocabulary: Sequence[str], mode: st
 
 
 # --- error translation ---------------------------------------------------------------------------------------------
-def _close_of(exc: BaseException) -> tuple[int | None, str]:
+def close_of(exc: BaseException) -> tuple[int | None, str]:
     """The close code and reason of a Live session failure (the SDK re-raises a close as `APIError(code, reason)`)."""
     if isinstance(exc, genai_errors.APIError):
         details = exc.details
@@ -140,12 +140,15 @@ def _close_of(exc: BaseException) -> tuple[int | None, str]:
     return None, ""
 
 
-def translate_live_error(exc: BaseException) -> ExternalError:  # noqa: PLR0911  # one mapping table, read top down
+def translate_live_error(  # noqa: PLR0911  # one mapping table, read top down
+    exc: BaseException, *, operation: str = STT_OPERATION
+) -> ExternalError:
+    """A Live session failure as a `core.errors` error; `operation` names the call in a timeout (`stt` or `tts`)."""
     if isinstance(exc, TimeoutError):
-        return CallTimedOut(operation=STT_OPERATION)
+        return CallTimedOut(operation=operation)
     if isinstance(exc, (InvalidHandshake, OSError)):
         return ProviderUnavailable(provider=PROVIDER)
-    code, reason = _close_of(exc)
+    code, reason = close_of(exc)
     text = reason.lower()
     if code in {401, 403} or "api key" in text or "permission" in text or "unauthenticated" in text:
         return AuthFailed(provider=PROVIDER)
@@ -155,7 +158,7 @@ def translate_live_error(exc: BaseException) -> ExternalError:  # noqa: PLR0911 
             return QuotaExhausted(provider=PROVIDER)
         return RateLimited(provider=PROVIDER, retry_after=None)
     if "deadline" in text:
-        return CallTimedOut(operation=STT_OPERATION)
+        return CallTimedOut(operation=operation)
     if code in {WS_INTERNAL_ERROR, WS_ABNORMAL} or (code is not None and 500 <= code < 600):
         return ProviderUnavailable(provider=PROVIDER)
     return ProviderUnavailable(provider=PROVIDER, retryable=False)
@@ -191,7 +194,7 @@ async def transcribe_pcm(
                     break
     except LIVE_ERRORS as exc:
         error = translate_live_error(exc)
-        code, _ = _close_of(exc)
+        code, _ = close_of(exc)
         log.info(
             "stt_attempt_failed",
             provider=PROVIDER,

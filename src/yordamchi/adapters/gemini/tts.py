@@ -3,12 +3,19 @@ the TTS order under `auto`, used only when a Google key is in the vault (owner d
 
 Request shape (ai.google.dev/gemini-api/docs/speech-generation, google-genai 2.33.0 `interactions.create`; checked
 2026-10-24):
-- `model` = `tts.google_model` (default `gemini-3.8-flash-tts`), `response_format={"type": "audio"}`,
-  `generation_config.speech_config=[{"voice": <voice.name>}]`, `store: False`;
+- `model` = a model that is not a Live one (`gemini-3.8-flash-tts`, the fallback model), `response_format={"type":
+  "audio"}`, `generation_config.speech_config=[{"voice": <voice.name>}]`, `store: False`;
 - the text goes in verbatim as a text part; the style and the language go in its `speech_metadata` annotation
   (`style`), because Gemini 3.8 TTS reads the text as a transcript and the models detect the language themselves;
 - `stream=True`: `step.delta` events carry base64 audio, headerless 16-bit PCM at 24 kHz mono (`audio/l16`), which is
   piped into ffmpeg as it arrives. A delta that says `audio/wav` has its header stripped.
+
+A Live model (`gemini-3.8-live`, the default since 2026-11-01: no daily request cap) goes through `live_tts` instead,
+one Live session per segment (`provider_path = "live"`). Its PCM takes the same encode path.
+
+The call's `fallback_model` (`tts.google_fallback_model`, default `gemini-3.8-flash-tts`) gets one try when the model
+fails for any reason but a bad key or a missing or failing ffmpeg, with its own `timeout`; then the caller's provider
+chain (Edge) takes over as before.
 
 Failures: the same translation as `gemini/stt.py` (`translate_error`): 401/403 and invalid keys → `AuthFailed`;
 429 / `RESOURCE_EXHAUSTED` → `RateLimited` or `QuotaExhausted`; timeouts → `CallTimedOut`; 5xx and network errors →
@@ -20,7 +27,7 @@ import asyncio
 import base64
 import binascii
 import time
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable
 from pathlib import Path
 from typing import Any, Final
 
@@ -29,7 +36,10 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai._gaos.lib import compat_errors as interaction_errors  # the Interactions API error classes
 
+from yordamchi.adapters.gemini import live_tts
+from yordamchi.adapters.gemini.live_stt import PATH_LIVE, is_live_model
 from yordamchi.adapters.gemini.stt import (
+    PATH_INTERACTIONS,
     PROVIDER,
     ClientFactory,
     clean_model_id,
@@ -39,6 +49,7 @@ from yordamchi.adapters.gemini.stt import (
 )
 from yordamchi.adapters.speech_common import ApiKey, resolve_key
 from yordamchi.adapters.tts_common import (
+    FFMPEG,
     GEMINI_PCM_RATE,
     MP3_INPUT,
     TTS_OPERATION,
@@ -53,7 +64,7 @@ from yordamchi.adapters.tts_common import (
     style_text,
     voice_note,
 )
-from yordamchi.core.errors import CallTimedOut, ExternalError, ProviderUnavailable
+from yordamchi.core.errors import AuthFailed, CallTimedOut, ExternalError, NotInstalled, ProviderUnavailable
 from yordamchi.core.log import get_log
 from yordamchi.core.retry import retrying
 from yordamchi.ports.speech import SpeechAudio
@@ -115,14 +126,34 @@ def _source_of(delta: Any, audio: bytes) -> tuple[AudioInput, bytes]:
     raise ProviderUnavailable(provider=PROVIDER, retryable=False)
 
 
+def falls_back(error: ExternalError, *, model: str, fallback_model: str) -> bool:
+    """Whether `fallback_model` gets a try after `model` failed with `error`: not after a bad key (the same key fails
+    again), a missing ffmpeg or a failed encode (every model's audio goes through it), nor to the same model."""
+    fallback = fallback_model.strip()
+    if not fallback or clean_model_id(fallback) == clean_model_id(model):
+        return False
+    if isinstance(error, (AuthFailed, NotInstalled)):
+        return False
+    return error.params.get("provider") != FFMPEG
+
+
 class GeminiSynthesizer:
     """`Synthesizer` on a direct Google key. `api_key` is the key or a callable returning the vault's current one;
-    `ffmpeg` is `DATA/bin/ffmpeg` (`None` or missing → `NotInstalled` before any request)."""
+    `ffmpeg` is `DATA/bin/ffmpeg` (`None` or missing → `NotInstalled` before any request). `live_instruction` is the
+    read-aloud system prompt of a Live model (`prompts/personal/voice_live_system.md`, from the bot's wiring)."""
 
-    def __init__(self, *, api_key: ApiKey, ffmpeg: Path | None, client_factory: ClientFactory = default_client) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: ApiKey,
+        ffmpeg: Path | None,
+        client_factory: ClientFactory = default_client,
+        live_instruction: str = "",
+    ) -> None:
         self._api_key = api_key
         self._ffmpeg = ffmpeg
         self._client_factory = client_factory
+        self._live_instruction = live_instruction
         self._client: tuple[str, genai.Client] | None = None
         self._client_lock = asyncio.Lock()
 
@@ -161,25 +192,24 @@ class GeminiSynthesizer:
         model: str,
         segment_words: int,
         timeout: float,
+        fallback_model: str = "",
     ) -> SpeechAudio:
-        try:
-            async with asyncio.timeout(timeout):
-                encoded = await self._note(
-                    text,
-                    voice=voice,
-                    style=style,
-                    language_code=language_code,
-                    model=model,
-                    segment_words=segment_words,
-                    idle_timeout=timeout,
-                )
-        except TimeoutError as exc:
-            raise CallTimedOut(operation=TTS_OPERATION) from exc
+        encoded, used = await self._spoken(
+            text,
+            voice=voice,
+            style=style,
+            language_code=language_code,
+            model=model,
+            fallback_model=fallback_model,
+            segment_words=segment_words,
+            idle_timeout=timeout,
+            budget=timeout,
+        )
         return SpeechAudio(
             data=encoded.data,
             mime=VOICE_MIME,
             provider=PROVIDER,
-            model=model,
+            model=used,
             duration_ms=encoded.duration_ms,
             units={"characters": len(text), "requests": encoded.requests},
         )
@@ -194,18 +224,76 @@ class GeminiSynthesizer:
         model: str,
         segment_words: int,
         idle_timeout: float,
+        fallback_model: str = "",
     ) -> AsyncIterator[bytes]:
         return stream_once(
-            self._note(
+            self._note_of(
+                self._spoken(
+                    text,
+                    voice=voice,
+                    style=style,
+                    language_code=language_code,
+                    model=model,
+                    fallback_model=fallback_model,
+                    segment_words=segment_words,
+                    idle_timeout=idle_timeout,
+                    budget=None,
+                )
+            )
+        )
+
+    @staticmethod
+    async def _note_of(spoken: Awaitable[tuple[EncodedVoice, str]]) -> EncodedVoice:
+        encoded, _ = await spoken
+        return encoded
+
+    # --- the model, then the fallback model --------------------------------------------------------------------------
+    async def _spoken(
+        self,
+        text: str,
+        *,
+        voice: str,
+        style: str,
+        language_code: str,
+        model: str,
+        fallback_model: str,
+        segment_words: int,
+        idle_timeout: float,
+        budget: float | None,
+    ) -> tuple[EncodedVoice, str]:
+        """The note and the model that made it. Each model gets the whole `budget` (None: no total bound)."""
+
+        async def with_model(name: str) -> EncodedVoice:
+            note = self._note(
                 text,
                 voice=voice,
                 style=style,
                 language_code=language_code,
-                model=model,
+                model=name,
                 segment_words=segment_words,
                 idle_timeout=idle_timeout,
             )
-        )
+            if budget is None:
+                return await note
+            try:
+                async with asyncio.timeout(budget):
+                    return await note
+            except TimeoutError as exc:
+                raise CallTimedOut(operation=TTS_OPERATION) from exc
+
+        try:
+            return await with_model(model), model
+        except ExternalError as error:
+            if not falls_back(error, model=model, fallback_model=fallback_model):
+                raise
+            log.warning(
+                "tts_model_fell_back",
+                provider=PROVIDER,
+                model=clean_model_id(model),
+                fallback_model=clean_model_id(fallback_model),
+                code=error.code.value,
+            )
+        return await with_model(fallback_model.strip()), fallback_model.strip()
 
     # --- one note --------------------------------------------------------------------------------------------------
     async def _note(
@@ -223,6 +311,9 @@ class GeminiSynthesizer:
         started = time.monotonic()
         key = await resolve_key(self._api_key, provider=PROVIDER)
         model_id = clean_model_id(model)
+        live = is_live_model(model_id)
+        path = PATH_LIVE if live else PATH_INTERACTIONS
+        instruction = live_tts.live_instruction(self._live_instruction, style=style, language_code=language_code)
         attempts = 0
 
         async def open_segment(segment: str) -> OpenedAudio:
@@ -230,6 +321,10 @@ class GeminiSynthesizer:
                 nonlocal attempts
                 attempts += 1
                 client = await self._client_for(key)
+                if live:
+                    return await live_tts.open_live(
+                        client, segment, model=model_id, voice=voice, instruction=instruction, idle_timeout=idle_timeout
+                    )
                 request = build_request(segment, voice=voice, style=style, language_code=language_code, model=model)
                 return await self._open(client, request, model=model_id, idle_timeout=idle_timeout)
 
@@ -248,6 +343,7 @@ class GeminiSynthesizer:
             log.warning(
                 "tts_call_failed",
                 provider=PROVIDER,
+                provider_path=path,
                 model=model_id,
                 code=error.code.value,
                 retryable=error.retryable,
@@ -258,6 +354,7 @@ class GeminiSynthesizer:
         log.info(
             "tts_call_finished",
             provider=PROVIDER,
+            provider_path=path,
             model=model_id,
             requests=encoded.requests,
             attempts=attempts,
@@ -279,6 +376,7 @@ class GeminiSynthesizer:
             log.info(
                 "tts_attempt_failed",
                 provider=PROVIDER,
+                provider_path=PATH_INTERACTIONS,
                 model=model,
                 status=status_of(exc),
                 code=error.code.value,
@@ -298,6 +396,7 @@ class GeminiSynthesizer:
         log.info(
             "tts_audio_started",
             provider=PROVIDER,
+            provider_path=PATH_INTERACTIONS,
             model=model,
             first_byte_ms=int((time.monotonic() - started) * 1000),
         )

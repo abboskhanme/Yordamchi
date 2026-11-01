@@ -52,6 +52,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
+from yordamchi import prompts
 from yordamchi.core import config as bootstrap
 from yordamchi.core import json_value, keychain, log, proc, redact
 from yordamchi.core import strings as S
@@ -86,6 +87,7 @@ TOOLS_REASON: Final = "tools"
 BOT: Final = BotName.PERSONAL
 WINDOWS: Final = proc.WINDOWS
 CLI_EXE: Final = "claude.exe"  # Windows: the Agent SDK needs the native binary, never an npm `.cmd` shim
+LIVE_TTS_PROMPT: Final = "personal/voice_live_system"  # the read-aloud instruction of a Live TTS model
 
 type Notify = Callable[[PersonalConfig, BotText], Awaitable[None]]
 # The owner's login-shell PATH (`/bin/zsh -lc`, 5 s), or None when it cannot be read.
@@ -424,7 +426,7 @@ def _keyed_adapters(read_key: Callable[[str], Awaitable[str]], ffmpeg: Path | No
     google_stt = GeminiTranscriber(api_key=google_key, ffmpeg=ffmpeg)
     openrouter_stt = OpenRouterTranscriber(api_key=openrouter_key, ffmpeg=ffmpeg)
     openrouter_tts = OpenRouterSynthesizer(api_key=openrouter_key, ffmpeg=ffmpeg)
-    google_tts = GeminiSynthesizer(api_key=google_key, ffmpeg=ffmpeg)
+    google_tts = GeminiSynthesizer(api_key=google_key, ffmpeg=ffmpeg, live_instruction=prompts.render(LIVE_TTS_PROMPT))
     edge_tts = EdgeSynthesizer(ffmpeg=ffmpeg)
     google_video = GeminiMediaAnalyzer(api_key=google_key)
     openrouter_video = OpenRouterMediaAnalyzer(api_key=openrouter_key)

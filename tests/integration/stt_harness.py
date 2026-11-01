@@ -179,6 +179,20 @@ def live_done() -> genai_types.LiveServerMessage:
     return genai_types.LiveServerMessage(server_content=genai_types.LiveServerContent(generation_complete=True))
 
 
+def live_audio(pcm: bytes, *, rate: int = 24_000) -> genai_types.LiveServerMessage:
+    """One chunk of a Live model's spoken answer: raw 16-bit PCM (`audio/pcm;rate=24000`, as on 2026-11-01)."""
+    blob = genai_types.Blob(data=pcm, mime_type=f"audio/pcm;rate={rate}")
+    return genai_types.LiveServerMessage(
+        server_content=genai_types.LiveServerContent(
+            model_turn=genai_types.Content(parts=[genai_types.Part(inline_data=blob)])
+        )
+    )
+
+
+def live_turn_complete() -> genai_types.LiveServerMessage:
+    return genai_types.LiveServerMessage(server_content=genai_types.LiveServerContent(turn_complete=True))
+
+
 def live_closed(code: int, reason: str) -> genai_errors.APIError:
     """What the SDK raises when the server closes the session (`live.py` `_receive`)."""
     return genai_errors.APIError(code, reason, None)
@@ -191,8 +205,13 @@ class LiveSessionLog:
     sent: list[dict[str, object]] = field(default_factory=list)
 
 
+type LiveResponder = Callable[[LiveSessionLog], Awaitable[list[LiveEvent]]]
+
+
 class _FakeLiveSession:
-    def __init__(self, log: LiveSessionLog, events: list[LiveEvent], *, fail_send: BaseException | None) -> None:
+    def __init__(
+        self, log: LiveSessionLog, events: list[LiveEvent] | LiveResponder, *, fail_send: BaseException | None
+    ) -> None:
         self._log, self._events, self._fail_send = log, events, fail_send
 
     async def send_realtime_input(self, **kwargs: object) -> None:
@@ -200,8 +219,14 @@ class _FakeLiveSession:
             raise self._fail_send
         self._log.sent.append(kwargs)
 
+    async def send_client_content(self, **kwargs: object) -> None:
+        if self._fail_send is not None:
+            raise self._fail_send
+        self._log.sent.append(kwargs)
+
     async def receive(self) -> AsyncIterator[genai_types.LiveServerMessage]:
-        for event in self._events:
+        events = self._events if isinstance(self._events, list) else await self._events(self._log)
+        for event in events:
             if isinstance(event, BaseException):
                 raise event
             yield event
@@ -210,9 +235,11 @@ class _FakeLiveSession:
 
 @dataclass
 class LiveServer:
-    """One scripted session per `connect`, in order; the last one repeats. `sessions` logs what each one got."""
+    """One scripted session per `connect`, in order; the last one repeats. `sessions` logs what each one got.
+    A `responder` instead answers each session from what it was sent (read when the session starts receiving)."""
 
     scripts: deque[list[LiveEvent]] = field(default_factory=deque)
+    responder: LiveResponder | None = None
     sessions: list[LiveSessionLog] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
     connect_error: BaseException | None = None
@@ -227,7 +254,11 @@ class LiveServer:
             raise self.connect_error
         log = LiveSessionLog(model=model, config=copy.deepcopy(config))
         self.sessions.append(log)
-        events = self.scripts.popleft() if len(self.scripts) > 1 else self.scripts[0]
+        events: list[LiveEvent] | LiveResponder
+        if self.responder is not None:
+            events = self.responder
+        else:
+            events = self.scripts.popleft() if len(self.scripts) > 1 else self.scripts[0]
         yield _FakeLiveSession(log, events, fail_send=self.send_error)
 
     def client_factory(self, key: str) -> genai.Client:

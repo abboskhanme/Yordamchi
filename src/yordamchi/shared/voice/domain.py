@@ -473,6 +473,17 @@ def tts_model(provider: str, snap: Snapshot) -> str:
     return EDGE_MODEL
 
 
+def tts_fallback_model(provider: str, snap: Snapshot) -> str:
+    """The provider's second model, tried once inside its call (`tts.google_fallback_model`); "" when it has none."""
+    return snap[defaults.TTS_GOOGLE_FALLBACK_MODEL] if provider == GOOGLE else ""
+
+
+def tts_timeout(snap: Snapshot, text: str) -> float:
+    """The bound of one synthesis call: `timeouts.tts_s` plus `timeouts.tts_per_word_s` per word, since a Live model
+    speaks at about real time and a 70-word note takes ~40 s."""
+    return snap[defaults.TIMEOUTS_TTS_S] + len(text.split()) * snap[defaults.TIMEOUTS_TTS_PER_WORD_S]
+
+
 def tts_voice(provider: str, snap: Snapshot) -> str:
     """The voice for `provider` from this job's settings, so "ovozingni ayolga o'zgartir" (`voice.gender`) applies to
     the next note. Edge: its female or male voice. Gemini (direct or OpenRouter): `voice.name`, unless it is a known

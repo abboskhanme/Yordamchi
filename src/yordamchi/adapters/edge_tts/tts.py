@@ -117,8 +117,9 @@ class EdgeSynthesizer:
         model: str,
         segment_words: int,
         timeout: float,
+        fallback_model: str = "",
     ) -> SpeechAudio:
-        del style, language_code  # Edge has neither; the voice name carries the language
+        del style, language_code, fallback_model  # Edge has none of them; the voice name carries the language
         try:
             async with asyncio.timeout(timeout):
                 encoded = await self._note(text, voice=voice, segment_words=segment_words, idle_timeout=timeout)
@@ -143,8 +144,9 @@ class EdgeSynthesizer:
         model: str,
         segment_words: int,
         idle_timeout: float,
+        fallback_model: str = "",
     ) -> AsyncIterator[bytes]:
-        del style, language_code, model
+        del style, language_code, model, fallback_model
         return stream_once(self._note(text, voice=voice, segment_words=segment_words, idle_timeout=idle_timeout))
 
     async def _note(self, text: str, *, voice: str, segment_words: int, idle_timeout: float) -> EncodedVoice:

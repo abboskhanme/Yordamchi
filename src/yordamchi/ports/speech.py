@@ -94,6 +94,8 @@ class Synthesizer(Protocol):
     sentence ends into pieces of at most that many words, asks for them concurrently, and encodes them in order into
     one note. `voice`, `style`, `language_code` and `model` come from the caller's settings snapshot; a provider
     without a feature (Edge has no style or model) ignores the value. No ffmpeg → `NotInstalled`, before any request.
+    `fallback_model` is the provider's second model (`tts.google_fallback_model`): one try, with its own `timeout`,
+    when `model` fails for a reason other than a bad key or the encoder; "" or a provider with one model → none.
     """
 
     async def synthesize(
@@ -106,8 +108,9 @@ class Synthesizer(Protocol):
         model: str,
         segment_words: int,
         timeout: float,
+        fallback_model: str = "",
     ) -> SpeechAudio:
-        """The whole note within `timeout`, retries included."""
+        """The whole note within `timeout` per model, retries included. `SpeechAudio.model` is the model that spoke."""
         ...
 
     def synthesize_stream(
@@ -120,6 +123,7 @@ class Synthesizer(Protocol):
         model: str,
         segment_words: int,
         idle_timeout: float,
+        fallback_model: str = "",
     ) -> AsyncIterator[bytes]:
         """The note's OGG/Opus bytes, in order, once the encoder has them. No wait for the provider or the encoder
         lasts longer than `idle_timeout`; there is no total bound. `sendVoice` needs the whole file, so callers that

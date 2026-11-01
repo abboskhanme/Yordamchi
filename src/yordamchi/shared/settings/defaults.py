@@ -684,11 +684,20 @@ STT_OPENROUTER_FALLBACK_MODEL = Setting(
 TTS_GOOGLE_MODEL = Setting(
     "tts.google_model",
     str,
+    "gemini-3.8-live",
+    check=MODEL_ID,
+    group=Group.SPEECH,
+    bots=BOTH,
+    doc="Gemini TTS model; a `-live` one goes over the Live API (owner request 2026-11-01: no daily cap).",
+)
+TTS_GOOGLE_FALLBACK_MODEL = Setting(
+    "tts.google_fallback_model",
+    str,
     "gemini-3.8-flash-tts",
     check=MODEL_ID,
     group=Group.SPEECH,
     bots=BOTH,
-    doc="Gemini TTS model.",
+    doc="Gemini TTS model tried once when tts.google_model fails (not on a bad key), before the next provider.",
 )
 TTS_OPENROUTER_MODEL = Setting(
     "tts.openrouter_model",
@@ -778,7 +787,16 @@ TIMEOUTS_TTS_S = Setting(
     check=Range(2, 120),
     group=Group.TIMEOUTS,
     bots=BOTH,
-    doc="One synthesis call.",
+    doc="One synthesis call, plus timeouts.tts_per_word_s per word.",
+)
+TIMEOUTS_TTS_PER_WORD_S = Setting(
+    "timeouts.tts_per_word_s",
+    float,
+    0.6,
+    check=Range(0, 5),
+    group=Group.TIMEOUTS,
+    bots=BOTH,
+    doc="Seconds added to one synthesis call per word: a Live model speaks at about real time (~0.5 s a word).",
 )
 
 # --- routing ---
