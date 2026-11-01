@@ -1,6 +1,8 @@
 # Windows: the personal bot only (README "Windows: personal bot only"). The Windows code paths are not type-checked or
 # run on the owner's Mac, so this job is their only real check: the Windows unit tests, a non-interactive setup with a
 # fake token, and the bot's --dry-run (everything up to the tool check: no model, no poll, no message).
+# `--allow-hosts`: Windows' event loop builds its wake-up pipe from a localhost socketpair, which `--disable-socket`
+# forbids; with it, sockets exist but connect only to this machine, so the network stays closed.
 name: windows
 
 on:
@@ -29,7 +31,7 @@ jobs:
 
       - name: Windows unit tests
         run: >
-          uv run pytest -q -p no:cacheprovider
+          uv run pytest -q -p no:cacheprovider --allow-hosts=127.0.0.1,::1
           tests/unit/core/test_windows.py
           tests/unit/adapters/test_windows_adapters.py
           tests/unit/bots/personal/test_app_windows.py
@@ -70,7 +72,7 @@ jobs:
 
       - name: Personal bot tests
         run: >
-          uv run pytest -q -p no:cacheprovider -rfE
+          uv run pytest -q -p no:cacheprovider -rfE --allow-hosts=127.0.0.1,::1
           tests/unit/personal tests/unit/shared tests/unit/core tests/unit/adapters tests/unit/bots/personal
           tests/unit/persistence tests/unit/test_golden_messages.py
           tests/integration/test_claude_assistant.py tests/integration/test_claude_assistant_agent.py

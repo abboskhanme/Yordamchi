@@ -1,11 +1,10 @@
 """Shared fixtures (CONVENTIONS §11). The network is closed (pytest-socket); `live` tests re-open it."""
 
-import sys
 from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
 
 import pytest
-from pytest_socket import enable_socket, socket_allow_hosts
+from pytest_socket import enable_socket
 
 from tests.factories import Fakes, make_dev_deps, make_paths, make_personal_deps, open_test_db
 from yordamchi.core import redact
@@ -29,11 +28,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if item.get_closest_marker("live") is not None:
         enable_socket()
-    elif sys.platform == "win32":
-        # Windows' event loop makes its wake-up pipe with a localhost `socketpair()`, which `--disable-socket`
-        # forbids: there, sockets may exist but only reach this machine. The network stays closed.
-        enable_socket()
-        socket_allow_hosts(["127.0.0.1", "::1"], allow_unix_socket=True)
 
 
 @pytest.fixture(autouse=True)
