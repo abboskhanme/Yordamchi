@@ -75,8 +75,8 @@ def no_posix_kill(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int]]:
 
     killed: list[tuple[int, int]] = []
     monkeypatch.setattr(proctree, "list_processes", no_ps)
-    monkeypatch.setattr(os, "killpg", no_group)
-    monkeypatch.setattr(os, "getpgrp", no_group)
+    monkeypatch.setattr(os, "killpg", no_group, raising=False)  # absent on Windows itself
+    monkeypatch.setattr(os, "getpgrp", no_group, raising=False)
     monkeypatch.setattr(os, "kill", lambda pid, signum: killed.append((pid, signum)))
     return killed
 

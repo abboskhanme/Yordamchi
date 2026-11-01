@@ -4,8 +4,9 @@
 name: windows
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "ci/**"]
   pull_request:
     branches: [main]
 
@@ -50,3 +51,38 @@ jobs:
           Set-Content -Path (Join-Path $fake "claude.cmd") -Value "@echo 2.1.0 (Claude Code)"
           $env:PATH = "$fake;$env:PATH"
           uv run python -m yordamchi.bots.personal.app --dry-run
+
+  # Everything the personal bot runs on, under Windows: its features, the shared ones (voice, settings, vault, outbox),
+  # the adapters (Gemini, OpenRouter, Telegram, Claude) and its integration tests. The dev bot and the supervisor are
+  # macOS-only and stay out.
+  personal-suite:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Personal bot tests
+        run: >
+          uv run pytest -q -p no:cacheprovider -rfE
+          tests/unit/personal tests/unit/shared tests/unit/core tests/unit/adapters tests/unit/bots/personal
+          tests/unit/persistence tests/unit/test_golden_messages.py
+          tests/integration/test_claude_assistant.py tests/integration/test_claude_assistant_agent.py
+          tests/integration/test_claude_assistant_qa.py tests/integration/test_claude_context.py
+          tests/integration/test_edge_tts.py tests/integration/test_forward_translation.py
+          tests/integration/test_gemini.py tests/integration/test_gemini_assistant.py
+          tests/integration/test_gemini_live.py tests/integration/test_gemini_tts.py
+          tests/integration/test_gemini_video.py tests/integration/test_integrations_oauth.py
+          tests/integration/test_live_key.py tests/integration/test_mcp.py tests/integration/test_office.py
+          tests/integration/test_openrouter.py tests/integration/test_openrouter_tts.py
+          tests/integration/test_openrouter_video.py tests/integration/test_owner_only.py
+          tests/integration/test_personal_agent.py tests/integration/test_personal_bot.py
+          tests/integration/test_personal_bot_talk.py tests/integration/test_polling.py
+          tests/integration/test_telegram.py tests/integration/test_tts_ffmpeg.py tests/integration/test_web.py
+          tests/integration/test_web_page.py

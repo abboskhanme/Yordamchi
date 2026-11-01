@@ -219,6 +219,7 @@ def test_the_windows_search_path_is_semicolon_joined_without_posix_dirs(tmp_path
     assert proc.path_separator("darwin") == ":"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="checks the macOS default of the platform parameter")
 def test_the_macos_search_path_is_unchanged_by_the_platform_parameter(tmp_path: Path) -> None:
     paths = Paths.defaults(tmp_path)
     login = "/opt/homebrew/bin:/usr/bin"
@@ -242,7 +243,7 @@ async def test_a_windows_timeout_kills_the_child_without_a_process_group(monkeyp
     def no_groups(pid: int, signum: int) -> None:
         raise AssertionError((pid, signum))
 
-    monkeypatch.setattr(os, "killpg", no_groups)
+    monkeypatch.setattr(os, "killpg", no_groups, raising=False)  # absent on Windows itself
     child = _AsyncChild()
     await proc._kill_group(child, 0.01, platform="win32")  # type: ignore[arg-type]
     assert child.killed == 1
@@ -267,7 +268,7 @@ def test_a_windows_sync_timeout_kills_the_child_without_a_process_group(monkeypa
             self.waited += 1
             return self.returncode or 0
 
-    monkeypatch.setattr(os, "killpg", no_groups)
+    monkeypatch.setattr(os, "killpg", no_groups, raising=False)  # absent on Windows itself
     child = Child()
     proc._kill_group_sync(child, 0.01, platform="win32")  # type: ignore[arg-type]
     assert (child.returncode, child.waited) == (1, 1)

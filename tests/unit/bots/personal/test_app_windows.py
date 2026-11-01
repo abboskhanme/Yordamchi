@@ -10,6 +10,7 @@ proven on this Mac through the `platform` parameter.
 
 import asyncio
 import signal
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -66,6 +67,7 @@ async def test_without_the_control_socket_no_loop_or_probation_serves_one(
         await app._abandon(windows)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the control socket is a unix socket, macOS only")
 async def test_with_the_control_socket_probation_serves_it(personal_db: Database, paths: Paths, fakes: Fakes) -> None:
     built = runtime.build_app(make_personal_deps(db=personal_db, paths=paths, fakes=fakes), bot=None, version=RELEASE)
     await built.start_probation()
