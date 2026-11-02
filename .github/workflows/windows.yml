@@ -72,7 +72,7 @@ jobs:
 
       - name: Personal bot tests
         run: >
-          uv run pytest -q -p no:cacheprovider -rfE --allow-hosts=127.0.0.1,::1
+          uv run pytest -q -p no:cacheprovider -rfE --tb=short --allow-hosts=127.0.0.1,::1 --junitxml=suite.xml
           tests/unit/personal tests/unit/shared tests/unit/core tests/unit/adapters tests/unit/bots/personal
           tests/unit/persistence tests/unit/test_golden_messages.py
           tests/integration/test_claude_assistant.py tests/integration/test_claude_assistant_agent.py
@@ -88,3 +88,12 @@ jobs:
           tests/integration/test_personal_bot_talk.py tests/integration/test_polling.py
           tests/integration/test_telegram.py tests/integration/test_tts_ffmpeg.py tests/integration/test_web.py
           tests/integration/test_web_page.py
+
+      # The console log of a large failing run gets cut; the XML keeps every failure and its traceback.
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: personal-suite-results
+          path: suite.xml
+          if-no-files-found: ignore

@@ -43,9 +43,14 @@ def fake_keychain(monkeypatch: pytest.MonkeyPatch) -> FakeSecurity:
     return security
 
 
+def _program(name: str) -> str:
+    """A program's file name on the machine running the test: Windows finds one only by its extension (PATHEXT)."""
+    return f"{name}.exe" if sys.platform == "win32" else name
+
+
 def _executable(folder: Path, name: str) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
-    binary = folder / (f"{name}.exe" if sys.platform == "win32" else name)  # Windows finds a program by its extension
+    binary = folder / name
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o755)
     return binary
@@ -95,9 +100,12 @@ def _migrate(db_path: Path) -> None:
 
 
 async def test_the_windows_build_uses_dpapi_and_no_control_socket(paths: Paths) -> None:
-    _executable(paths.local_bin, "claude")
-    _executable(paths.local_bin, "git")
+    _executable(paths.local_bin, _program("claude"))
+    _executable(paths.local_bin, _program("git"))
     _migrate(paths.db_file(BotName.PERSONAL))
+    if sys.platform == "win32":  # the real start reads the real DPAPI store there, not the fake Keychain
+        sealed = keychain.Keychain(BotName.PERSONAL, store=keychain.DpapiStore(paths.secret_store))
+        sealed.write(keychain.PERSONAL_BOT_TOKEN, PERSONAL_BOT_TOKEN)
     env_file = paths.env_file(BotName.PERSONAL)
     env_file.write_text(f"PERSONAL_BOT_TOKEN={keychain.PERSONAL_BOT_TOKEN.reference}\nOWNER_ID={OWNER_ID}\n")
     environ = {
@@ -132,7 +140,7 @@ async def test_on_windows_the_terminal_path_is_the_login_path() -> None:
 def test_windows_finds_ffmpeg_ffprobe_and_node_on_the_path(tmp_path: Path) -> None:
     paths = Paths.windows_defaults(tmp_path)
     tools = tmp_path / "tools"
-    ffmpeg, ffprobe, node = (_executable(tools, name) for name in ("ffmpeg", "ffprobe", "node"))
+    ffmpeg, ffprobe, node = (_executable(tools, _program(name)) for name in ("ffmpeg", "ffprobe", "node"))
     found = app.media_binaries(paths, str(tools), platform="win32")
     assert (found.ffmpeg, found.ffprobe, found.ffmpeg_dir, found.node) == (ffmpeg, ffprobe, tools, node)
     missing = app.media_binaries(paths, str(tmp_path / "empty"), platform="win32")
@@ -141,6 +149,7 @@ def test_windows_finds_ffmpeg_ffprobe_and_node_on_the_path(tmp_path: Path) -> No
     assert missing.node is None
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="macOS lookup of extensionless programs")
 def test_macos_keeps_the_static_ffmpeg_in_data_bin(tmp_path: Path) -> None:
     paths = Paths.defaults(tmp_path)
     tools = tmp_path / "tools"
